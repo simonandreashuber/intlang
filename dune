@@ -1,2 +1,2 @@
-(library
+(executable
  (name intlang))
