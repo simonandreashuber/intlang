@@ -8,6 +8,8 @@ type lexp =                     (*lambda expression*)
     | Int of int                (*int*)
     | Bop of bop * lexp * lexp  (*x bop y*)
 
-type nlexp = string * lexp (*named lambda expression*)
+type stmt = 
+    | Nlexp of string * lexp (*named lambda expression*)
+    | Lexp of lexp           (*lambda expression, that will be evaulated*)
 
-type prog = (list nlexp) * lexp (*list of named lambda expression with a final lambda expression as "entry"*)
+type prog = stmt list

@@ -1,0 +1,2 @@
+let foo = \x.5+7*x foo;
+foo 7

@@ -1,6 +1,9 @@
 (library
  (name intlang_lib)
- (modules ast lexer parser interp)
- (ocamllex lexer)
- (menhir
-  (modules parser)))
+ (modules ast lexer parser interp))
+
+(menhir
+ (modules parser))
+
+(ocamllex
+ (modules lexer))
