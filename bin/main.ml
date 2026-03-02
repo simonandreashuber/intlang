@@ -6,7 +6,8 @@ let main () =
     In_channel.with_open_text filename (fun ch ->
       let lexbuf = Lexing.from_channel ch in
       let p = Parser.start Lexer.token lexbuf in
-      Interp.print_prog p
+      Interp.print_prog p;
+      Printf.printf "out: %d\n" (Interp.interp_prog p)
     )
   with
   | Sys_error msg -> Printf.eprintf "Could not open file: %s\n" msg; exit 1
