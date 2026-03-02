@@ -1,0 +1,4 @@
+let incf = \f. (\n. f n + 1);
+let foo = \n. ( incf (\x.n+x) );
+foo 69 67
+

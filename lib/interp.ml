@@ -36,22 +36,23 @@ exception MallformedAST of string
 exception UndefinedFreeVarUsed of string
 exception EvalLexpUnappliedLambda
 
-type ctxt = { bndg : (string * lexp) list;  (*assoc list of all the bound variables*)
-              appstk : lexp list;}          (*applicaiton stack ie. in "(\x.\y.x+y) 5 6" we put 6 and 5 on this stack before they are "consumed" by the lamdas*)
+type ctxt = { glbbnd : (string * lexp) list;  (*assoc list of globally bound variables*)
+              locbnd : (string * lexp) list;  (*assoc list of localy bound varabiles*)
+              appstk : lexp list; }           (*applicaiton stack ie. in "(\x.\y.x+y) 5 6" we put 6 and 5 on this stack before they are "consumed" by the lamdas*)
 
 (*lookup some binding*)
 let bndg_lookup (id:string) (c:ctxt) : lexp = 
-    match List.assoc_opt id c.bndg with
+    match List.assoc_opt id c.locbnd with
         | Some l -> l
-        | None -> raise (UndefinedFreeVarUsed ("Could not find given ID in bindings"))
+        | None -> (
+                    match List.assoc_opt id c.glbbnd with
+                        | Some l -> l
+                        | None -> raise (UndefinedFreeVarUsed ("Could not find given ID in bindings"))
+                  )
 
-(*set some binding*)
-(*note could also just prepend new bindings but this could create ctxts of recursion depth size, which I think is likely bad :|| *)
-let bndg_set (id:string) (l:lexp) (c:ctxt) : ctxt =
-    if not (List.mem_assoc id c.bndg) then
-        {c with bndg = (id, l) :: c.bndg}
-      else
-        {c with bndg = List.map (fun (id', l') -> if id' = id then (id, l) else (id', l')) c.bndg }
+(*set some local binding*)
+(*assoc list functions will always find the first occurence hence prepending is sufficient, also locbnd is O(n) in AST size not recursion depth*)
+let locbnd_set (id:string) (l:lexp) (c:ctxt) : ctxt = {c with locbnd = (id, l) :: c.locbnd}
 
 (*application stack push*)
 let appstk_push (l:lexp) (c:ctxt) : ctxt =
@@ -65,7 +66,7 @@ let appstk_pop (c:ctxt) : ctxt * (lexp option) =
 
 (*sprint ctxt*)
 let sprint_ctxt (c:ctxt) : string =
-    ((List.fold_left (fun acc (id, l) -> acc ^ "    " ^ id ^ " = " ^ (sprint_lexp l) ^ "\n") "{ bndg: \n" c.bndg))^
+    ((List.fold_left (fun acc (id, l) -> acc ^ "    " ^ id ^ " = " ^ (sprint_lexp l) ^ "\n") "{ locbnd: \n" c.locbnd))^
     ((List.fold_left (fun acc l -> acc ^ "    " ^ (sprint_lexp l) ^ "\n") "{ appstk: \n" c.appstk)) ^ "}\n"
    
 
@@ -79,6 +80,27 @@ let rec interp_lexp (l:lexp) (c:ctxt) : int =
             | Sub -> lint - rint
             | Mul -> lint * rint
     in
+    let rec subloc (l:lexp) (c:ctxt) : lexp =
+        match l with
+            | Var id ->  (
+                    (*if the Var is in the local bindings then replace the var with the binding*)
+                    match List.assoc_opt id c.locbnd with
+                        | Some l_tosub -> l_tosub
+                        | None -> Var id
+                    )
+            | Lam(id, ln) -> (
+                    (*if the id that gets localy bound by the lambda shadows some existing local def 
+                      remove this existing local binding*)
+                let locbnd_filter = List.filter_map 
+                                     (fun (id', l') -> if id' == id then None else Some (id', l')) 
+                                     c.locbnd in
+                let cn = {c with locbnd = locbnd_filter} in
+                Lam(id, subloc ln cn)
+                    )
+            | App (ll, lr) -> App(subloc ll c, subloc lr c)
+            | Int i -> Int i
+            | Bop (b,ll,lr) -> Bop(b, subloc ll c, subloc lr c)
+    in
     (*Printf.printf "interp_lexp %s with context: \n %s" (sprint_lexp l) (sprint_ctxt c);*)
     match l with
         | Int i -> i
@@ -86,14 +108,16 @@ let rec interp_lexp (l:lexp) (c:ctxt) : int =
         | Lam (id, l) -> (
                     match appstk_pop c with
                         | (cn, Some sub_l) -> (
-                            let cnn = bndg_set id sub_l cn in
+                            let cnn = locbnd_set id sub_l cn in
                             interp_lexp l cnn
                         )
                         | (_, None) -> raise EvalLexpUnappliedLambda
                     )
         | App (ll, lr) -> (
-                    let lr_eval = interp_lexp lr c in
-                    interp_lexp ll (appstk_push (Int lr_eval) c) (*TODO: can also pass function types, which is not supported as of now*)
+                    let ll_locsub = subloc ll c in
+                    let lr_locsub = subloc lr c in
+                    let cn = { c with locbnd = [] } in
+                    interp_lexp ll_locsub (appstk_push lr_locsub cn) 
                     )
         | Bop (b, ll, lr) -> (
                     let ll_eval = interp_lexp ll c in
@@ -106,11 +130,16 @@ let rec interp_lexp (l:lexp) (c:ctxt) : int =
                     )
 
 (*interpret/evaluate a program*)
+(*TODO: enforce 
+        - SSA form for lets
+        - A used Var is either defined by some let or bound by some lambda
+        - Small type System
+        *)
 let interp_prog (p:prog) : int = 
     let rec interp_prog_rec (p:prog) (c:ctxt) : int =
         match p with
-            | (Nlexp(s, l)) :: tl -> interp_prog_rec tl (bndg_set s l c) (*TODO: enforce ssa form*)
+            | (Nlexp(s, l)) :: tl -> interp_prog_rec tl {c with glbbnd = (s,l)::c.glbbnd} 
             | [Lexp l] -> interp_lexp l c
             | _ -> raise (MallformedAST ("AST is not of specified structure\n")) 
-    in interp_prog_rec p { bndg = []; appstk = [] }
+    in interp_prog_rec p { glbbnd = []; locbnd = []; appstk = [] }
     
