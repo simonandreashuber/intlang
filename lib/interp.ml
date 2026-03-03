@@ -1,7 +1,6 @@
 open Ast
 
 (*PRINTING*)
-
 let sprint_bop bop : string =
     match bop with
       | Eq  -> "=="
@@ -31,10 +30,10 @@ let print_prog p : unit = Printf.printf "%s" (sprint_prog p)
 
 
 (*INTERPRETER*)
-
-exception MallformedAST of string
-exception UndefinedFreeVarUsed of string
+exception MallformedAST
+exception UndefinedFreeVarUsed
 exception EvalLexpUnappliedLambda
+exception LetDefsareSSA 
 
 type ctxt = { glbbnd : (string * lexp) list;  (*assoc list of globally bound variables*)
               locbnd : (string * lexp) list;  (*assoc list of localy bound varabiles*)
@@ -47,7 +46,7 @@ let bndg_lookup (id:string) (c:ctxt) : lexp =
         | None -> (
                     match List.assoc_opt id c.glbbnd with
                         | Some l -> l
-                        | None -> raise (UndefinedFreeVarUsed ("Could not find given ID in bindings"))
+                        | None -> raise UndefinedFreeVarUsed 
                   )
 
 (*set some local binding*)
@@ -68,7 +67,9 @@ let appstk_pop (c:ctxt) : ctxt * (lexp option) =
 let sprint_ctxt (c:ctxt) : string =
     ((List.fold_left (fun acc (id, l) -> acc ^ "    " ^ id ^ " = " ^ (sprint_lexp l) ^ "\n") "{ locbnd: \n" c.locbnd))^
     ((List.fold_left (fun acc l -> acc ^ "    " ^ (sprint_lexp l) ^ "\n") "{ appstk: \n" c.appstk)) ^ "}\n"
-   
+  
+
+
 
 (*interpret/evaluate some lambda expression given some context*)
 let rec interp_lexp (l:lexp) (c:ctxt) : int =
@@ -89,13 +90,13 @@ let rec interp_lexp (l:lexp) (c:ctxt) : int =
                         | None -> Var id
                     )
             | Lam(id, ln) -> (
-                    (*if the id that gets localy bound by the lambda shadows some existing local def 
-                      remove this existing local binding*)
-                let locbnd_filter = List.filter_map 
-                                     (fun (id', l') -> if id' == id then None else Some (id', l')) 
-                                     c.locbnd in
-                let cn = {c with locbnd = locbnd_filter} in
-                Lam(id, subloc ln cn)
+                    (*if the id that gets localy bound by the lambda and hence shadows some 
+                      existing local def remove this existing local binding*)
+                    let locbnd_filter = List.filter_map 
+                                         (fun (id', l') -> if id' == id then None else Some (id', l')) 
+                                         c.locbnd in
+                    let cn = {c with locbnd = locbnd_filter} in
+                    Lam(id, subloc ln cn)
                     )
             | App (ll, lr) -> App(subloc ll c, subloc lr c)
             | Int i -> Int i
@@ -131,15 +132,16 @@ let rec interp_lexp (l:lexp) (c:ctxt) : int =
 
 (*interpret/evaluate a program*)
 (*TODO: enforce 
-        - SSA form for lets
         - A used Var is either defined by some let or bound by some lambda
         - Small type System
         *)
 let interp_prog (p:prog) : int = 
     let rec interp_prog_rec (p:prog) (c:ctxt) : int =
         match p with
-            | (Nlexp(s, l)) :: tl -> interp_prog_rec tl {c with glbbnd = (s,l)::c.glbbnd} 
+            | (Nlexp(s, l)) :: tl -> (
+                                if List.mem_assoc s c.glbbnd then raise LetDefsareSSA else 
+                                interp_prog_rec tl {c with glbbnd = (s,l)::c.glbbnd} 
+                                )
             | [Lexp l] -> interp_lexp l c
-            | _ -> raise (MallformedAST ("AST is not of specified structure\n")) 
+            | _ -> raise MallformedAST 
     in interp_prog_rec p { glbbnd = []; locbnd = []; appstk = [] }
-    
