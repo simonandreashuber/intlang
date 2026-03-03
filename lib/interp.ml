@@ -100,7 +100,11 @@ let rec interp_lexp (l:lexp) (c:ctxt) : int =
                     )
             | App (ll, lr) -> App(subloc ll c, subloc lr c)
             | Int i -> Int i
-            | Bop (b,ll,lr) -> Bop(b, subloc ll c, subloc lr c)
+            | Bop (b,ll,lr) -> (
+                        match subloc ll c, subloc lr c with
+                            | Int i, Int j -> Int (bop_meta b i j)
+                            | sub_ll, sub_lr -> Bop(b, sub_ll, sub_lr)
+                    )
     in
     (*Printf.printf "interp_lexp %s with context: \n %s" (sprint_lexp l) (sprint_ctxt c);*)
     match l with
