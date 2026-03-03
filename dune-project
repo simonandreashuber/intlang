@@ -11,20 +11,19 @@
 (source
  (github username/reponame))
 
-(authors "Author Name <author@example.com>")
+(authors "Simon Huber <hubersim@eth.ch>")
 
-(maintainers "Maintainer Name <maintainer@example.com>")
+(maintainers "Simon Huber <hubersim@eth.ch>")
 
 (license LICENSE)
 
-(documentation https://url/to/documentation)
+(documentation https://github.com/simonandreashuber/intlang)
 
 (package
  (name intlang)
- (synopsis "A short synopsis")
- (description "A longer description")
+ (synopsis "intlang is a small functional language")
+ (description "intlang is a small functional language")
  (depends ocaml)
  (tags
-  ("add topics" "to describe" your project)))
+  ("intlang")))
 
-; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html

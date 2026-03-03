@@ -1,0 +1,3 @@
+let mod = \x. \n. (1-(x-n < 0))*(mod (x-n) n) + (x-n < 0)*x;
+let gcd = \a. \b. (b == 0)*a + (1 - (b == 0))*(gcd b (mod a b));
+gcd 1071 462

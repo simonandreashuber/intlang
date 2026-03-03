@@ -28,7 +28,7 @@ nlexp:
 (* tried to keep one lexp non terminal with operator precedence 
    but I did not get it to work quickly so switched back to manual :| *)
 lexp:
-    | LAM; id = ID; DOT; l = lexp_cmp       { Lam(id, l) }
+    | LAM; id = ID; DOT; l = lexp       { Lam(id, l) } (*can I do this???*)
     | lc = lexp_cmp                         { lc }
 
 lexp_cmp:

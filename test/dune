@@ -1,3 +1,8 @@
-(test
+(executable
  (name test_intlang)
- (libraries intlang_lib))
+ (libraries intlang_lib str))
+
+(rule
+ (alias runtest)
+ (deps (glob_files cases/*.intlang) (glob_files cases/*.expect))
+ (action (run %{exe:test_intlang.exe} cases)))
