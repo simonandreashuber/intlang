@@ -1,0 +1,9 @@
+let pair = \x. \y. \f. f x y;
+let head = \p. p (\x. \y. x);
+let tail = \p. p (\x. \y. y);
+
+let nth = \lst. \n. (0<n)*(nth (tail lst) (n-1)) + (n == 0)*(head lst);
+
+let mylst = pair 97 (pair 98 (pair 99 100));
+
+nth mylst 2

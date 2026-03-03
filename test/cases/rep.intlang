@@ -1,0 +1,6 @@
+let apply_twice = \f. \x. f (f x);
+let increment = \n. n + 1;
+let add_two = apply_twice increment;
+
+let start_val = 5;
+add_two start_val

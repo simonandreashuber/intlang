@@ -1,0 +1,7 @@
+let true = \t. \f. t;
+let false = \t. \f. f;
+let if = \b. \then_branch. \else_branch. b then_branch else_branch;
+
+let my_choice = true;
+let result = if my_choice 100 200;
+result

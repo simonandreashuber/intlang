@@ -1,0 +1,5 @@
+let double = \f. \x. f (f x);
+let inc = \n. n + 1;
+let quad = double double;
+let result = quad inc 0;
+result
