@@ -93,7 +93,7 @@ let rec interp_lexp (l:lexp) (c:ctxt) : int =
                     (*if the id that gets localy bound by the lambda and hence shadows some 
                       existing local def remove this existing local binding*)
                     let locbnd_filter = List.filter_map 
-                                         (fun (id', l') -> if id' == id then None else Some (id', l')) 
+                                         (fun (idf, lf) -> if idf = id then None else Some (idf, lf)) 
                                          c.locbnd in
                     let cn = {c with locbnd = locbnd_filter} in
                     Lam(id, subloc ln cn)

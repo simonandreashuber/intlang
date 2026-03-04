@@ -1,6 +1,4 @@
-let Y = \f. (\x. f (x x)) (\x. f (x x));
 let Z = \f. (\x. f (\v. x x v)) (\x. f (\v. x x v));
 let fact_gen = \rec. \n. (n == 0) + (1-(n == 0))*(n*(rec (n-1)));
 let fact = Z fact_gen;
-
 fact 5
