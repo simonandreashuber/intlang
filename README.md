@@ -2,6 +2,8 @@
 
 A small functional language called intlang, that I came up with (wow super original, I know) to get some experience with writing a Parser. This is about trying and probably getting a bunch of things wrong but learn from the mistakes.
 
+As of now it has Lexer, Parser, Interpreter and some Tests :)
+
 ## Syntax by Example
 ```
 let sqr = \x. x * x;
