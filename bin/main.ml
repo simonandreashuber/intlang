@@ -17,7 +17,5 @@ let main () =
     )
   with
   | Sys_error msg -> Printf.eprintf "Could not open file: %s\n" msg; exit 1
-  | Parser.Error  -> Printf.eprintf "Parser Error\n"; exit 1
-  | Lexer.LexErr msg -> Printf.eprintf "%s\n" msg; exit 1
 
 let () = main ()
