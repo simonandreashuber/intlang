@@ -48,7 +48,7 @@ in ´/test/cases´ there are plenty more examples (.expect files are the expecte
 ## How to Run
 
 - To build `dune build`
-- To run some program (here fib.intlang): `dune exec bin/main.exe -- fib.intlang`
+- To run some program (here fib.intlang): `dune exec bin/main.exe -- fib.intlang` (use `--closure` to use the interpreter utilizing a more classical closure approach to interpretation)
 - To run the tests: `dune test`
 
 ## Inspirations
