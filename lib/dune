@@ -1,6 +1,6 @@
 (library
  (name intlang_lib)
- (modules ast lexer parser interp))
+ (modules ast lexer parser interp interp_closure))
 
 (menhir
  (modules parser))

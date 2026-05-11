@@ -8,8 +8,8 @@ type value =
       This is the secret sauce for your "accidental" lazy evaluation. *)
   | VThunk of lexp * env
 
-(** An environment is a simple association list mapping names to values. *)
-and env = (string * value) list
+(** An environment is a mutable reference to an association list mapping names to values. *)
+and env = (string * value) list ref
 
 exception Runtime_error of string
 
@@ -21,7 +21,7 @@ let rec eval_value v =
   | _ -> v
 
 and lookup x env =
-  match List.assoc_opt x env with
+  match List.assoc_opt x !env with
   | Some v -> eval_value v
   | None -> raise (Runtime_error ("Unbound variable: " ^ x))
 
@@ -39,7 +39,8 @@ and eval (e : lexp) (env : env) : value =
        | VClosure (x, body, c_env) -> 
            (* Call-by-Name: We don't evaluate e2 yet. 
               We wrap it in a Thunk and put it in the environment. *)
-           eval body ((x, VThunk (e2, env)) :: c_env)
+           let param_env = ref ((x, VThunk (e2, env)) :: !c_env) in
+           eval body param_env
        | _ -> raise (Runtime_error "Application of a non-function"))
 
   | Bop (op, e1, e2) ->
@@ -62,23 +63,29 @@ and eval (e : lexp) (env : env) : value =
               | _ -> raise (Runtime_error "Binary op expects integers"))
        | _ -> raise (Runtime_error "Binary op expects integers"))
 
+(** Print the program for debugging. *)
+let print_prog (p : prog) : unit =
+  List.iter (fun stmt ->
+    match stmt with
+    | Lexp _ -> Printf.printf "Expression\n"
+    | Nlexp (id, _) -> Printf.printf "Let %s = ...\n" id
+  ) p
+
 (** Interprets the whole program. 
     It processes statements in order, building up a global environment. *)
 let interp_prog (p : prog) : int =
-  let rec loop statements global_env =
+  let global_env_ref = ref [] in
+  let rec loop statements =
     match statements with
     | [] -> raise (Runtime_error "Empty program")
     | [Lexp e] -> 
-        (match eval e global_env with
+        (match eval e global_env_ref with
          | VInt n -> n
          | _ -> raise (Runtime_error "Program ended with a function, expected int"))
     | Nlexp (id, e) :: rest ->
-        (* THE FIX: We use OCaml's 'let rec' to create a circular environment.
-           The 'new_env' now contains a mapping for 'id', and the Thunk 
-           inside that mapping points back to 'new_env'. *)
-        let rec new_env = (id, VThunk (e, new_env)) :: global_env in
-        loop rest new_env
+        global_env_ref := (id, VThunk (e, global_env_ref)) :: !global_env_ref;
+        loop rest
     | Lexp _ :: _ -> 
         raise (Runtime_error "Expression found in the middle of let statements")
   in
-  loop p []
+  loop p

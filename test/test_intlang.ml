@@ -6,10 +6,10 @@ let read_file filename =
   close_in ch;
   String.trim s
 
-let run_test intlang_file =
+let run_test_with_interp intlang_file interp_name interp_func =
   let expect_file = Filename.chop_extension intlang_file ^ ".expect" in
   if not (Sys.file_exists expect_file) then
-    (Printf.printf "[SKIP] %s (No .expect file found)\n" intlang_file; true)
+    (Printf.printf "[SKIP] %s (%s, No .expect file found)\n" intlang_file interp_name; true)
   else
     let code = read_file intlang_file in
     let expected = int_of_string (read_file expect_file) in
@@ -17,14 +17,19 @@ let run_test intlang_file =
     try
       let lexbuf = Lexing.from_string code in
       let prog = Parser.start Lexer.token lexbuf in
-      let result = Interp.interp_prog prog in
+      let result = interp_func prog in
       if result = expected then
-        (Printf.printf "[PASS] %s (out: %d)\n" intlang_file result; true)
+        (Printf.printf "[PASS] %s (%s, out: %d)\n" intlang_file interp_name result; true)
       else
-        (Printf.printf "[FAIL] %s: Expected '%d', got '%d'\n" intlang_file expected result; false)
+        (Printf.printf "[FAIL] %s (%s): Expected '%d', got '%d'\n" intlang_file interp_name expected result; false)
     with e ->
-      Printf.printf "[ERR ] %s: %s\n" intlang_file (Printexc.to_string e);
+      Printf.printf "[ERR ] %s (%s): %s\n" intlang_file interp_name (Printexc.to_string e);
       false
+
+let run_test intlang_file =
+  let result1 = run_test_with_interp intlang_file "Interp" Interp.interp_prog in
+  let result2 = run_test_with_interp intlang_file "Interp_closure" Interp_closure.interp_prog in
+  result1 && result2
 
 let () =
   (* Get the samples directory from command line arguments *)
