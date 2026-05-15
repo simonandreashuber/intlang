@@ -8,10 +8,10 @@ let main () =
       let lexbuf = Lexing.from_channel ch in
       let p = Parser.start Lexer.token lexbuf in
       if use_closure then (
-        Interp_closure.print_prog p;
+        PrintIntlang.print_prog p;
         Printf.printf "out: %d\n" (Interp_closure.interp_prog p)
       ) else (
-        Interp.print_prog p;
+        PrintIntlang.print_prog p;
         Printf.printf "out: %d\n" (Interp.interp_prog p)
       )
     )
