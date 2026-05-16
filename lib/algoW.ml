@@ -4,6 +4,7 @@ https://github.com/mgrabmueller/AlgorithmW
 *)
 
 open Ast
+open PrintIntlang
 
 module StrSet = Set.Make(String)
 module StrMap = Map.Make(String)
@@ -13,13 +14,26 @@ type typ =
     | Tint
     | Tfun of typ * typ
 
+(*[typ vars] * typ*)
 type schema = Schema of string list * typ
+
+(*typ var -> typ*)
+type subst = typ StrMap.t
+
+(*
+    var -> schema
+    Note: the var is from the AST and is not a type var
+*)
+type type_env = TypeEnv of schema StrMap.t
+
+exception TypeError of string
+
+
 
 (*
 print helpers
 *)
-
-let print_typ (t: typ) : string =
+let sprint_typ (t: typ) : string =
     let rec aux t =
         match t with
         | Tvar v -> v
@@ -32,17 +46,14 @@ let print_typ (t: typ) : string =
             left ^ " -> " ^ aux t2
     in aux t
 
-let print_schema (Schema (vars, t) : schema) : string =
-    if vars = [] then print_typ t
-    else "forall " ^ String.concat " " vars ^ ". " ^ print_typ t
+let sprint_schema (Schema (vars, t) : schema) : string =
+    "forall " ^ String.concat " " vars ^ ". " ^ sprint_typ t
 
 
-type subst = typ StrMap.t
-
-type type_env = TypeEnv of schema StrMap.t
-
-exception TypeError of string
-
+let sprint_subst (s: subst) : string =
+    let bindings = StrMap.bindings s in
+    let binding_strs = List.map (fun (v, t) -> v ^ " ↦ " ^ sprint_typ t) bindings in
+    "{ " ^ String.concat ", " binding_strs ^ " }"
 (* 
 global counter for generating fresh type variables
 *)
@@ -60,6 +71,17 @@ let next_var () =
   name
 
 let reset_counter () = counter := 0
+
+(*
+Explanation/debugging support
+*)
+let explain_on = ref false
+let explanation = ref ""
+
+let add_explain (msg: string) : unit =
+  if !explain_on then
+    explanation := !explanation ^ msg ^ "\n"
+
 (*
 find free type variables in a type, schema or type environment
 *)
@@ -101,6 +123,7 @@ let compose_subst (s1: subst) (s2: subst) : subst =
 
 (*
 Remove some binding from the type environment
+not even used I think, since the union for maps in ocaml does force a specific decision any ways
 *)
 let remove (TypeEnv env) (var: string) : type_env =
     TypeEnv (StrMap.remove var env)
@@ -134,14 +157,14 @@ let rec mgu (t1: typ) (t2: typ) : subst =
     match (t1, t2) with
     | (Tfun (l1, r1), Tfun (l2, r2)) ->
         let sl = mgu l1 l2 in
-        let sr = mgu (apply sl r1) (apply sl r2) in
+        let sr = mgu (apply sl r1) (apply sl r2) in (*no unify the right sides but apply the constraints found during left side unification*)
         compose_subst sr sl
     | (Tvar v, t) | (t, Tvar v) ->
         if t = Tvar v then StrMap.empty
-        else if StrSet.mem v (ftv t) then raise (TypeError ("Occurs check failed (no recursive types in Hindley-Milner): " ^ (print_typ t1) ^ " ~ " ^ (print_typ t2)))
+        else if StrSet.mem v (ftv t) then raise (TypeError ("Occurs check failed (no recursive types in Hindley-Milner): " ^ (sprint_typ t1) ^ " ~ " ^ (sprint_typ t2)))
         else StrMap.singleton v t
     | (Tint, Tint) -> StrMap.empty
-    | _ -> raise (TypeError ("Types do not unify: " ^ (print_typ t1) ^ " ~ " ^ (print_typ t2)))
+    | _ -> raise (TypeError ("Types do not unify: " ^ (sprint_typ t1) ^ " ~ " ^ (sprint_typ t2)))
 
 (*
 ti: type inference function
@@ -151,38 +174,62 @@ let rec ti (env: type_env) (e: lexp) : subst * typ =
     match e with
     | Var x -> (
         let TypeEnv env_map = env in
-        (match StrMap.find_opt x env_map with
-        | Some schema -> (StrMap.empty, instantiate schema)
-        | None -> raise (TypeError ("Unbound variable: " ^ x)))
+        (match StrMap.find_opt x env_map with (*use of var needs to be in env by lambda or let statement*)
+        | Some schema -> 
+            let inst_typ = instantiate schema in (*the binding might be a schema so get a fresh instantiation*)
+            add_explain (Printf.sprintf "Var: %s: constraints: %s, finaltype: %s" (PrintIntlang.sprint_lexp e) (sprint_subst StrMap.empty) (sprint_typ inst_typ));
+            (StrMap.empty, inst_typ) (*no constraints induced, and type is the new instantiation*)
+        | None -> raise (TypeError ("Unbound variable: " ^ x))) (*quick note: this is where a var that is "globally free" would be caught*)
     )
     | Lam (x, body) -> (
-        let tv = Tvar (next_var ()) in
+        let tv = Tvar (next_var ()) in (*we dont know the schema of x yet so we just say, here is a fresh typ var go and have fun with it*)
         let TypeEnv env_map = env in
         (*remove not needed since the union is picking from the first map*)
-        let env' = TypeEnv (StrMap.union (fun _ t1 _ -> Some t1) (StrMap.singleton x (Schema ([], tv))) env_map) in
-        let sb, tb = ti env' body in
-        let t_fun = Tfun (apply sb tv, tb) in
-        (sb, t_fun)
+        let env' = TypeEnv (StrMap.union (fun _ t1 _ -> Some t1) (StrMap.singleton x (Schema ([], tv))) env_map) in (*we remove any existing x since lambdas overshadow outside defs*)
+        let sb, tb = ti env' body in (*recurse on the body with new env, this returns the body type and the constraints that were found*)
+        let t_fun = Tfun (apply sb tv, tb) in (*clearly the type is func typ from tv to tb but the type inference on the body may have introduced constraints, that need to be applied to tv*)
+        add_explain (Printf.sprintf "Lam: %s: constraints: %s, finaltype: %s" (PrintIntlang.sprint_lexp e) (sprint_subst sb) (sprint_typ t_fun));
+        (sb, t_fun) (*note, the constraints form the body are still valid and needed so we return them*)
     )
     | App (e1, e2) -> (
-        let tv = Tvar (next_var ()) in
-        let s1, t1 = ti env e1 in
-        let s2, t2 = ti (apply_env s1 env) e2 in
-        let s3 = mgu (apply s2 t1) (Tfun (t2, tv)) in
-        let s = compose_subst s3 (compose_subst s2 s1) in
-        (s, apply s3 tv)
+        let tv = Tvar (next_var ()) in (*new typ var for the "out type" of e1, which is the type of the App (e1, e2)*)
+        let s1, t1 = ti env e1 in (*recurse on e1*)
+        let s2, t2 = ti (apply_env s1 env) e2 in (*recurse on e2 but update the env with the constraints from e1*)
+        let t1_applied = apply s2 t1 in (*there might be new constraints from type inference on e2 these may change t1*)
+        let s3 = mgu t1_applied (Tfun (t2, tv)) in (*unify both recursion types*)
+        let s = compose_subst s3 (compose_subst s2 s1) in (*collect all constraints*)
+        let tfv = apply s3 tv in
+        add_explain (Printf.sprintf "App: %s , %s: constraints: %s, finaltype: %s" (PrintIntlang.sprint_lexp e1) (PrintIntlang.sprint_lexp e2) (sprint_subst s) (sprint_typ tfv));
+        (s, tfv) (*our "out type" is returned but first we apply the final substitutions, not we could use apply 
+                            s tv but s1 and s2 really had no idea that tv even existed and hence will not affect tv*)
     )
     | Int _ -> (StrMap.empty, Tint)
     | Bop (bop, e1, e2) -> (
-        let s1, t1 = ti env e1 in
-        let s2, t2 = ti (apply_env s1 env) e2 in
-        let s3 = mgu (apply s2 t1) Tint in
-        let s4 = mgu (apply s3 t2) Tint in
-        let s = compose_subst s4 (compose_subst s3 (compose_subst s2 s1)) in
+        let s1, t1 = ti env e1 in (*left side*)
+        let s2, t2 = ti (apply_env s1 env) e2 in (*right side with constraints from left side*)
+        let s3 = mgu (apply s2 t1) Tint in (*unify left side with int*)
+        let s4 = mgu (apply s3 t2) Tint in (*unify right side with int*)
+        let s = compose_subst s4 (compose_subst s3 (compose_subst s2 s1)) in (*stitch all constraints together*)
+        add_explain (Printf.sprintf "Bop: %s: constraints: %s, final type: int" (PrintIntlang.sprint_lexp e) (sprint_subst s));
         (s, Tint)
     )
 
 let typecheck (env: type_env) (e: lexp) : typ =
     reset_counter ();
     let s, t = ti env e in
-    apply s t
+    apply s t (*redundant btw*)
+
+let explain_typecheck (env: type_env) (e: lexp) : typ * string =
+    reset_counter ();
+    explanation := "";
+    explain_on := true;
+    let result_typ = 
+      try typecheck env e
+      with TypeError msg ->
+        add_explain (Printf.sprintf "ERROR: %s" msg);
+        raise (TypeError msg)
+    in
+    explain_on := false;
+    let expl = !explanation in
+    explanation := "";
+    (result_typ, expl)

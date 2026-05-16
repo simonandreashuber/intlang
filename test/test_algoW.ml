@@ -17,8 +17,13 @@ let run_type_check intlang_file =
         Printf.printf "  Expr: %s\n" (PrintIntlang.sprint_lexp lexp);
         (try
           let empty_env = AlgoW.TypeEnv (AlgoW.StrMap.empty) in
-          let typ = AlgoW.typecheck empty_env lexp in
-          Printf.printf "  Type: %s\n\n" (AlgoW.print_typ typ);
+          let typ, explanation = AlgoW.explain_typecheck empty_env lexp in
+          Printf.printf "  Type: %s\n" (AlgoW.sprint_typ typ);
+          Printf.printf "  Inference:\n";
+          String.split_on_char '\n' explanation
+          |> List.filter (fun s -> String.length s > 0)
+          |> List.iter (fun s -> Printf.printf "    %s\n" s);
+          Printf.printf "\n";
           true
         with AlgoW.TypeError msg ->
           Printf.printf "  Type Error: %s\n\n" msg;
