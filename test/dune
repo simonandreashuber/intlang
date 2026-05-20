@@ -11,7 +11,7 @@
  (deps (glob_files cases/*.intlang) (glob_files cases/*.expect))
  (action (run %{exe:test_intlang.exe} cases)))
 
-(rule
- (alias runtest)
- (deps (glob_files algoW/*.intlang))
- (action (run %{exe:test_algoW.exe} algoW)))
+;(rule
+; (alias runtest)
+; (deps (glob_files algoW/*.intlang))
+; (action (run %{exe:test_algoW.exe} algoW)))

@@ -17,6 +17,7 @@ let run_test_with_interp intlang_file interp_name interp_func =
     let lexbuf = Lexing.from_string code in
     try
       let prog = Parser.start Lexer.token lexbuf in
+      (*Typecheck.typecheck prog;*)
       let result = interp_func prog in
       if result = expected then
         (Printf.printf "[PASS] %s (%s, out: %d)\n" intlang_file interp_name result; true)
