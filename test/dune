@@ -2,16 +2,7 @@
  (name test_intlang)
  (libraries intlang_lib str))
 
-(executable
- (name test_algoW)
- (libraries intlang_lib str))
-
 (rule
  (alias runtest)
  (deps (glob_files cases/*.intlang) (glob_files cases/*.expect))
  (action (run %{exe:test_intlang.exe} cases)))
-
-(rule
- (alias runtest)
- (deps (glob_files algoW/*.intlang))
- (action (run %{exe:test_algoW.exe} algoW)))
