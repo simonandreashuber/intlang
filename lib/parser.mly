@@ -16,7 +16,7 @@ open Ast
 %token <string>ID           (* name of some thing *)
 
 %start start         
-%type <Ast.prog> start
+%type <Ast.parseout> start
 %%
 
 start:

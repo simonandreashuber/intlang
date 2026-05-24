@@ -16,4 +16,6 @@ type stmt =
     | Nlexp of string * lexp (*named lambda expression*)
     | Lexp of lexp           (*lambda expression, that will be evaulated*)
 
-type prog = stmt list
+type parseout = stmt list    (*what the parser spits out: includes not resolved, final lexp not split of*)
+
+type prog = (string * lexp) list * lexp (*restructured program, used after the includes are resolved*)

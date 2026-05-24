@@ -26,8 +26,17 @@ let sprint_stmt st : string =
         | Nlexp (s,l) -> Printf.sprintf "let %s = (%s);" s (sprint_lexp l)
         | Lexp l -> Printf.sprintf "%s" (sprint_lexp l)
 
-let sprint_prog p : string =
+let sprint_parseout p : string =
     (*string print the ast, similar to the input but with parenthesies to show the ast structure*)
     List.fold_left ( fun acc st -> acc ^ (sprint_stmt st) ^ "\n" ) "" p
+
+let print_parseout p : unit = Printf.printf "%s" (sprint_parseout p)
+
+let sprint_prog (letblk, lexp) : string =
+    let letblk_str = List.fold_left (fun acc (name, e) -> 
+        acc ^ (sprint_stmt (Nlexp (name, e))) ^ "\n"
+    ) "" letblk in
+    let main_str = sprint_stmt (Lexp lexp) in
+    letblk_str ^ main_str ^ "\n"
 
 let print_prog p : unit = Printf.printf "%s" (sprint_prog p)
