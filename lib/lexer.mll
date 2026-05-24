@@ -27,11 +27,19 @@ rule token = parse
   | "."         { DOT }
   | "("         { LPAR }
   | ")"         { RPAR }
+  | "["         { LBRACK }
+  | "]"         { RBRACK }
   | "=="        { EQ }
   | "<"         { LT }
   | "+"         { ADD }
   | "-"         { SUB }
   | "*"         { MUL }
+  | "if"        { IF }
+  | "then"      { THEN }
+  | "else"      { ELSE }
+  | "end"       { END }
+  | "include"   { INCLUDE }
+  | ","         { COMMA }
   | digit+ as n { INT (int_of_string n) }
   | id as s     { ID s }
   | eof         { EOF }

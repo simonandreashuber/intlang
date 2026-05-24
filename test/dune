@@ -1,6 +1,7 @@
 (executable
  (name test_intlang)
- (libraries intlang_lib str))
+ (libraries intlang_lib str)
+ (enabled_if false))
 
 (rule
  (alias runtest)

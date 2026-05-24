@@ -1,0 +1,3 @@
+include mod
+let answers = \x. if mod x 2 then [6,7] else [4,2] end;
+(answer 3).1
