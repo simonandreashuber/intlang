@@ -2,7 +2,7 @@
 
 A small functional language called intlang, that I came up with (wow super original, I know) to get some experience with writing a Parser. This is about trying and probably getting a bunch of things wrong but learn from the mistakes.
 
-As of now it has Lexer, Parser, Interpreter and some Tests :)
+As of now it has Lexer, Parser, Interpreter, Typechecker and some Tests :)
 
 ## Syntax by Example
 ```
@@ -36,7 +36,7 @@ in ´/test/cases´ there are plenty more examples (.expect files are the expecte
 - They are SSA but local lambda variables my shadow the global ones (and other lambda vars)
 
 ## Program Structure
-- There may be some `let` statements in the beginning of the program
+- There may be some `let` statements in the beginning of the program (all lets are recursive)
 - It must end with an Expression (see examples)
 
 ## Types
@@ -53,3 +53,4 @@ in ´/test/cases´ there are plenty more examples (.expect files are the expecte
 
 ## Inspirations
 - https://github.com/twolodzko/twolodzko.github.io/tree/main/snippets/ocaml-parser
+- https://github.com/mgrabmueller/AlgorithmW
