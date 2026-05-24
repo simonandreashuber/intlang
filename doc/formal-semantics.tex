@@ -1,0 +1,110 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\title{intlang: Formal Semantics and Type System}
+\author{}
+\date{}
+
+\lstset{
+  basicstyle=\ttfamily,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  stringstyle=\color{red},
+  breaklines=true,
+  showstringspaces=false,
+}
+
+\newcommand{\judge}[1]{\vdash \, #1}
+\newcommand{\env}{\Gamma}
+\newcommand{\type}{\tau}
+
+\begin{document}
+
+\maketitle
+
+\section{Lexical Conventions}
+
+\begin{itemize}
+  \item \textbf{Identifiers:} An identifier is a letter followed by zero or more letters or digits. Identifiers are case-sensitive.
+  \item \textbf{Integer literals:} $ n \in \mathbb{N} \cup \{0\} $. While only non-negative integers can be written down as literals. Negative integers exist in the language and can just be written down as $0 - n$.
+  \item \textbf{Whitespace:} Ignored (spaces, tabs, newlines).
+\end{itemize}
+
+\section{Concrete Grammar (BNF)}
+
+The concrete grammar is defined in extended Backus-Naur form:
+
+\subsection{Programs and Statements}
+
+\begin{align*}
+\text{prog} &::= \text{nlexp}^* \, \text{expr} \\
+\text{nlexp} &::= \textbf{let} \, \text{id} \, \textbf{=} \, \text{expr} \, \textbf{;}
+\end{align*}
+
+A program consists of zero or more named let-bindings followed by a final expression. Let bindings must appear before any expression.
+
+\subsection{Expressions}
+
+Expressions are defined with explicit precedence levels (from lowest to highest binding strength):
+
+\subsubsection{Lambda}
+
+\begin{align*}
+\text{expr} &::= \lambda \, \text{id} \, . \, \text{expr} \\
+            &\mid \text{expr}_{\text{cmp}}
+\end{align*}
+
+Lambda abstraction binds weakest and is right-associative: $\lambda x. \lambda y. e$ parses as $\lambda x. (\lambda y. e)$.
+
+\subsubsection{Comparison Operators}
+
+\begin{align*}
+\text{expr}_{\text{cmp}} &::= \text{expr}_{\text{cmp}} \, \textbf{==} \, \text{expr}_{\text{add}} \\
+                         &\mid \text{expr}_{\text{cmp}} \, < \, \text{expr}_{\text{add}} \\
+                         &\mid \text{expr}_{\text{add}}
+\end{align*}
+
+Comparison operators are left-associative.
+
+\subsubsection{Addition and Subtraction}
+
+\begin{align*}
+\text{expr}_{\text{add}} &::= \text{expr}_{\text{add}} \, \textbf{+} \, \text{expr}_{\text{mul}} \\
+                         &\mid \text{expr}_{\text{add}} \, \textbf{-} \, \text{expr}_{\text{mul}} \\
+                         &\mid \text{expr}_{\text{mul}}
+\end{align*}
+
+Addition and subtraction are left-associative.
+
+\subsubsection{Multiplication}
+
+\begin{align*}
+\text{expr}_{\text{mul}} &::= \text{expr}_{\text{mul}} \, \textbf{*} \, \text{expr}_{\text{app}} \\
+                         &\mid \text{expr}_{\text{app}}
+\end{align*}
+
+Multiplication is left-associative.
+
+\subsubsection{Application}
+
+\begin{align*}
+\text{expr}_{\text{app}} &::= \text{expr}_{\text{app}} \, \text{expr}_{\text{atom}} \\
+                         &\mid \text{expr}_{\text{atom}}
+\end{align*}
+
+Application is left-associative and binds strongest: $f \, g \, h$ parses as $(f \, g) \, h$.
+
+\subsubsection{Atomic Expressions}
+
+\begin{align*}
+\text{expr}_{\text{atom}} &::= \text{id} \\
+                          &\mid n \\
+                          &\mid \textbf{(} \, \text{expr} \, \textbf{)}
+\end{align*}
+
+
+\end{document}

@@ -63,14 +63,6 @@ and eval (e : lexp) (env : env) : value =
               | _ -> raise (Runtime_error "Binary op expects integers"))
        | _ -> raise (Runtime_error "Binary op expects integers"))
 
-(** Print the program for debugging. *)
-let print_prog (p : prog) : unit =
-  List.iter (fun stmt ->
-    match stmt with
-    | Lexp _ -> Printf.printf "Expression\n"
-    | Nlexp (id, _) -> Printf.printf "Let %s = ...\n" id
-  ) p
-
 (** Interprets the whole program. 
     It processes statements in order, building up a global environment. *)
 let interp_prog (p : prog) : int =
