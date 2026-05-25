@@ -28,6 +28,7 @@ let main () =
   let prog = Include.handle_includes parseout [] filename in
   Typecheck.typecheck prog;
   PrintIntlang.print_prog prog;
+  Printf.printf "out: %d\n" (Interp_closure.interp_prog prog);
   exit 0
 
 let () = main ()

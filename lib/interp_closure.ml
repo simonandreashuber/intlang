@@ -3,6 +3,7 @@ open Ast
 (** The types of values our interpreter can produce. *)
 type value =
   | VInt of int
+  | VTuple of value list
   | VClosure of string * lexp * env
   (** A Thunk is an unevaluated expression and the environment it lives in.
       This is the secret sauce for your "accidental" lazy evaluation. *)
@@ -62,22 +63,25 @@ and eval (e : lexp) (env : env) : value =
                    | Eq  -> VInt (if n1 = n2 then 1 else 0))
               | _ -> raise (Runtime_error "Binary op expects integers"))
        | _ -> raise (Runtime_error "Binary op expects integers"))
-
+   | If (cond, then_branch, else_branch) ->
+       (match eval cond env with
+        | VInt n -> if n <> 0 then eval then_branch env else eval else_branch env
+        | _ -> raise (Runtime_error "Condition in if must be an integer"))
+   | Tuple es -> VTuple (List.map (fun e -> eval e env) es) (*eager I know but its a bit simpler*)
+   | Field (e, i) ->
+        (match eval e env with
+         | VTuple vs -> 
+             if i < 0 || i >= List.length vs then
+               raise (Runtime_error "Tuple index out of bounds")
+             else
+               List.nth vs i
+         | _ -> raise (Runtime_error "Field access on non-tuple"))
+   
 (** Interprets the whole program. 
     It processes statements in order, building up a global environment. *)
-let interp_prog (p : prog) : int =
+let interp_prog ((letblk, main) : prog) : int =
   let global_env_ref = ref [] in
-  let rec loop statements =
-    match statements with
-    | [] -> raise (Runtime_error "Empty program")
-    | [Lexp e] -> 
-        (match eval e global_env_ref with
-         | VInt n -> n
-         | _ -> raise (Runtime_error "Program ended with a function, expected int"))
-    | Nlexp (id, e) :: rest ->
-        global_env_ref := (id, VThunk (e, global_env_ref)) :: !global_env_ref;
-        loop rest
-    | Lexp _ :: _ -> 
-        raise (Runtime_error "Expression found in the middle of let statements")
-  in
-  loop p
+  List.iter (fun (id, e) -> global_env_ref := (id, VThunk (e, global_env_ref)) :: !global_env_ref) letblk;
+  match (eval main global_env_ref) with
+    | VInt n -> n
+    | _ -> raise (Runtime_error "Program ended with a function, expected int")
