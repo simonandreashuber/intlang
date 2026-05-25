@@ -26,6 +26,7 @@ let main () =
   *)
   let parseout = Include.lexnparse filename in
   let prog = Include.handle_includes parseout [] filename in
+  Typecheck.typecheck prog;
   PrintIntlang.print_prog prog;
   exit 0
 
