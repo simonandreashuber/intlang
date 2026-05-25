@@ -67,7 +67,7 @@ intlang v2 does have if `if (a>5) then 99 else 111 end`. Note `else` and the `en
 ## How to Run
 
 - To build `dune build`
-- To run some program (here fib.intlang): `dune exec bin/main.exe -- fib.intlang` (use `--closure` to use the interpreter utilizing a more classical closure approach to interpretation)
+- To run some program (here fib.intlang): `dune exec bin/main.exe -- fib.intlang`
 - To run the tests: `dune test`
 
 ## Inspirations

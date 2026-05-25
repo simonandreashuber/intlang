@@ -427,7 +427,7 @@ let scc_split_letblk (blk : letblk) : letblk list =
   expects: a program (with all Nlexp except for the last one being a lexp)
   returns: unit if type checks, otherwise raises TypeError with an error message
 *)
-let typecheck ((global_letblk, mainlexp) : prog) :  unit =
+let typecheck ((global_letblk, mainlexp) : prog) :  type_env =
   counter := 0; (*reset tvar counter for consistency*)
   let headerline = "---------------------------------------------\n" in
   (*split letblk into scc*) 
@@ -443,7 +443,7 @@ let typecheck ((global_letblk, mainlexp) : prog) :  unit =
   (*typecheck the main expression*)
   let env_main = typecheck_letblk [(".main", mainlexp)] env (-1) in
   match List.assoc_opt ".main" env_main with
-    | Some (Forall ([], TInt)) -> if !print_debug then Printf.eprintf "Main expression has type int: OK\n\n"; ()
+    | Some (Forall ([], TInt)) -> if !print_debug then Printf.eprintf "Main expression has type int: OK\n\n"; env
     | Some s -> raise (TypeError ("Final expression has type " ^ sprint_typ (instantiate s) ^ " but expected int (this is intlang ;))"))
-    | None -> raise (TypeError "Internal Error")
+    | None -> raise (TypeError "Internal Error")  
     

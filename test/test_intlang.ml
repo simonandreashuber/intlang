@@ -11,29 +11,25 @@ let run_test_with_interp intlang_file interp_name interp_func =
   if not (Sys.file_exists expect_file) then
     (Printf.printf "[SKIP] %s (%s, No .expect file found)\n" intlang_file interp_name; true)
   else
-    let code = read_file intlang_file in
     let expected = int_of_string (read_file expect_file) in
-    
-    let lexbuf = Lexing.from_string code in
     try
-      let prog = Parser.start Lexer.token lexbuf in
-      Typecheck.typecheck prog;
-      let result = interp_func prog in
-      if result = expected then
-        (Printf.printf "[PASS] %s (%s, out: %d)\n" intlang_file interp_name result; true)
-      else
-        (Printf.printf "[FAIL] %s: Expected '%d', got '%d'\n" intlang_file expected result; false)
-    with e -> (
-        match e with
-          | Parser.Error  -> Printf.printf "[ERR ] %s: %s\n" intlang_file (Errors.sprint_err_lnum  "Parser Error" lexbuf); false
-          | Lexer.LexErr msg -> Printf.printf "[ERR ] %s: %s\n" intlang_file (Errors.sprint_err_lnum msg lexbuf); false
-          | _ -> Printf.printf "[ERR ] %s: %s\n" intlang_file (Printexc.to_string e); false
-        )
+      let parseout = Include.lexnparse intlang_file in
+      let prog = Include.handle_includes parseout [] intlang_file in
+
+      let _ = Typecheck.typecheck prog in
+      let out = interp_func prog in
+
+      if out = expected then
+          (Printf.printf "[PASS] %s (%s, out: %d)\n" intlang_file interp_name out; true)
+        else
+          (Printf.printf "[FAIL] %s: Expected '%d', got '%d'\n" intlang_file expected out; false)
+    with e -> ( 
+      Printf.printf "[ERR ] %s: %s\n" intlang_file (Printexc.to_string e); false)
 
 let run_test intlang_file =
-  let result1 = run_test_with_interp intlang_file "Interp" Interp.interp_prog in
+  (*let result1 = run_test_with_interp intlang_file "Interp" Interp.interp_prog in*)
   let result2 = run_test_with_interp intlang_file "Interp_closure" Interp_closure.interp_prog in
-  result1 && result2
+  result2
 
 let () =
   (* Get the samples directory from command line arguments *)

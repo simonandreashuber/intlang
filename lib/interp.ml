@@ -1,6 +1,8 @@
 open Ast
 open PrintIntlang
 
+(*NOTE: THIS HAS NOT BEEN UPDATED TO INTLANG V2*)
+
 
 (*INTERPRETER*)
 exception MallformedAST
