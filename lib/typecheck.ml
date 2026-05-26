@@ -99,7 +99,7 @@ let sprint_typ (t : typ) : string =
         (
           match List.assoc_opt id vis with
             | Some count ->
-                if !allowrectypes then "t" ^ string_of_int id, (id, count+1) :: vis
+                if !allowrectypes then "t" ^ string_of_int id ^ "_" ^ string_of_int count, (id, count+1) :: vis
                 else raise (TypeError "Recursive types are disabled (you can enable them)")
             | None -> (
               let t_linked_str, vis_t_linked = aux t_linked ((id, 0) :: vis) in
@@ -189,31 +189,38 @@ let unify (t1 : typ) (t2 : typ) : unit =
         if occurs_check v t then
           raise (TypeError ("Occurs check failed: Recursive types are disabled (you can enable them). Cannot unify " ^ sprint_typ repr1 ^ " with " ^ sprint_typ repr2))
         else (
-          if !print_debug then Printf.eprintf "Linking t%d to %s\n" v.id (sprint_typ t);
+          if !print_debug then (Printf.eprintf "Linking t%d to %s\n" v.id (sprint_typ t); flush stderr);
           v.link <- Some t
         )
     | _ -> raise (TypeError ("Type mismatch: Cannot unify " ^ sprint_typ repr1 ^ " with " ^ sprint_typ repr2))  
   in unify_aux [] t1 t2
 
-let rec generalize (t : typ) : schema =
-  match repr t with
-  | TInt -> Forall ([], TInt)
-  | TProd (tp, rho_opt) -> 
-      let gen_types = List.map generalize tp in
-      let vars = List.flatten (List.map (fun (Forall (vs, _)) -> vs) gen_types) in
-      let gen_tp = List.map (fun (Forall (_, t)) -> t) gen_types in
-      let vars_rho, gen_rho = match rho_opt with
-        | None -> [], None
-        | Some rho -> let Forall (rho_vars, rho_gen) = generalize rho in (rho_vars, Some rho_gen)
-      in
-      let unique_vars = List.sort_uniq compare (vars @ vars_rho) in
-      Forall (unique_vars, TProd (gen_tp, gen_rho))
-  | TFun (t1, t2) ->
-      let Forall (vars1, t1_gen) = generalize t1 in
-      let Forall (vars2, t2_gen) = generalize t2 in
-      let unique_vars = List.sort_uniq compare (vars1 @ vars2) in
-      Forall (unique_vars, TFun (t1_gen, t2_gen))
-  | TVar v -> Forall ([v.id], TVar v)
+let generalize (t : typ) : schema =
+  let rec generalize_aux (vis : typ list) (t : typ) : schema =
+    if List.exists (fun t_vis -> repr t_vis == repr t) vis then Forall ([], t) (*already visited, stop recursion to prevent infinite loops in recursive types*)
+    else 
+    let vis' = t :: vis in
+    match t with
+    | TInt -> Forall ([], TInt)
+    | TProd (tp, rho_opt) -> 
+        let gen_types = List.map (generalize_aux vis') tp in
+        let vars = List.flatten (List.map (fun (Forall (vs, _)) -> vs) gen_types) in
+        let gen_tp = List.map (fun (Forall (_, t)) -> t) gen_types in
+        let vars_rho, gen_rho = match rho_opt with
+          | None -> [], None
+          | Some rho -> let Forall (rho_vars, rho_gen) = generalize_aux vis' rho in (rho_vars, Some rho_gen)
+        in
+        let unique_vars = List.sort_uniq compare (vars @ vars_rho) in
+        Forall (unique_vars, TProd (gen_tp, gen_rho))
+    | TFun (t1, t2) ->
+        let Forall (vars1, t1_gen) = generalize_aux vis' t1 in
+        let Forall (vars2, t2_gen) = generalize_aux vis' t2 in
+        let unique_vars = List.sort_uniq compare (vars1 @ vars2) in
+        Forall (unique_vars, TFun (t1_gen, t2_gen))
+    | TVar {id; link = Some t_linked;} -> let Forall (vars_linked, gen_linked) = generalize_aux vis' t_linked in 
+                                          Forall (vars_linked, t) (*returning t is valid and helps with recursive types*)
+    | TVar v -> Forall ([v.id], TVar v)
+  in generalize_aux [] t
 
 let instantiate (Forall (vars, t) : schema) : typ =
   let unique_vars = List.sort_uniq compare vars in (*sanitization*)
@@ -303,6 +310,7 @@ let typecheck_letblk (letblk : letblk) (env : type_env) (letblkid : int): type_e
     (fun cs (name, lexp) -> 
       let cs', t = typecheck_lexp lexp env_with_letdefs in (*we add this binding in the step before, it must exist so no need to check *)
       let Forall (_, tv) = List.assoc name env_with_letdefs in (*it is impossible to have something generalized here*)
+      if !print_debug then debug_constraints_notes := !debug_constraints_notes ^ (Printf.sprintf "Constraints for letblk %s:\n    %s\n" name (sprint_constraints [(tv, t)]));
       (tv, t) :: (cs' @ cs)) (*Not in debug, would ruin my cool headerlines :() *)
     [] letblk in
   
@@ -312,6 +320,7 @@ let typecheck_letblk (letblk : letblk) (env : type_env) (letblkid : int): type_e
       Printf.eprintf "%s" !debug_tvar_notes;
       Printf.eprintf "%s" !debug_constraints_notes;
       Printf.eprintf "%sUNIFICATION\n%s" headerline headerline;
+      flush stderr;
     end;
 
   (*unify all constraints*)
@@ -432,18 +441,22 @@ let typecheck ((global_letblk, mainlexp) : prog) :  type_env =
   let headerline = "---------------------------------------------\n" in
   (*split letblk into scc*) 
   let letscc = scc_split_letblk global_letblk in
-  if !print_debug then Printf.eprintf "[typecheck] SCC split into %d groups: \n%s\n" (List.length letscc) (sprint_scc letscc);
+  if !print_debug then (Printf.eprintf "[typecheck] SCC split into %d groups: \n%s\n" (List.length letscc) (sprint_scc letscc); flush stderr);
 
   (*typecheck each scc*)
   let env, _ = List.fold_left (fun (env,i) letblk -> 
     (typecheck_letblk letblk env i, i+1)
   ) ([], 0) letscc in
-  if !print_debug then Printf.eprintf "%sAll SCCs processed, FINAL ENV: \n%s%s\n" headerline headerline (sprint_env env);
+  if !print_debug then (Printf.eprintf "%sAll SCCs processed, FINAL ENV: \n%s%s\n" headerline headerline (sprint_env env); flush stderr);
   
   (*typecheck the main expression*)
   let env_main = typecheck_letblk [(".main", mainlexp)] env (-1) in
   match List.assoc_opt ".main" env_main with
-    | Some (Forall ([], TInt)) -> if !print_debug then Printf.eprintf "Main expression has type int: OK\n\n"; env
-    | Some s -> raise (TypeError ("Final expression has type " ^ sprint_typ (instantiate s) ^ " but expected int (this is intlang ;))"))
-    | None -> raise (TypeError "Internal Error")  
+    | Some (Forall (outvars, outtyp)) -> (
+      let outtyp_repr = repr outtyp in
+      match outtyp_repr with
+        | TInt -> if !print_debug then (Printf.eprintf "Main expression has type int: OK\n\n"; flush stderr); env
+        | _ -> raise (TypeError ("Final expression has type " ^ sprint_typ (instantiate (Forall (outvars, outtyp))) ^ " but expected int (this is intlang ;))"))
+    )
+    | _ -> raise (TypeError "Internal Error")  
     

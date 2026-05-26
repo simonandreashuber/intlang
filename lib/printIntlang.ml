@@ -39,4 +39,4 @@ let sprint_prog (letblk, lexp) : string =
     let main_str = sprint_stmt (Lexp lexp) in
     letblk_str ^ main_str ^ "\n"
 
-let print_prog p : unit = Printf.printf "%s" (sprint_prog p)
+let print_prog p : unit = Printf.printf "%s" (sprint_prog p); flush stdout;
