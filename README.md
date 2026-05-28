@@ -1,5 +1,7 @@
 # intlang v2
 
+So some quick notes on this version, I realized that with the infinte types and the tuples constructs like lists should theoretically be possible but getting the type checker to a point where it is correct would require going down a rabit hole, that I dont want to go down (not that it would not be cool). So I decided again to change the language :)
+
 A small functional language called intlang, that I came up with (wow super original, I know) to get some experience with writing a Parser. This is about trying and probably getting a bunch of things wrong but learn from the mistakes. The project a evolved a bit past what I originally imagined. I decided to add new futures to the language, namely: If else, include and tuples. I think that these additions will make the language much more usable and yet increase implementation profile only moderately. 
 
 - While the (cond)*(ifbr) + (1-cond)*(elsebr) expression with the short circuit is cool, it becomes much less usable if the expression is typechecked since it forces ifbr and elsebr to be of type int
