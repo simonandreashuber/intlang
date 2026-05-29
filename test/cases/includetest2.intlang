@@ -1,0 +1,6 @@
+include gcd
+include det
+include lib/matmul
+include includetest
+let somefunc = \x. x + 1;
+0

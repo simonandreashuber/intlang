@@ -1,0 +1,39 @@
+-- "classic triple loop untiled" matmul
+-- row major
+-- A is a nxl mat
+-- B is a lxm mat
+-- C is a nxm mat (in here for tail recursion, the initial call must pass it as 0)
+-- i,j,k are the loop/recursion vars
+-- i is in [0,n]
+-- j is in [0,m]
+-- k is in [0,l]
+let matmul = \n. \l. \m. \A. \B.
+                if (veclen[A] == n*l)*(veclen[B] == l*m) then
+                    matmulaux n l m A B vecmk[0,n*m] 0 0 0
+                else 
+                    vecmk[0,n*m]
+                end;
+let matmulaux = \n. \l. \m. \A. \B. \C. \i. \j. \k.
+                let updtC = vecset[C, 
+                                   i*m+j, 
+                                   vecget[C, i*m+j] + vecget[A,i*l+k]*vecget[B,k*m+j]
+                                  ] in
+                if k < (l-1) then 
+                    matmulaux n l m A B updtC i j (k+1)
+                else if j < (m-1) then
+                    matmulaux n l m A B updtC i (j+1) 0
+                else if i < (n-1) then
+                    matmulaux n l m A B updtC (i+1) 0 0
+                else 
+                    updtC
+                end end end;
+
+let thismat = vec[1,2,3,
+                  4,5,6,
+                  7,8,9];
+let othermat = vec[10,11,12,
+                  14,15,16,
+                  17,18,19];
+let thisothermat = matmul 3 3 3 thismat othermat;
+
+vecget[thisothermat, 0]

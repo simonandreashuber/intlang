@@ -1,6 +1,6 @@
 (library
  (name intlang_lib)
- (modules ast lexer parser errors printIntlang include typecheck interp_closure))
+ (modules ast lexer parser errors printIntlang include))
 
 (menhir
  (modules parser))

@@ -13,14 +13,17 @@ let next_line lexbuf =
 
 let digit = ['0'-'9']
 let alpha = ['a'-'z' 'A'-'Z' '_']
-let id = alpha (alpha | digit)*
+let id = alpha (alpha | digit )*
 let whitespace = [' ' '\t' '\r' ]+
 let newline = '\n' | "\r\n"
+let comment = "--" [^ '\n' '\r']*
 
 rule token = parse
   | whitespace  { token lexbuf }
   | newline     {next_line lexbuf; token lexbuf}
+  | comment     {token lexbuf}
   | "let"       { LET }
+  | "in"        { IN }
   | "="         { ASS }
   | ";"         { SEM }
   | "\\"        { LAM } (*is actually a \ in the input*)
@@ -39,7 +42,13 @@ rule token = parse
   | "else"      { ELSE }
   | "end"       { END }
   | "include"   { INCLUDE }
+  | "vec"       { VECLIT }
+  | "vecmk"     { VECMK }
+  | "veclen"    { VECLEN }
+  | "vecget"    { VECGET }
+  | "vecset"    { VECSET }
   | ","         { COMMA }
+  | "/"         { DIV } 
   | digit+ as n { INT (int_of_string n) }
   | id as s     { ID s }
   | eof         { EOF }

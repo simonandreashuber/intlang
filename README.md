@@ -1,4 +1,4 @@
-# intlang v2
+# intlang v3
 
 A small functional language called intlang, that I came up with (wow super original, I know) to get some experience with writing a Parser. This is about trying and probably getting a bunch of things wrong but learn from the mistakes. The project a evolved a bit past what I originally imagined. I decided to add new futures to the language, namely: If else, include and tuples. I think that these additions will make the language much more usable and yet increase implementation profile only moderately. 
 

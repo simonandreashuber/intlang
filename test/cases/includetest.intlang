@@ -1,0 +1,6 @@
+include mod
+include gcd
+include includetest
+include includetest2
+let somefunc = \x. x + 1;
+0

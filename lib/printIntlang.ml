@@ -8,6 +8,7 @@ let sprint_bop bop : string =
       | Mul -> "*"
       | Sub -> "-"
       | Add -> "+"
+      | Div -> "/"
       
 let rec sprint_lexp l : string =
     match l with
@@ -17,8 +18,12 @@ let rec sprint_lexp l : string =
         | Bop (bop, ll, lr) -> Printf.sprintf "(%s)%s(%s)" (sprint_lexp ll) (sprint_bop bop) (sprint_lexp lr)
         | App (ll, lr) -> Printf.sprintf "(%s)(%s)" (sprint_lexp ll) (sprint_lexp lr)
         | If (c, t, e) -> Printf.sprintf "if %s then %s else %s end" (sprint_lexp c) (sprint_lexp t) (sprint_lexp e)
-        | Tuple ls -> Printf.sprintf "[%s]" (String.concat ", " (List.map sprint_lexp ls))
-        | Field (l, i) -> Printf.sprintf "%s.%d" (sprint_lexp l) i
+        | Letin (s, e, b) -> Printf.sprintf "let %s = %s in %s" s (sprint_lexp e) (sprint_lexp b)
+        | Veclit ls -> Printf.sprintf "vec[%s]" (String.concat ", " (List.map sprint_lexp ls))
+        | Vecmk (defval, count) -> Printf.sprintf "vecmk[%s, %s]" (sprint_lexp defval) (sprint_lexp count)
+        | Veclen v -> Printf.sprintf "veclen[%s]" (sprint_lexp v)
+        | Vecget (v, i) -> Printf.sprintf "vecget[%s, %s]" (sprint_lexp v) (sprint_lexp i)
+        | Vecset (v, i, value) -> Printf.sprintf "vecset[%s, %s, %s]" (sprint_lexp v) (sprint_lexp i) (sprint_lexp value)
 
 let sprint_stmt st : string =
     match st with
@@ -32,11 +37,14 @@ let sprint_parseout p : string =
 
 let print_parseout p : unit = Printf.printf "%s" (sprint_parseout p)
 
-let sprint_prog (letblk, lexp) : string =
+let sprint_prog (letblk, lexp_opt) : string =
     let letblk_str = List.fold_left (fun acc (name, e) -> 
         acc ^ (sprint_stmt (Nlexp (name, e))) ^ "\n"
     ) "" letblk in
-    let main_str = sprint_stmt (Lexp lexp) in
+    let main_str = match lexp_opt with
+                    | Some lexp -> sprint_stmt (Lexp lexp)
+                    | None -> "" 
+            in
     letblk_str ^ main_str ^ "\n"
 
 let print_prog p : unit = Printf.printf "%s" (sprint_prog p)
