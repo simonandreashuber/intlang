@@ -80,4 +80,4 @@ let lex_parse_include (std_lib_path: string) (filepath: string) : prog =
       ) (handled_includes', letacc) parseout 
   in
   let _, letblk = acc_includes (Filename.dirname filepath) (Filename.chop_extension @@ Filename.basename filepath) false [] [] in
-  (letblk, final_lexp)
+  (List.rev letblk, final_lexp)

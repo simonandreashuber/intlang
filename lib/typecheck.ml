@@ -431,8 +431,8 @@ let typecheck ((global_letblk, mainlexp_opt) : prog) :  type_env =
     let mainlexp = Option.get mainlexp_opt in
     let env_main = typecheck_letblk [("@main", mainlexp)] env (-1) in
     match List.assoc_opt "@main" env_main with
-      | Some (Forall ([], TInt)) -> if !print_debug then Printf.eprintf "Main expression has type int: OK\n\n"; env
+      | Some (Forall ([], TInt)) -> if !print_debug then Printf.eprintf "Main expression has type int: OK\n\n"; List.rev env
       | Some s -> raise (Errors.TypeError ("Final expression has type " ^ sprint_typ (instantiate s) ^ " but expected int (this is intlang ;))"))
       | None -> raise (Errors.TypeError "Internal Error")
   )
-  else env
+  else List.rev env

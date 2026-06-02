@@ -36,13 +36,13 @@ let run_test cases_dir intlang_file =
         
         (match Interp.interp_prog prog with
          | Some out when out = expected ->
-             Printf.printf "[PASS] %s\n" intlang_file;
+             Printf.printf "[PASS] %s\n" intlang_file; flush stdout;
              true
          | Some out ->
-             Printf.printf "[FAIL] %s: expected %d, got %d\n" intlang_file expected out;
+             Printf.printf "[FAIL] %s: expected %d, got %d\n" intlang_file expected out; flush stdout;
              false
          | None ->
-             Printf.printf "[FAIL] %s: expected %d, got None\n" intlang_file expected;
+             Printf.printf "[FAIL] %s: expected %d, got None\n" intlang_file expected; flush stdout;
              false)
       with e ->
         Printf.printf "[FAIL] %s: %s\n" intlang_file (Printexc.to_string e);
