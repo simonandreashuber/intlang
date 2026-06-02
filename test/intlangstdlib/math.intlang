@@ -1,0 +1,35 @@
+-- general math functions
+-- Note: as of now they are not optimized just written to work :)
+
+-- exp < 1 is just return base
+let abstracpow = \mulf. \base. \exp. 
+    let apowaux = \acc. \cnt.
+        if cnt < exp then
+            apowaux (mulf acc base) (cnt+1)
+        else 
+            acc
+        end
+    in
+    apowaux base 1;
+
+-- here could work for exp = 0 but this way its so elegant, I refuse to change it
+let pow = abstracpow (\x. \y. x * y);
+
+let sqrt = \x. 
+    let sqrtaux = \guess.
+        if guess*guess < x then
+            sqrtaux (guess+1)
+        else
+            guess
+        end
+    in
+    sqrtaux 0;
+
+let mod = \x. \n. x - (x / n) * n;
+
+let gcd = \a. \b. 
+            if b == 0 then 
+                a 
+            else 
+                gcd b (mod a b) 
+            end;

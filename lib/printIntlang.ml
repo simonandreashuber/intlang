@@ -27,7 +27,8 @@ let rec sprint_lexp l : string =
 
 let sprint_stmt st : string =
     match st with
-        | Include id -> Printf.sprintf "include %s;" id
+        | IncludeGlobal id -> Printf.sprintf "include %s" id
+        | IncludeRelative path -> Printf.sprintf "include \"%s\"" path
         | Nlexp (s,l) -> Printf.sprintf "let %s = (%s);" s (sprint_lexp l)
         | Lexp l -> Printf.sprintf "%s" (sprint_lexp l)
 

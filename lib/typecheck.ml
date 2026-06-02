@@ -1,11 +1,7 @@
 open Ast
+open Errors
 
 (*CONFIGURATION*)
-(*
-  allow recursive types
-  it is on by default but there is the switch here to turn it of for some sanity ;)
-*)
-let allowrectypes = ref true
 (*
 Prints debug to stderr, debug for some program includes:
   - SCC
@@ -20,18 +16,14 @@ let print_debug = ref false
 (*BASIC STRUCTURES USED FOR TYPE CHECKING*)
 type typ =
   | TInt
-  | TProd of (typ list) * (typ option) (*typ option is of row polymorphism *)
+  | TVec of typ
   | TFun of typ * typ
   | TVar of tvar
   
 and tvar = {
   id : int;
-  (*mutable level : int;
-    A note on levels: If one was to introduce a "let in" concept, then one would need a level system to prevent
-                      the generalization of some vars that are fixed by higher scopes, but since Intlang does not have this.....
-  *)
+  mutable level : int;       (*how deep in the let in structure are we*)
   mutable link : typ option; (* None = unsolved, Some t = solved *)
-  note : string option; (*note option for debug*)
 }
 
 type schema = Forall of int list * typ
@@ -44,10 +36,10 @@ type letblk = (string * Ast.lexp) list
 
 module SSet = Set.Make(String)
 
-exception TypeError of string
 
 (*ELEMENTARY FUNCTIONS USED DURING *)
 let counter = ref 0
+let global_level = ref 0
 let debug_tvar_notes = ref ""
 let debug_constraints_notes = ref ""
 
@@ -55,15 +47,14 @@ let fresh_tvar (note : string option) : tvar =
   let id = !counter in
   if !print_debug then debug_tvar_notes := !debug_tvar_notes ^ "t" ^ string_of_int id ^ ": " ^ (match note with Some n -> n | None -> "") ^ "\n";
   counter := id + 1;
-  { id; link = None ; note = note}
+  { id; level = !global_level; link = None }
 
 let repr (t : typ) : typ =
   let rec repr_aux t visited =
     match t with
     | TVar {id; link = Some t_linked; _ } -> 
-        if List.mem id visited then (
-          if !allowrectypes then t else raise (TypeError "Recursive types are disabled (you can enable them)")
-        )
+        if List.mem id visited then 
+          raise (Errors.TypeError ("[repr] Occurs Check Failed: Recursive types are not allowed. Found tvar: t" ^ string_of_int id ^ "again")) 
         else
           repr_aux t_linked (id :: visited)
     | _ -> t
@@ -76,16 +67,9 @@ let sprint_typ (t : typ) : string =
   let rec aux (t : typ)  (vis : (int * int) list) : string * (int* int) list =
     match t with
     | TInt -> "int", vis
-    | TProd (tp, rho_opt) -> 
-        let tp_strs, visnew = List.fold_left (fun (strs, vis_acc) t_i -> 
-          let t_i_str, vis_i = aux t_i vis_acc in
-          (t_i_str :: strs, vis_i)
-        ) ([], vis) tp in
-        let rho_str, rho_vis = match rho_opt with
-          | None -> "", visnew
-          | Some rho -> let rho_str, rho_vis = aux rho visnew in " | " ^ rho_str, rho_vis
-         in
-        "[" ^ (String.concat " * " (List.rev tp_strs)) ^ rho_str ^ "]", rho_vis
+    | TVec t_inner -> 
+        let t_inner_str, vis_t_inner = aux t_inner vis in
+        "Vec[" ^ t_inner_str ^ "]", vis_t_inner
     | TFun (t1, t2) -> (
         let t1str, vis_t1 = aux t1 vis in
         let left = match t1 with
@@ -98,9 +82,7 @@ let sprint_typ (t : typ) : string =
     | TVar {id; link = Some t_linked; _ } -> 
         (
           match List.assoc_opt id vis with
-            | Some count ->
-                if !allowrectypes then "t" ^ string_of_int id, (id, count+1) :: vis
-                else raise (TypeError "Recursive types are disabled (you can enable them)")
+            | Some count -> raise (Errors.TypeError "Type loop detected during printing: Recursive types are not allowed")
             | None -> (
               let t_linked_str, vis_t_linked = aux t_linked ((id, 0) :: vis) in
               match List.assoc_opt id vis_t_linked with
@@ -108,7 +90,7 @@ let sprint_typ (t : typ) : string =
                 | _ -> t_linked_str, List.filter (fun (i, _) -> i <> id) vis_t_linked
             )
         ) 
-    | TVar {id; link = None; _ } -> "t" ^ string_of_int id, vis
+    | TVar {id; level; link = None; _ } -> "t" ^ string_of_int id (*^ " (lvl: " ^ string_of_int level ^ ")"*), vis
   in 
   let res_str, _ = aux t [] in
   res_str
@@ -133,87 +115,49 @@ let sprint_scc (topord : letblk list) : string =
 
 
 (*UNIFICATION ENGINE*)
-let unify (t1 : typ) (t2 : typ) : unit =
+let rec unify (t1 : typ) (t2 : typ) : unit =
   (*you put a tvar v into this that has a link => not good*)
-  let rec occurs_check (v : tvar) (t : typ) : bool =
-    if !allowrectypes then false else
+  let rec occurscheck_levelupdt (v : tvar) (t : typ) : unit =
       match repr t with
-      | TVar v' -> v.id = v'.id
-      | TFun (t1, t2) -> occurs_check v t1 || occurs_check v t2
-      | TInt -> false 
-      | TProd (tp, rho_opt) -> List.exists (occurs_check v) tp || (match rho_opt with Some rho -> occurs_check v rho | None -> false)
+      | TVar v' ->  if v.id = v'.id then 
+                      raise (Errors.TypeError ("[occurscheck_levelupdt] Occurs Check Failed: Recursive types are not allowed. Found tvar: t" ^ string_of_int v.id ^ " again")) 
+                    else 
+                      v'.level <- min v'.level v.level; ()
+      | TFun (t1, t2) -> occurscheck_levelupdt v t1; occurscheck_levelupdt v t2
+      | TInt -> () 
+      | TVec t_inner -> occurscheck_levelupdt v t_inner
   in
 
-  let rec unify_aux (vis : (typ * typ) list) (t1 : typ) (t2 : typ) : unit =
-    (*Printf.eprintf "[unify] Attempting to unify types %s and  %s\n" (sprint_typ t1) (sprint_typ t2);*)
-    let repr1 = repr t1 in
-    let repr2 = repr t2 in
-    if repr1 == repr2 then () (* Physical pointer match *)
-    else if List.exists (fun (v1, v2) -> (v1 == repr1 && v2 == repr2) || (v1 == repr2 && v2 == repr1)) vis then () (*already visited*)
-    else let vis' = (repr1, repr2) :: vis in 
-
-    let cut_prodtyp (len : int) (tp : typ list) : (typ list * typ list) =
-      let (tp_head, tp_tail, _) = List.fold_right 
-                    (fun x (head, tail, len) -> if len > 0 then (head, x :: tail, len - 1) else (x :: head,tail, len)) 
-                    tp ([], [], (List.length tp) - len) in
-      (tp_head, tp_tail)
-     in
-
-    match (repr1, repr2) with
-    | (TInt, TInt) -> ()
-    | (TProd (tp1, None), TProd (tp2, None)) -> (*Both not row-polymorphic*)
-        if List.length tp1 <> List.length tp2 then
-          raise (TypeError ("Type mismatch: Cannot unify " ^ sprint_typ repr1 ^ " with " ^ sprint_typ repr2))
-        else
-          List.iter2 (fun t1_i t2_i -> unify_aux vis' t1_i t2_i) tp1 tp2 (*think its ok to not update the visibility list, if bugs appear I should revisit*)
-    | (TProd (tps, Some rhos), TProd (tpn, None)) | (TProd (tpn, None), TProd (tps, Some rhos)) -> (*one is row-polymorphic, the other is not*)
-        if List.length tps > List.length tpn then
-          raise (TypeError ("Type mismatch: Cannot unify " ^ sprint_typ repr1 ^ " with " ^ sprint_typ repr2))
-        else
-          let (tpn_head, tpn_tail) = cut_prodtyp (List.length tps) tpn in
-          List.iter2 (fun t1_i t2_i -> unify_aux vis' t1_i t2_i) tps tpn_head;
-          unify_aux vis' rhos (TProd (tpn_tail, None))
-    | (TProd (tp1, Some rhos1), TProd (tp2, Some rhos2)) -> 
-        if List.length tp1 > List.length tp2 then
-          let (tp1_head, tp1_tail) = cut_prodtyp (List.length tp2) tp1 in
-          List.iter2 (fun t1_i t2_i -> unify_aux vis' t1_i t2_i) tp2 tp1_head;
-          unify_aux vis' rhos2 (TProd (tp1_tail, Some rhos1))
-        else
-          let (tp2_head, tp2_tail) = cut_prodtyp (List.length tp1) tp2 in
-          List.iter2 (fun t1_i t2_i -> unify_aux vis' t1_i t2_i) tp1 tp2_head;
-          unify_aux vis' rhos1 (TProd (tp2_tail, Some rhos2))
-    | (TFun (t1f, t1x), TFun (t2f, t2x)) -> 
-        unify_aux vis' t1f t2f;
-        unify_aux vis' t1x t2x
-    | (TVar v, t) | (t, TVar v) ->
-        if occurs_check v t then
-          raise (TypeError ("Occurs check failed: Recursive types are disabled (you can enable them). Cannot unify " ^ sprint_typ repr1 ^ " with " ^ sprint_typ repr2))
-        else (
-          if !print_debug then Printf.eprintf "Linking t%d to %s\n" v.id (sprint_typ t);
+  match (repr t1, repr t2) with
+  | (TInt, TInt) -> ()
+  | (TFun (t1f, t1x), TFun (t2f, t2x)) -> 
+      unify t1f t2f;
+      unify t1x t2x
+  | (TVec t1_inner, TVec t2_inner) -> unify t1_inner t2_inner;
+  | (TVar v, t) | (t, TVar v) -> (
+      match repr t with
+      | TVar v' when v.id = v'.id -> () (*t0 does not occur in t0 but it would in TVec[t0]*)
+      | _ -> (
+          occurscheck_levelupdt v t;
+          if !print_debug then Printf.eprintf "Linking t%d (lvl: %d) to %s\n" v.id v.level (sprint_typ t);
           v.link <- Some t
-        )
-    | _ -> raise (TypeError ("Type mismatch: Cannot unify " ^ sprint_typ repr1 ^ " with " ^ sprint_typ repr2))  
-  in unify_aux [] t1 t2
+      )
+    )
+      
+  | _ -> raise (Errors.TypeError ("Type mismatch: Cannot unify " ^ sprint_typ (repr t1) ^ " with " ^ sprint_typ (repr t2)))  
 
 let rec generalize (t : typ) : schema =
   match repr t with
   | TInt -> Forall ([], TInt)
-  | TProd (tp, rho_opt) -> 
-      let gen_types = List.map generalize tp in
-      let vars = List.flatten (List.map (fun (Forall (vs, _)) -> vs) gen_types) in
-      let gen_tp = List.map (fun (Forall (_, t)) -> t) gen_types in
-      let vars_rho, gen_rho = match rho_opt with
-        | None -> [], None
-        | Some rho -> let Forall (rho_vars, rho_gen) = generalize rho in (rho_vars, Some rho_gen)
-      in
-      let unique_vars = List.sort_uniq compare (vars @ vars_rho) in
-      Forall (unique_vars, TProd (gen_tp, gen_rho))
   | TFun (t1, t2) ->
       let Forall (vars1, t1_gen) = generalize t1 in
       let Forall (vars2, t2_gen) = generalize t2 in
       let unique_vars = List.sort_uniq compare (vars1 @ vars2) in
       Forall (unique_vars, TFun (t1_gen, t2_gen))
-  | TVar v -> Forall ([v.id], TVar v)
+  | TVec t_inner ->
+      let Forall (vars_inner, t_inner_gen) = generalize t_inner in
+      Forall (vars_inner, TVec t_inner_gen)
+  | TVar v -> if v.level > !global_level then Forall ([v.id], TVar v) else Forall ([], TVar v)
 
 let instantiate (Forall (vars, t) : schema) : typ =
   let unique_vars = List.sort_uniq compare vars in (*sanitization*)
@@ -225,18 +169,18 @@ let instantiate (Forall (vars, t) : schema) : typ =
             | Some fresh_t -> fresh_t
             | None -> t
         )
-      | TProd (tp, rho_opt) -> TProd (List.map (instaux varmap) tp, rho_opt |> Option.map (instaux varmap))
       | TFun (t1, t2) -> TFun (instaux varmap t1, instaux varmap t2)
+      | TVec t_inner -> TVec (instaux varmap t_inner)
       | TInt -> TInt 
   in instaux fresh_var_map t
 
 
-let rec typecheck_lexp (e : lexp) (env : type_env) : constraints * typ =
+let rec typecheck_lexp (e : lexp) (env : type_env) : constraints * typ = (*what e not as second arg, I am ocaml noob*)
   match e with
     | Var x -> (
       match List.assoc_opt x env with
       | Some s -> ([], instantiate s) 
-      | None -> raise (TypeError ("Unbound variable: " ^ x))
+      | None -> raise (Errors.TypeError ("Unbound variable: " ^ x))
       )
     | Lam (x, eb) -> (
       let tv = TVar (fresh_tvar (Some (Printf.sprintf "lambda %s" (PrintIntlang.sprint_lexp e)))) in
@@ -256,7 +200,7 @@ let rec typecheck_lexp (e : lexp) (env : type_env) : constraints * typ =
       let cs1, t1 = typecheck_lexp e1 env in
       let cs2, t2 = typecheck_lexp e2 env in
       if !print_debug then debug_constraints_notes := !debug_constraints_notes ^ (Printf.sprintf "Bop constraints for %s:\n    %s\n    %s\n" (PrintIntlang.sprint_lexp e) (sprint_constraints [(t1, TInt)]) (sprint_constraints [(t2, TInt)]));
-      ((t1, TInt) :: (t2, TInt) :: (cs1 @ cs2), TInt)
+      ((t1, TInt) :: (t2, TInt) :: (cs1 @ cs2), TInt) (*decided against a TInt and TIntNonZero type since it does complicated things and I prefer to just user runtime checks anyways*)
       )
     | If (c, t, e) -> (
       let cs_c, t_c = typecheck_lexp c env in
@@ -265,39 +209,68 @@ let rec typecheck_lexp (e : lexp) (env : type_env) : constraints * typ =
       if !print_debug then debug_constraints_notes := !debug_constraints_notes ^ (Printf.sprintf "If constraints for %s:\n    %s\n    %s\n" (PrintIntlang.sprint_lexp e) (sprint_constraints [(t_c, TInt)]) (sprint_constraints [(t_t, t_e)]));
       ((t_c, TInt) :: (t_t, t_e) :: (cs_c @ cs_t @ cs_e), t_t)
       )
-    | Tuple ls -> (
-      let cs_ls, t_ls = List.split (List.map (fun lexp_i -> typecheck_lexp lexp_i env) ls) in
-      let cs = List.flatten cs_ls in
-      (cs, TProd (t_ls, None))
+    | Letin (x, e, b) -> (
+      let env' = typecheck_letblk [(x, e)] env (-1) in
+      typecheck_lexp b env'
       )
-    | Field (lexp_i, idx) -> (
-      let cs_lexp_i, t_lexp_i = typecheck_lexp lexp_i env in
-
-      (*small helper function to create placeholders for the product type *)
-      let create_prod_placholder idx = 
-        let finaltvar = (TVar (fresh_tvar (Some (Printf.sprintf "Field %d placeholder during typechecking %s" idx (PrintIntlang.sprint_lexp e))))) in
-        let rec aux n = 
-          if n = 0 then [finaltvar]
-          else (TVar (fresh_tvar (Some (Printf.sprintf "Field %d placeholder during typechecking %s" (idx-n) (PrintIntlang.sprint_lexp e))))) :: (aux (n - 1))
-        in (aux idx, finaltvar) 
-      in
-      let tp_placeholders, tp_final_placeholder = create_prod_placholder idx in
-      let rho_placeholder = TVar (fresh_tvar (Some (Printf.sprintf "Field rho placeholder during typechecking %s" (PrintIntlang.sprint_lexp e)))) in
-      let cs_with_prod = (t_lexp_i, TProd (tp_placeholders, Some rho_placeholder)) :: cs_lexp_i in
-      if !print_debug then debug_constraints_notes := !debug_constraints_notes ^ (Printf.sprintf "Field constraints for %s:\n    %s\n" (PrintIntlang.sprint_lexp e) (sprint_constraints [(t_lexp_i, TProd (tp_placeholders, Some rho_placeholder))]));
-      (cs_with_prod, tp_final_placeholder)
+    | Veclit ls -> (
+      if List.length ls = 0 then raise (Errors.TypeError "Cannot infer type of empty vector literal, how did this get past the parser?") 
+      else
+        let cs_ls, t_ls = List.split (List.map (fun lexp_i -> typecheck_lexp lexp_i env) ls) in
+        let cs = List.flatten cs_ls in
+        (*while a new TVar is not strictly needed here, it does lend itself better to ocaml programming imo*)
+        let t_elem = TVar (fresh_tvar (Some (Printf.sprintf "vector literal element type for %s" (PrintIntlang.sprint_lexp e)))) in
+        let elem_constraints = List.map (fun t_i -> (t_i, t_elem)) t_ls in
+        if !print_debug then debug_constraints_notes := !debug_constraints_notes ^ (Printf.sprintf "Vector literal constraints for %s:\n    %s\n" (PrintIntlang.sprint_lexp e) (sprint_constraints elem_constraints));
+        (elem_constraints @ cs, TVec t_elem)
+    )
+    | Vecmk (defval, count) -> (
+      let cs_defval, t_defval = typecheck_lexp defval env in
+      let cs_count, t_count = typecheck_lexp count env in
+      if !print_debug then debug_constraints_notes := !debug_constraints_notes ^ (Printf.sprintf "Vector make constraints for %s:\n    %s\n" (PrintIntlang.sprint_lexp e) (sprint_constraints [(t_count, TInt)]));
+      ((t_count, TInt) :: (cs_defval @ cs_count), TVec t_defval)
+    )
+    | Veclen v -> (
+      let cs_v, t_v = typecheck_lexp v env in
+      let t_vec_of = TVec(TVar (fresh_tvar (Some "vector length on this type"))) in
+      if !print_debug then debug_constraints_notes := !debug_constraints_notes ^ (Printf.sprintf "Vector length constraints for %s:\n    %s\n" (PrintIntlang.sprint_lexp e) (sprint_constraints [(t_v, t_vec_of)]));
+      ((t_v, t_vec_of) :: cs_v, TInt)
+    )
+    | Vecget (v, i) -> (
+      let cs_v, t_v = typecheck_lexp v env in
+      let cs_i, t_i = typecheck_lexp i env in
+      let t_vec_of = TVar (fresh_tvar (Some "vector get on this type")) in
+      let t_vec = TVec t_vec_of in
+      if !print_debug then debug_constraints_notes := !debug_constraints_notes ^ (Printf.sprintf "Vector get constraints for %s:\n    %s\n    %s\n" (PrintIntlang.sprint_lexp e) (sprint_constraints [(t_v, t_vec)]) (sprint_constraints [(t_i, TInt)]));
+      ((t_v, t_vec) :: (t_i, TInt) :: cs_v @ cs_i, t_vec_of)
+    )
+    | Vecset (v, i, value) -> (
+      let cs_v, t_v = typecheck_lexp v env in
+      let cs_i, t_i = typecheck_lexp i env in
+      let cs_val, t_val = typecheck_lexp value env in
+      let t_vec_of = TVar (fresh_tvar (Some "vector set on a vector of this type")) in
+      let t_vec = TVec t_vec_of in
+      if !print_debug then debug_constraints_notes := !debug_constraints_notes ^ (Printf.sprintf "Vector set constraints for %s:\n    %s\n    %s\n    %s\n" (PrintIntlang.sprint_lexp e) (sprint_constraints [(t_v, t_vec)]) (sprint_constraints [(t_i, TInt)]) (sprint_constraints [(t_val, t_vec_of)]));
+      ((t_v, t_vec) :: (t_i, TInt) :: (t_val, t_vec_of) :: cs_v @ cs_i @ cs_val, t_vec)
     )
 
-let typecheck_letblk (letblk : letblk) (env : type_env) (letblkid : int): type_env =
+and typecheck_letblk (letblk : letblk) (env : type_env) (letblkid : int): type_env =
+  (*debug things*)
   let headerline = "---------------------------------------------\n" in
   if !print_debug then 
     begin
      debug_constraints_notes := headerline ^ "CONSTRAINTS:\n" ^ headerline; debug_tvar_notes := headerline ^ "TVARS:\n" ^ headerline; 
     end;
+
+  (*drop global level*)
+  let old_global_level = !global_level in
+  global_level := old_global_level + 1;
+
   (*add all let defs to env*)
   let env_with_letdefs = List.fold_left 
     (fun env' (name, lexp) -> (name, Forall ([], TVar (fresh_tvar (Some (Printf.sprintf "letblk %s" name))))) :: env') 
     env letblk in
+  
   (*collect all constraints*)
   let constraints = List.fold_left 
     (fun cs (name, lexp) -> 
@@ -308,7 +281,7 @@ let typecheck_letblk (letblk : letblk) (env : type_env) (letblkid : int): type_e
   
   if !print_debug then
     begin
-      Printf.eprintf "%sLETBLK %d:\n%s" headerline letblkid headerline;
+      Printf.eprintf "%sLETBLK %d:\n%s\n%s" headerline letblkid (sprint_env env) headerline;
       Printf.eprintf "%s" !debug_tvar_notes;
       Printf.eprintf "%s" !debug_constraints_notes;
       Printf.eprintf "%sUNIFICATION\n%s" headerline headerline;
@@ -319,6 +292,9 @@ let typecheck_letblk (letblk : letblk) (env : type_env) (letblkid : int): type_e
     unify t1 t2;
   ) constraints;
 
+  (*restore global level*)
+  global_level := old_global_level;
+
   (*generalize all types and add to env*)
    let generalized_env = List.fold_left 
     (fun env' (name, lexp) -> 
@@ -326,7 +302,7 @@ let typecheck_letblk (letblk : letblk) (env : type_env) (letblkid : int): type_e
       let gen_type = generalize tv in
       (name, gen_type) :: env')
     env letblk in
-  
+  if !print_debug then Printf.eprintf "%sGeneralized types for letblk %d:\n%s\n%s" headerline letblkid (sprint_env generalized_env) headerline;
   generalized_env
 
 (*SCC (Strongly Connected Components) analysis for polymorphic types*)
@@ -345,10 +321,20 @@ let rec free_vars (locals : SSet.t) (e : lexp) : SSet.t =
       SSet.union (free_vars locals e1) (free_vars locals e2)
   | If (c, t, e) ->
       SSet.union (free_vars locals c) (SSet.union (free_vars locals t) (free_vars locals e))
-  | Tuple ls ->
+  | Letin (x, e, b) ->
+      let free_in_e = free_vars locals e in
+      let free_in_b = free_vars (SSet.add x locals) b in
+      SSet.union free_in_e free_in_b
+  | Veclit ls ->
       List.fold_left (fun acc lexp_i -> SSet.union acc (free_vars locals lexp_i)) SSet.empty ls
-  | Field (lexp_i, _) -> 
-      free_vars locals lexp_i
+  | Vecmk (defval, count) ->
+      SSet.union (free_vars locals defval) (free_vars locals count)
+  | Veclen v ->
+      free_vars locals v
+  | Vecget (v, i) ->
+      SSet.union (free_vars locals v) (free_vars locals i)
+  | Vecset (v, i, value) ->
+      SSet.union (free_vars locals v) (SSet.union (free_vars locals i) (free_vars locals value))
 
 let scc_split_letblk (blk : letblk) : letblk list =
   (* 1. Identify the universe of names defined in this specific block *)
@@ -425,9 +411,9 @@ let scc_split_letblk (blk : letblk) : letblk list =
 
 (*
   expects: a program (with all Nlexp except for the last one being a lexp)
-  returns: unit if type checks, otherwise raises TypeError with an error message
+  returns: unit if type checks, otherwise raises Errors.TypeError with an error message
 *)
-let typecheck ((global_letblk, mainlexp) : prog) :  type_env =
+let typecheck ((global_letblk, mainlexp_opt) : prog) :  type_env =
   counter := 0; (*reset tvar counter for consistency*)
   let headerline = "---------------------------------------------\n" in
   (*split letblk into scc*) 
@@ -441,9 +427,12 @@ let typecheck ((global_letblk, mainlexp) : prog) :  type_env =
   if !print_debug then Printf.eprintf "%sAll SCCs processed, FINAL ENV: \n%s%s\n" headerline headerline (sprint_env env);
   
   (*typecheck the main expression*)
-  let env_main = typecheck_letblk [(".main", mainlexp)] env (-1) in
-  match List.assoc_opt ".main" env_main with
-    | Some (Forall ([], TInt)) -> if !print_debug then Printf.eprintf "Main expression has type int: OK\n\n"; env
-    | Some s -> raise (TypeError ("Final expression has type " ^ sprint_typ (instantiate s) ^ " but expected int (this is intlang ;))"))
-    | None -> raise (TypeError "Internal Error")  
-    
+  if mainlexp_opt != None then (
+    let mainlexp = Option.get mainlexp_opt in
+    let env_main = typecheck_letblk [("@main", mainlexp)] env (-1) in
+    match List.assoc_opt "@main" env_main with
+      | Some (Forall ([], TInt)) -> if !print_debug then Printf.eprintf "Main expression has type int: OK\n\n"; env
+      | Some s -> raise (Errors.TypeError ("Final expression has type " ^ sprint_typ (instantiate s) ^ " but expected int (this is intlang ;))"))
+      | None -> raise (Errors.TypeError "Internal Error")
+  )
+  else env

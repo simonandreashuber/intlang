@@ -14,6 +14,7 @@ open Ast
 %token LBRACK RBRACK        (* [] *)
 %token COMMA DIV
 %token VECLEN VECLIT VECMK VECGET VECSET
+%token STR
 %token <int>INT             (* int literal *)
 %token <string>ID           (* name of some thing *)
 
@@ -25,14 +26,19 @@ start:
     | p = prog EOF      { p }
 
 prog:
-    | INCLUDE; pt = path; p = prog    { (Include pt) :: p }
-    | nl = nlexp; p = prog            { nl :: p }
-    | nl = nlexp;                     { [nl] }
-    | l = lexp                        { [Lexp l] }
+    | INCLUDE; id = ID; p = prog                { (IncludeGlobal id) :: p }
+    | INCLUDE; STR; pt = path; STR; p = prog    { (IncludeRelative pt) :: p }
+    | nl = nlexp; p = prog                      { nl :: p }
+    | nl = nlexp;                               { [nl] }
+    | l = lexp                                  { [Lexp l] }
 
 path:
-    | folder = ID; DIV; p = path      { folder ^ "/" ^ p } (*if u put a dot in ur folder name u go to intlang prison, hahaha*)
-    | id = ID                         { id }
+    | id = ID; p = path         { id ^ p }
+    | DIV; p = path             { "/" ^ p }
+    | DOT; p = path             { "." ^ p }
+    | SUB; p = path             { "-" ^ p }
+    | id = ID                   { id }   
+    (*of course there could be an import like "fldr/name-" this would not work but I don't think ur intlang file should end like this so*)
 
 nlexp:
     | LET; id = ID; ASS; l = lexp; SEM   { Nlexp(id, l) }

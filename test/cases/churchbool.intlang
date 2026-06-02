@@ -1,3 +1,5 @@
+-- Expect: 100
+
 let true = \t. \f. t;
 let false = \t. \f. f;
 let cif = \b. \then_branch. \else_branch. b then_branch else_branch;

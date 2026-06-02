@@ -49,6 +49,7 @@ rule token = parse
   | "vecset"    { VECSET }
   | ","         { COMMA }
   | "/"         { DIV } 
+  | '"'         { STR }
   | digit+ as n { INT (int_of_string n) }
   | id as s     { ID s }
   | eof         { EOF }

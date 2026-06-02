@@ -1,2 +1,4 @@
+-- Expect: 0
+include math
 let mod = \x. \n. (1-(x-n < 0))*(mod (x-n) n) + (x-n < 0)*x;
 mod 10 5

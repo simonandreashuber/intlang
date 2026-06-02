@@ -16,7 +16,8 @@ type lexp =                         (*lambda expression*)
     | Vecset of lexp * lexp * lexp  (*vecset[v, i, val]*)
 
 type stmt = 
-    | Include of string
+    | IncludeGlobal of string
+    | IncludeRelative of string
     | Nlexp of string * lexp (*named lambda expression*)
     | Lexp of lexp           (*lambda expression, that will be evaulated*)
 

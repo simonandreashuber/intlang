@@ -1,3 +1,4 @@
+-- Expect: 2
 let pair = \x. \y. \f. f x y;
 let head = \p. p (\x. \y. x);
 let tail = \p. p (\x. \y. y);

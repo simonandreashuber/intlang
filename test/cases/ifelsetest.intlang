@@ -1,0 +1,4 @@
+-- Expect: 7
+include math
+let answers = \x. if math.mod x 2 then 7 else 6 end;
+answers 3

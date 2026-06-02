@@ -1,0 +1,7 @@
+-- Expect: 3
+include sort
+
+let usort_vec = vec[5,4,3];
+let sort_vec = sort.bubblesort usort_vec;
+
+vecget[sort_vec, 0]

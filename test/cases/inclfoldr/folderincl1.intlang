@@ -1,0 +1,2 @@
+include "folderincl2" -- relative include from this point
+let fincl1func = \x. x * 2;

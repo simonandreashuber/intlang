@@ -1,0 +1,14 @@
+-- Expect: 61
+
+include vector
+
+let start_vec = vec[1,2,3,4,5];
+let double_vec_map = vector.vecmap (\x. 2*x) start_vec;
+let concatvec = vector.intvecconcat double_vec_map double_vec_map; --will be interesting on how to optimize this
+let double_vec_addreduced = vector.vec_left_fold (\x. \y. x+y) 0 concatvec;
+let intveccomp = vector.veccmp (\x. \y. x == y);
+
+  double_vec_addreduced                     -- 60
++ intveccomp double_vec_map double_vec_map  -- 1
++ intveccomp double_vec_map start_vec       -- 0
++ intveccomp double_vec_map concatvec       -- 0 

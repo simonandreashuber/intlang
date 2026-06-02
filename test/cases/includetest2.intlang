@@ -1,6 +1,4 @@
-include gcd
-include det
-include lib/matmul
-include includetest
-let somefunc = \x. x + 1;
-0
+include "fib"
+include "includetest"
+include "includetest2" -- also self include
+let somefunc = \x. x + 1; -- same funcname as in includetest

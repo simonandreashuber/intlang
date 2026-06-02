@@ -1,6 +1,7 @@
-include mod
-include gcd
-include includetest
-include includetest2
+-- Expect: 8
+include "includetest" -- self include
+include "includetest2"
+include  mat -- std lib include
+include "inclfoldr/folderincl1" -- relative but in subfolder
 let somefunc = \x. x + 1;
-0
+math.pow 2 3

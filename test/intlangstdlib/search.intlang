@@ -1,0 +1,33 @@
+-- searching things in vectors
+-- Note: for now I implemented things to only work on vectors of ints
+
+let linearsearch = \arr. \target.
+    let linearsearchaux = \arr. \target. \i.
+        if i < veclen[arr] then
+            if vecget[arr, i] == target then
+                i
+            else
+                linearsearchaux arr target (i+1)
+            end
+        else
+            0-1
+        end
+    in
+    linearsearchaux arr target 0;
+
+let binarysearch = \arr. \target.
+    let binarysearchaux = \arr. \target. \left. \right.
+        if left < right then
+            let mid = (left + right) / 2 in
+            if vecget[arr, mid] == target then
+                mid
+            else if vecget[arr, mid] < target then
+                binarysearchaux arr target (mid+1) right
+            else
+                binarysearchaux arr target left mid
+            end end
+        else
+            0-1
+        end
+    in
+    binarysearchaux arr target 0 veclen[arr];

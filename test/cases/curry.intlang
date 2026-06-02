@@ -1,3 +1,4 @@
+-- Expect: 15
 let add = \x. \y. x + y;
 let add5 = add 5;
 add5 10
