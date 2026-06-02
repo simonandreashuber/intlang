@@ -6,7 +6,7 @@ As of now it has Lexer, Parser, Typechecker Interpreter and some Tests :)
 
 ## Formal Semantics and Type System
 
-in ´doc/formal-semantics-and-type-system.tex´ there are notes on:
+in `doc/formal-semantics-and-type-system.tex` there are notes on:
  - Lexical Conventions
  - Concrete Grammar (BNF)
  - Type System
@@ -14,7 +14,7 @@ in ´doc/formal-semantics-and-type-system.tex´ there are notes on:
 
 ## Syntax by Example
 
-in ´/test/cases´ and ´/test/intlangstdlib´ there are plenty of examples. Here are also some
+in `/test/cases` and `/test/intlangstdlib` there are plenty of examples. Here are also some
 
 ```
 let sqr = \x. x * x;
