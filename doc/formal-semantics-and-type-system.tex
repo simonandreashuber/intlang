@@ -1,0 +1,430 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\title{intlang: Formal Semantics and Type System}
+\author{}
+\date{}
+
+\lstset{
+  basicstyle=\ttfamily,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  stringstyle=\color{red},
+  breaklines=true,
+  showstringspaces=false,
+}
+
+\newcommand{\judge}[1]{\vdash \, #1}
+\newcommand{\env}{\Gamma}
+\newcommand{\type}{\tau}
+
+\begin{document}
+
+\maketitle
+
+\section{Lexical Conventions}
+
+\begin{itemize}
+  \item \textbf{Identifiers:} An identifier is a letter or underscore followed by zero or more letters, digits, or underscores. Identifiers are case-sensitive.
+  \item \textbf{Integer literals:} $ n \in \mathbb{N} \cup \{0\} $. Only non-negative integers can be written as literals. Negative integers can be constructed using subtraction, e.g., $0 - n$.
+  \item \textbf{Comments:} Line comments begin with \texttt{-\,-} and extend to the end of the line.
+  \item \textbf{Whitespace:} Ignored (spaces, tabs, newlines, carriage returns).
+  \item \textbf{Keywords:} \texttt{let}, \texttt{in}, \texttt{if}, \texttt{then}, \texttt{else}, \texttt{end}, \texttt{include}, \texttt{vec}, \texttt{vecmk}, \texttt{veclen}, \texttt{vecget}, \texttt{vecset}.
+\end{itemize}
+
+\section{Concrete Grammar (BNF)}
+
+The concrete grammar is defined in extended Backus-Naur form:
+
+\subsection{Programs and Statements}
+
+\begin{align*}
+\text{prog} &::= \text{stmt}^* \\
+\text{stmt} &::= \textbf{include} \, \text{id} \\
+            &\mid \textbf{include} \, \texttt{"} \, \text{id} \, \texttt{"} \\
+            &\mid \textbf{include} \, \texttt{"} \, \text{path} \, \texttt{"} \\
+            &\mid \textbf{let} \, \text{id} \, \textbf{=} \, \text{expr} \, \textbf{;} \\
+            &\mid \text{expr}
+\end{align*}
+
+A program consists of optional include statements. 
+
+\begin{itemize}
+  \item Zero or more named let-bindings (with semicolons) and a final expression.
+  \item Or, One or more named let-bindings (with semicolons) and no final expression.
+\end{itemize}
+
+
+\subsubsection{Include Statements}
+
+Include statements can reference global libraries (no Quotes) or relative file paths (with Quotes). An include gives access to the named let-bindings from the included module (which is just another .intlang file). The .intlang ending must not be written in the include statement.
+
+\begin{align*}
+\text{path} &::= \text{id} \, \text{path} \\
+            &\mid \texttt{/} \, \text{path} \\
+            &\mid \texttt{.} \, \text{path} \\
+            &\mid \texttt{-} \, \text{path} \\
+            &\mid \texttt{/} \, \text{id}
+\end{align*}
+
+\subsubsection{Qualified Names}
+
+A qualified name \texttt{id.id} allows referencing variables from included modules. For example, \texttt{math.mod} refers to the \texttt{mod} binding from the \texttt{math} module.
+
+\subsection{Expressions}
+
+Expressions are defined with explicit precedence levels (from lowest to highest binding strength):
+
+\subsubsection{Comparison Operators}
+
+\begin{align*}
+\text{expr} &::= \textbf{let} \, \text{id} \, \textbf{=} \, \text{expr} \, \textbf{in} \, \text{expr} \\
+            &\mid \textbf{if} \, \text{expr} \, \textbf{then} \, \text{expr} \, \textbf{else} \, \text{expr} \, \textbf{end} \\
+            &\mid \backslash \, \text{id} \, . \, \text{expr} \\
+            &\mid \text{expr}_{\text{cmp}}
+\end{align*}
+
+Let-in bindings, conditionals, and lambda abstractions have lowest precedence.
+
+\subsubsection{Comparison}
+
+\begin{align*}
+\text{expr}_{\text{cmp}} &::= \text{expr}_{\text{cmp}} \, \textbf{==} \, \text{expr}_{\text{add}} \\
+                         &\mid \text{expr}_{\text{cmp}} \, < \, \text{expr}_{\text{add}} \\
+                         &\mid \text{expr}_{\text{add}}
+\end{align*}
+
+Comparison operators (\texttt{==}, \texttt{<}) are left-associative.
+
+\subsubsection{Addition and Subtraction}
+
+\begin{align*}
+\text{expr}_{\text{add}} &::= \text{expr}_{\text{add}} \, \textbf{+} \, \text{expr}_{\text{mul}} \\
+                         &\mid \text{expr}_{\text{add}} \, \textbf{-} \, \text{expr}_{\text{mul}} \\
+                         &\mid \text{expr}_{\text{mul}}
+\end{align*}
+
+Addition and subtraction are left-associative.
+
+\subsubsection{Multiplication and Division}
+
+\begin{align*}
+\text{expr}_{\text{mul}} &::= \text{expr}_{\text{mul}} \, \textbf{*} \, \text{expr}_{\text{app}} \\
+                         &\mid \text{expr}_{\text{mul}} \, \textbf{/} \, \text{expr}_{\text{app}} \\
+                         &\mid \text{expr}_{\text{app}}
+\end{align*}
+
+Multiplication and division are left-associative.
+
+\subsubsection{Application}
+
+\begin{align*}
+\text{expr}_{\text{app}} &::= \text{expr}_{\text{app}} \, \text{expr}_{\text{atom}} \\
+                         &\mid \text{expr}_{\text{atom}}
+\end{align*}
+
+Application is left-associative and binds strongest: $f \, g \, h$ parses as $(f \, g) \, h$.
+
+\subsubsection{Atomic Expressions}
+
+\begin{align*}
+\text{expr}_{\text{atom}} &::= \text{id} \\
+                          &\mid \text{id} \, \texttt{.} \, \text{id} \\
+                          &\mid n \\
+                          &\mid \textbf{vec} \, \texttt{[} \, \text{expr}_{\text{list}} \, \texttt{]} \\
+                          &\mid \textbf{vecmk} \, \texttt{[} \, \text{expr} \, \texttt{,} \, \text{expr} \, \texttt{]} \\
+                          &\mid \textbf{veclen} \, \texttt{[} \, \text{expr} \, \texttt{]} \\
+                          &\mid \textbf{vecget} \, \texttt{[} \, \text{expr} \, \texttt{,} \, \text{expr} \, \texttt{]} \\
+                          &\mid \textbf{vecset} \, \texttt{[} \, \text{expr} \, \texttt{,} \, \text{expr} \, \texttt{,} \, \text{expr} \, \texttt{]} \\
+                          &\mid \textbf{(} \, \text{expr} \, \textbf{)}
+\end{align*}
+
+\subsubsection{Expression Lists}
+
+\begin{align*}
+\text{expr}_{\text{list}} &::= \text{expr} \, \texttt{,} \, \text{expr}_{\text{list}} \\
+                          &\mid \text{expr}
+\end{align*}
+
+\subsubsection{Qualified Names}
+
+A qualified name \texttt{id.id} allows referencing variables from included modules. For example, \texttt{Math.sin} refers to the \texttt{sin} binding from the \texttt{Math} module.
+
+\section{Type System}
+
+\subsection{Types and Type Schemes}
+
+\subsubsection{Type Syntax}
+
+\begin{align*}
+\type &::= \mathtt{int} \mid \alpha \mid \type \to \type \mid \text{Vec}[\type] \\
+\text{where } \alpha &\text{ is a type variable}
+\end{align*}
+
+A \textbf{type scheme} or \textbf{generic type} has the form:
+\begin{align*}
+\sigma &::= \forall \alpha_1 \ldots \alpha_n . \type
+\end{align*}
+
+where $\alpha_1, \ldots, \alpha_n$ are quantified type variables. When $n = 0$, we write just $\type$ instead of $\forall . \type$.
+
+\subsubsection{Type Environment}
+
+The type environment $\env$ is a finite map from variable names to type schemes:
+\begin{align*}
+\env &\in \text{Var} \rightharpoonup \text{TypeScheme}
+\end{align*}
+
+\subsection{Type Inference Judgment}
+
+The type judgment has the form:
+\begin{align*}
+\env \judge{e : \type \mid C}
+\end{align*}
+
+where:
+\begin{itemize}
+  \item $\env$ is the type environment
+  \item $e$ is the expression
+  \item $\type$ is the inferred type
+  \item $C$ is a set of type constraints (equalities to be unified)
+\end{itemize}
+
+\subsection{Inference Rules}
+
+\subsubsection{Variable}
+
+When a variable is looked up in the environment, we instantiate its type scheme to fresh type variables:
+
+\begin{equation*}
+\frac{
+  \env(x) = \forall \alpha_1 \ldots \alpha_n . \type
+  \quad
+  \text{(fresh } \beta_1, \ldots, \beta_n \text{)}
+}{
+  \env \judge{x : \type[\beta_1/\alpha_1, \ldots, \beta_n/\alpha_n] \mid \emptyset}
+}
+\quad (\text{VAR})
+\end{equation*}
+
+\subsubsection{Integer Literal}
+
+\begin{equation*}
+\frac{}{\env \judge{n : \mathtt{int} \mid \emptyset}}
+\quad (\text{INT})
+\end{equation*}
+
+\subsubsection{Lambda Abstraction}
+
+For a lambda abstraction $\lambda x . e$, we introduce a fresh type variable $\alpha$ for the parameter, extend the environment, and check the body:
+
+\begin{equation*}
+\frac{
+  \text{fresh } \alpha
+  \quad
+  \env, x : \alpha \judge{e : \type \mid C}
+}{
+  \env \judge{\lambda x . e : \alpha \to \type \mid C}
+}
+\quad (\text{LAM})
+\end{equation*}
+
+\subsubsection{Application}
+
+For an application $f \, x$, we require the function type to unify with a function type where the argument type matches the argument:
+
+\begin{equation*}
+\frac{
+  \env \judge{f : \type_f \mid C_f}
+  \quad
+  \env \judge{x : \type_x \mid C_x}
+  \quad
+  \text{fresh } \beta
+}{
+  \env \judge{f \, x : \beta \mid C_f \cup C_x \cup \{(\type_f, \type_x \to \beta)\}}
+}
+\quad (\text{APP})
+\end{equation*}
+
+\subsubsection{Binary Operations}
+
+Binary operations require both operands to be integers:
+
+\begin{equation*}
+\frac{
+  \env \judge{e_1 : \type_1 \mid C_1}
+  \quad
+  \env \judge{e_2 : \type_2 \mid C_2}
+}{
+  \env \judge{e_1 \, \text{bop} \, e_2 : \mathtt{int} \mid C_1 \cup C_2 \cup \{(\type_1, \mathtt{int}), (\type_2, \mathtt{int})\}}
+}
+\quad (\text{BOP})
+\end{equation*}
+
+where $\text{bop} \in \{+, -, *, / , ==, <\}$.
+
+\subsubsection{Conditional}
+
+The condition must be an integer, and the two branches must have the same type:
+
+\begin{equation*}
+\frac{
+  \env \judge{c : \type_c \mid C_c}
+  \quad
+  \env \judge{t : \type_t \mid C_t}
+  \quad
+  \env \judge{e : \type_e \mid C_e}
+}{
+  \env \judge{\text{if } c \text{ then } t \text{ else } e : \type_t \mid C_c \cup C_t \cup C_e \cup \{(\type_c, \mathtt{int}), (\type_t, \type_e)\}}
+}
+\quad (\text{IF})
+\end{equation*}
+
+\subsubsection{Vector Literal}
+
+All elements of a vector literal must have the same type:
+
+\begin{equation*}
+\frac{
+  \forall i : \env \judge{e_i : \type_i \mid C_i}
+  \quad
+  \text{fresh } \alpha
+}{
+  \env \judge{\text{vec}[e_1, \ldots, e_n] : \text{Vec}[\alpha] \mid \bigcup_i C_i \cup \bigcup_i \{(\type_i, \alpha)\}}
+}
+\quad (\text{VECLIT})
+\end{equation*}
+
+\subsubsection{Vector Construction}
+
+\texttt{vecmk} takes a default value and a count. The count must be an integer:
+
+\begin{equation*}
+\frac{
+  \env \judge{d : \type_d \mid C_d}
+  \quad
+  \env \judge{c : \type_c \mid C_c}
+}{
+  \env \judge{\text{vecmk}[d, c] : \text{Vec}[\type_d] \mid C_d \cup C_c \cup \{(\type_c, \mathtt{int})\}}
+}
+\quad (\text{VECMK})
+\end{equation*}
+
+\subsubsection{Vector Length}
+
+\texttt{veclen} takes a vector and returns an integer:
+
+\begin{equation*}
+\frac{
+  \env \judge{v : \type_v \mid C_v}
+  \quad
+  \text{fresh } \alpha
+}{
+  \env \judge{\text{veclen}[v] : \mathtt{int} \mid C_v \cup \{(\type_v, \text{Vec}[\alpha])\}}
+}
+\quad (\text{VECLEN})
+\end{equation*}
+
+\subsubsection{Vector Access}
+
+\texttt{vecget} takes a vector and an index (integer), returning an element:
+
+\begin{equation*}
+\frac{
+  \env \judge{v : \type_v \mid C_v}
+  \quad
+  \env \judge{i : \type_i \mid C_i}
+  \quad
+  \text{fresh } \alpha
+}{
+  \env \judge{\text{vecget}[v, i] : \alpha \mid C_v \cup C_i \cup \{(\type_v, \text{Vec}[\alpha]), (\type_i, \mathtt{int})\}}
+}
+\quad (\text{VECGET})
+\end{equation*}
+
+\subsubsection{Vector Update}
+
+\texttt{vecset} updates a vector at an index with a new value, returning the vector:
+
+\begin{equation*}
+\frac{
+  \env \judge{v : \type_v \mid C_v}
+  \quad
+  \env \judge{i : \type_i \mid C_i}
+  \quad
+  \env \judge{\text{val} : \type_{val} \mid C_{val}}
+  \quad
+  \text{fresh } \alpha
+}{
+  \env \judge{\text{vecset}[v, i, \text{val}] : \text{Vec}[\alpha] \mid C_v \cup C_i \cup C_{val} \cup \{(\type_v, \text{Vec}[\alpha]), (\type_i, \mathtt{int}), (\type_{val}, \alpha)\}}
+}
+\quad (\text{VECSET})
+\end{equation*}
+
+\subsubsection{Let-In Binding}
+
+Let-in bindings use polymorphic let, where the bound expression is type-checked and generalized before being used in the body:
+
+\begin{equation*}
+\frac{
+  \env \judge{e : \type_e \mid C_e}
+  \quad
+  C_e \text{ is unified}
+  \quad
+  \sigma_e = \text{generalize}(\type_e)
+  \quad
+  \env, x : \sigma_e \judge{b : \type_b \mid C_b}
+}{
+  \env \judge{\text{let } x = e \text{ in } b : \type_b \mid C_b}
+}
+\quad (\text{LETIN})
+\end{equation*}
+
+\subsection{Unification}
+
+The constraint set $C$ is solved using the unification algorithm. Key unification rules:
+
+\begin{align*}
+\text{unify}(\mathtt{int}, \mathtt{int}) &= \emptyset \\
+\text{unify}(\alpha, \alpha) &= \emptyset \\
+\text{unify}(\text{Vec}[\type_1], \text{Vec}[\type_2]) &= \text{unify}(\type_1, \type_2) \\
+\text{unify}(\type_1 \to \type_2, \type_3 \to \type_4) &= \text{unify}(\type_1, \type_3) \cup \text{unify}(\type_2, \type_4) \\
+\text{unify}(\alpha, \type) &= [\type/\alpha] \quad \text{if } \alpha \notin \text{fv}(\type) \text{ (occurs check) } \\
+\text{unify}(\type, \alpha) &= [\type/\alpha] \quad \text{if } \alpha \notin \text{fv}(\type) \text{ (occurs check) }
+\end{align*}
+
+fv stands for free type variables. 
+
+\subsection{Generalization and Instantiation}
+
+After unifying all constraints in a let-binding block (with a single or multiple let-bindings), we generalize the resulting type(s) by universally quantifying over free type variables that are not in the outer scope:
+
+\begin{equation*}
+\text{generalize}(\type) = \forall \alpha_1 \ldots \alpha_n . \type
+\end{equation*}
+
+where $\alpha_1, \ldots, \alpha_n$ are the free type variables in $\type$.
+
+When using a polymorphic variable, we instantiate its scheme by replacing each quantified type variable with a fresh type variable:
+
+\begin{equation*}
+\text{instantiate}(\forall \alpha_1 \ldots \alpha_n . \type) = \type[\beta_1/\alpha_1, \ldots, \beta_n/\alpha_n]
+\end{equation*}
+
+where $\beta_1, \ldots, \beta_n$ are fresh type variables.
+
+\subsection{Strongly Connected Components (SCC) for Polymorphism}
+
+Since all let-bindings are mutually recursive, some (or even all) must be typechecked together. But typechecking all togehter by default can lead to less general types. Thus strongly connected components analysis determines which definitions can be typechecked independently. Definitions in the same SCC are treated as a single recursive group and generalized together.
+
+\section{Evaluation Strategy}
+
+\textbf{intlang} uses \textbf{eager evaluation} (also known as strict evaluation). 
+All function arguments and sub-expressions are fully evaluated to values before being used, 
+rather than being deferred as unevaluated computations.
+
+\end{document}

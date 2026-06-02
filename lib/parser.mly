@@ -27,7 +27,8 @@ start:
 
 prog:
     | INCLUDE; id = ID; p = prog                { (IncludeGlobal id) :: p }
-    | INCLUDE; STR; pt = path; STR; p = prog    { (IncludeRelative pt) :: p }
+    | INCLUDE; STR; pt = path; STR; p = prog    { (IncludeRelative pt) :: p } (*the final module/.intlang file should be named with an ID as it must be usable as module.id*)
+    | INCLUDE; STR; pt = ID; STR; p = prog      { (IncludeRelative pt) :: p }
     | nl = nlexp; p = prog                      { nl :: p }
     | nl = nlexp;                               { [nl] }
     | l = lexp                                  { [Lexp l] }
@@ -37,7 +38,7 @@ path:
     | DIV; p = path             { "/" ^ p }
     | DOT; p = path             { "." ^ p }
     | SUB; p = path             { "-" ^ p }
-    | id = ID                   { id }   
+    | DIV; id = ID              { "/" ^ id }   
     (*of course there could be an import like "fldr/name-" this would not work but I don't think ur intlang file should end like this so*)
 
 nlexp:
