@@ -1,0 +1,70 @@
+open Ast
+open Llvm
+open Errors
+open PrintIntlang
+
+type codegen_ctx = {
+  llcontext : llcontext;
+  llmodule  : llmodule;
+  llbuilder : llbuilder;
+  i32_type  : lltype;
+}
+
+let rec lower_lexp_to_llvm (ctx : codegen_ctx) (e : Ast.lexp) : llvalue =
+  match e with
+  | Ast.Int n -> 
+      const_int ctx.i32_type n
+
+  | Ast.Bop (op, e1, e2) ->
+      let lhs = lower_lexp_to_llvm ctx e1 in
+      let rhs = lower_lexp_to_llvm ctx e2 in
+      (match op with
+       | Ast.Add -> build_add lhs rhs "add_tmp" ctx.llbuilder
+       | Ast.Sub -> build_sub lhs rhs "sub_tmp" ctx.llbuilder
+       | Ast.Mul -> build_mul lhs rhs "mul_tmp" ctx.llbuilder
+       | Ast.Div -> build_sdiv lhs rhs "div_tmp" ctx.llbuilder (* sdiv = Signed Division *)
+       | _ -> raise (CodegenError "Unsupported binary operator in this milestone"))
+
+  | _ -> raise (CodegenError "Expression type not yet supported in codegen")
+
+let lower_prog_to_llvm ( (_ , final_exp_opt) : prog) : llmodule =
+  let context = global_context () in
+  let the_module = create_module context "intlang_module" in
+  let builder = builder context in
+  let i32_t = i32_type context in
+
+  let ctx = {
+    llcontext = context;
+    llmodule = the_module;
+    llbuilder = builder;
+    i32_type = i32_t;
+  } in
+
+  let main_type = function_type i32_t [||] in
+  let main_fn = declare_function "main" main_type the_module in
+  
+  let bb = append_block context "entry" main_fn in
+  position_at_end bb builder;
+
+  match final_exp_opt with
+  | None -> raise (CodegenError "No final expression to generate code for")
+  | Some final_exp ->
+    let result = lower_lexp_to_llvm ctx final_exp in
+    ignore (build_ret result builder);
+    the_module
+
+let sprint_lower_prog_to_llvm (p : prog) : string =
+  let llvm_module = lower_prog_to_llvm p in
+  string_of_llmodule llvm_module
+
+let lower_llvm_to_bin_clang (llvm_ir : string) (binary_name : string) : int =
+  let ir_filename = binary_name ^ ".ll" in
+  
+  let oc = open_out ir_filename in
+  output_string oc llvm_ir;
+  close_out oc;
+  
+  let cmd = Printf.sprintf "clang-19 %s -o %s" ir_filename binary_name in
+  let exit_code = Sys.command cmd in
+  Sys.remove ir_filename;
+  exit_code
