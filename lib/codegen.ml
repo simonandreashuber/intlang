@@ -10,21 +10,31 @@ type codegen_ctx = {
   i32_type  : lltype;
 }
 
-let rec lower_lexp_to_llvm (ctx : codegen_ctx) (e : Ast.lexp) : llvalue =
+module StringMap = Map.Make(String)
+type env = Llvm.llvalue StringMap.t (*mb rename to something clearer that env*)
+
+let rec lower_lexp_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexp) : llvalue =
   match e with
   | Ast.Int n -> 
       const_int ctx.i32_type n
-
   | Ast.Bop (op, e1, e2) ->
-      let lhs = lower_lexp_to_llvm ctx e1 in
-      let rhs = lower_lexp_to_llvm ctx e2 in
+      let lhs = lower_lexp_to_llvm ctx env e1 in
+      let rhs = lower_lexp_to_llvm ctx env e2 in
       (match op with
        | Ast.Add -> build_add lhs rhs "add_tmp" ctx.llbuilder
        | Ast.Sub -> build_sub lhs rhs "sub_tmp" ctx.llbuilder
        | Ast.Mul -> build_mul lhs rhs "mul_tmp" ctx.llbuilder
        | Ast.Div -> build_sdiv lhs rhs "div_tmp" ctx.llbuilder (* sdiv = Signed Division *)
        | _ -> raise (CodegenError "Unsupported binary operator in this milestone"))
-
+  | Ast.Letin (x, exp, body) -> 
+      let v1 = lower_lexp_to_llvm ctx env exp in
+      let ptr_x = build_alloca ctx.i32_type x ctx.llbuilder in
+      ignore (build_store v1 ptr_x ctx.llbuilder);
+      let new_env = StringMap.add x ptr_x env in
+      lower_lexp_to_llvm ctx new_env body
+  | Ast.Var x ->
+    let ptr_x = StringMap.find x env in
+    build_load ctx.i32_type ptr_x ("load_tmp_" ^ x)  ctx.llbuilder
   | _ -> raise (CodegenError "Expression type not yet supported in codegen")
 
 let lower_prog_to_llvm ( (_ , final_exp_opt) : prog) : llmodule =
@@ -49,7 +59,7 @@ let lower_prog_to_llvm ( (_ , final_exp_opt) : prog) : llmodule =
   match final_exp_opt with
   | None -> raise (CodegenError "No final expression to generate code for")
   | Some final_exp ->
-    let result = lower_lexp_to_llvm ctx final_exp in
+    let result = lower_lexp_to_llvm ctx StringMap.empty final_exp in
     ignore (build_ret result builder);
     the_module
 
