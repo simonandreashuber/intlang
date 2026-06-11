@@ -13,10 +13,10 @@ let main () =
   Printf.printf "%sTYPECHECKED PROG:\n%s" headerline (PrintIntlang.sprint_progpolyt_wtyp progt); flush stdout;
   (*Printf.printf "%sINSTREG:\n%s" headerline (PrintIntlang.sprint_instreg instreg); flush stdout;*)
 
-  let monoprog = Monomorph.monomorph_progt progt in
-  Printf.printf "%sMONOMORPHIZED PROG:\n%s" headerline (PrintIntlang.sprint_progmonot_wtyp monoprog); flush stdout;
+  let monoprogt = Monomorph.monomorph_progt progt in
+  Printf.printf "%sMONOMORPHIZED PROG:\n%s" headerline (PrintIntlang.sprint_progmonot_wtyp monoprogt); flush stdout;
   
-  let out_opt = Interp.interp_prog prog in
+  let out_opt = Interp_tast.interp_prog monoprogt in
   (match out_opt with
   | Some out -> Printf.printf "out: %d\n%s" out headerline; flush stdout;
   | None -> Printf.printf "out: No final Expression\n%s\n" headerline; flush stdout;);
