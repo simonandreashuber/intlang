@@ -8,9 +8,6 @@ let print_log = false
 
 module SSet = Set.Make(String)
 
-(*ELEMENTARY FUNCTIONS USED DURING *)
-let tvar_counter = ref 0
-let uuid_counter = ref 0
 let log = ref ""
 
 let instreg = ref []
@@ -27,16 +24,6 @@ let sples = PrintIntlang.sprint_lexp_shallow 2
 let spt = PrintIntlang.sprint_typ
 let spc = PrintIntlang.sprint_constraint
 let spf = Printf.sprintf
-
-let fresh_tvar () : tvar =
-  let id = !tvar_counter in
-  tvar_counter := id + 1;
-  { id; link = None }
-
-let fresh_uuid () : int =
-  let id = !uuid_counter in
-  uuid_counter := id + 1;
-  id
 
 (*UNIFICATION ENGINE*)
 let rec unify (t1 : typ) (t2 : typ) : unit =
@@ -104,7 +91,7 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * lexpt =
       match List.assoc_opt x env with
       | Some (s, uuid) ->
           let t = instantiate s uuid in
-          ([], VarT (x, uuid, t))
+          ([], VarT (ref x, ref uuid, t))
       | None -> raise (Errors.TypeError ("Unbound variable: " ^ x))
       )
     | Lam (x, b) -> (
@@ -203,7 +190,7 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * lexpt =
       ((t_v, t_vec) :: (t_i, TInt) :: (t_val, t_vec_of) :: cs_v @ cs_i @ cs_val, VecsetT (v_t, i_t, val_t, t_vec))
     )
 
-let typecheck_letblk (letblk : letblk) (env : typenv) (letblkid : int) : typenv * letblkt =
+let typecheck_letblk (letblk : letblk) (env : typenv) (letblkid : int) : typenv * letblkpolyt =
   (*debug things*)
   log_appendln "----------------------- LETBLK -----------------------";
 
@@ -223,7 +210,7 @@ let typecheck_letblk (letblk : letblk) (env : typenv) (letblkid : int) : typenv 
       log_appendln (spf "let %s = : tvar=%s, uuid=%d" name (spt let_tvar) uuid);
       let cs', lt = typecheck_lexp env_with_letdefs lexp  in (*we add this binding in the step before, it must exist so no need to check *)
       let t_l = lexpt_get_type lt in
-      ((let_tvar, t_l) :: (cs' @ cs), ltb @ [(name, uuid, lt)])
+      ((let_tvar, t_l) :: (cs' @ cs), ltb @ [(name, uuid, [], lt)])
     )
     ([],[]) letblk in
 
@@ -233,14 +220,16 @@ let typecheck_letblk (letblk : letblk) (env : typenv) (letblkid : int) : typenv 
   ) constraints;
 
   (*generalize all types and add to env*)
-  let generalized_env = List.fold_left 
-    (fun env' (name, _) -> 
-      let (Forall (_, tv), uuid) = List.assoc name env_with_letdefs in
-      let gen_type = generalize tv in
-      (name, (gen_type, uuid)) :: env')
-    env letblk 
+  let generalized_env, lexptblk_gen = List.fold_right 
+    (fun (name, uuid, vars, lt) (env', letblkt')  -> 
+      let (Forall (_, tv), _) = List.assoc name env_with_letdefs in
+      let s = generalize tv in
+      let Forall (genvars, _) = s in
+      ( (name, (s, uuid)) :: env', (name, uuid, genvars, lt) :: letblkt')
+    )
+    lexptblk (env, [])
   in
-  (generalized_env, lexptblk)
+  (generalized_env, lexptblk_gen)
 
 
 (*SCC (Strongly Connected Components) analysis for polymorphic types*)
@@ -351,7 +340,7 @@ let scc_split_letblk (blk : letblk) : letblk list =
   expects: a program (with all Nlexp except for the last one being a lexp)
   returns: unit if type checks, otherwise raises Errors.TypeError with an error message
 *)
-let typecheck ((global_letblk, mainlexp_opt) : prog) : progt * typenv * instreg =
+let typecheck ((global_letblk, mainlexp_opt) : prog) : letblkpolyt * typenv =
   (*reset counters for consistency*)
   tvar_counter := 0;
   uuid_counter := 0;
@@ -379,15 +368,14 @@ let typecheck ((global_letblk, mainlexp_opt) : prog) : progt * typenv * instreg 
         | Some (Forall ([], TInt), _) ->(
           log_appendln "Typechecking successful!";
           if print_log then Printf.printf "\n%s\n" !log;
-          let _, _, main_lexpt = List.find (fun (name,_,_) -> name = "@main") letblkt_main in
-          ((letblkt, Some main_lexpt), List.rev env_main, !instreg)
+          (letblkt @ letblkt_main, List.rev env_main)
         )
         | Some (s,_) -> raise (Errors.TypeError ("Final expression has type " ^ sprint_schema s ^ " but expected int (this is intlang ;))"))
         | None -> raise (Errors.TypeError "Internal Error")
     )
     else (
       if print_log then Printf.printf "\n%s\n" !log;
-      ((letblkt, None), List.rev env, !instreg)
+      (letblkt, List.rev env)
     )
 
   with Errors.TypeError msg -> (

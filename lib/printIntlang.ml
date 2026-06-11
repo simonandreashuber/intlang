@@ -129,7 +129,7 @@ let sprint_scc (topord : letblk list) : string =
 
 let rec sprint_lexpt (e : lexpt) : string =
   match e with
-  | VarT (s, _, _) -> s
+  | VarT (sref, _, _) -> !sref
   | LamT (s, _, body, _) -> Printf.sprintf "\\%s.(%s)" s (sprint_lexpt body)
   | AppT (e1, e2, _) -> Printf.sprintf "(%s)(%s)" (sprint_lexpt e1) (sprint_lexpt e2)
   | IntT (i, _) -> Printf.sprintf "%d" i
@@ -142,19 +142,14 @@ let rec sprint_lexpt (e : lexpt) : string =
   | VecgetT (v, i, _) -> Printf.sprintf "vecget[%s, %s]" (sprint_lexpt v) (sprint_lexpt i)
   | VecsetT (v, i, value, _) -> Printf.sprintf "vecset[%s, %s, %s]" (sprint_lexpt v) (sprint_lexpt i) (sprint_lexpt value)
 
-let sprint_progt (letblk, lexpt_opt) : string =
-    let letblk_str = List.fold_left (fun acc (name, uuid, lexpt) -> 
-        acc ^ (Printf.sprintf "let %s (uuid=%d) = (%s);\n" name uuid (sprint_lexpt lexpt))
-    ) "" letblk in
-    let main_str = match lexpt_opt with
-                    | Some lexpt -> sprint_lexpt lexpt
-                    | None -> "" 
-            in
-    letblk_str ^ main_str ^ "\n"
+let sprint_progmonot letblk : string =
+  List.fold_left (fun acc (name, uuid, lexpt) -> 
+      acc ^ (Printf.sprintf "let %s (uuid=%d) = (%s);\n" name uuid (sprint_lexpt lexpt))
+  ) "" letblk
 let rec sprint_lexpt_wtyp (e : lexpt) : string =
   let rec sprint_lexpt_wtyp_aux (e : lexpt) : string =
     match e with
-    | VarT (s, _, t) -> Printf.sprintf "\027[1;31m%s\027[0m{%s}\027[1;31m" s (sprint_typ t)
+    | VarT (sref, uref, t) -> Printf.sprintf "\027[1;31m%s\027[0m{uuid=%d,%s}\027[1;31m" !sref !uref (sprint_typ t)
     | LamT (s, _, body, t) -> Printf.sprintf "\027[1;31m\\%s.(%s)\027[0m{%s}\027[1;31m" s (sprint_lexpt_wtyp_aux body) (sprint_typ t)
     | AppT (e1, e2, t) -> Printf.sprintf "\027[1;31m(%s)(%s)\027[0m{%s}\027[1;31m" (sprint_lexpt_wtyp_aux e1) (sprint_lexpt_wtyp_aux e2) (sprint_typ t)
     | IntT (i, t) -> Printf.sprintf "\027[1;31m%d\027[0m{%s}\027[1;31m" i (sprint_typ t)
@@ -168,16 +163,16 @@ let rec sprint_lexpt_wtyp (e : lexpt) : string =
     | VecsetT (v, i, value, t) -> Printf.sprintf "\027[1;31mvecset[%s, %s, %s]\027[0m{%s}\027[1;31m" (sprint_lexpt_wtyp_aux v) (sprint_lexpt_wtyp_aux i) (sprint_lexpt_wtyp_aux value) (sprint_typ t)
   in
   (sprint_lexpt_wtyp_aux e) ^ "\027[0m"
-  
-let sprint_progt_wtyp (letblk, lexpt_opt) : string =
-    let letblk_str = List.fold_left (fun acc (name, uuid, lexpt) -> 
-        acc ^ (Printf.sprintf "\027[1;31mlet %s \027[0m(uuid=%d)\027[1;31m = (%s);\027[0m\n" name uuid (sprint_lexpt_wtyp lexpt))
-    ) "" letblk in
-    let main_str = match lexpt_opt with
-                    | Some lexpt -> sprint_lexpt_wtyp lexpt
-                    | None -> "" 
-            in
-    letblk_str ^ main_str ^ "\n"
+
+let sprint_progpolyt_wtyp letblk : string =
+  List.fold_left (fun acc (name, uuid, vars, lexpt) -> 
+      acc ^ (Printf.sprintf "\027[1;31mlet %s \027[0m(uuid=%d,[%s])\027[1;31m = (%s);\027[0m\n" name uuid (String.concat ", " (List.map (fun i -> "t" ^ string_of_int i) vars)) (sprint_lexpt_wtyp lexpt))
+  ) "" letblk
+
+let sprint_progmonot_wtyp letblk : string =
+  List.fold_left (fun acc (name, uuid, lexpt) -> 
+      acc ^ (Printf.sprintf "\027[1;31mlet %s \027[0m(uuid=%d)\027[1;31m = (%s);\027[0m\n" name uuid (sprint_lexpt_wtyp lexpt))
+  ) "" letblk
 
 let sprint_instreg (instreg : instreg) : string =
   let bindings = List.map (fun (uuid, sublst) -> 

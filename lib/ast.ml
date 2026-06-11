@@ -42,6 +42,19 @@ and tvar = {
   mutable link : typ option; (* None = unsolved, Some t = solved *)
 }
 
+let tvar_counter = ref 0
+let uuid_counter = ref 0
+
+let fresh_tvar () : tvar =
+  let id = !tvar_counter in
+  tvar_counter := id + 1;
+  { id; link = None }
+
+let fresh_uuid () : int =
+  let id = !uuid_counter in
+  uuid_counter := id + 1;
+  id
+
 (*here as it is a basic necessary when working with types*)
 let repr (t : typ) : typ =
   let rec repr_aux t visited =
@@ -58,7 +71,7 @@ type uuid = int
 
 type schema = Forall of int list * typ
 
-type typenv = (string * (schema * int)) list
+type typenv = (string * (schema * uuid)) list
 
 type constraints = (typ * typ) list
 
@@ -67,8 +80,8 @@ type instreg = (int * ((int*tvar) list)) list
 
 (*after type checking before interp or code generation*)
 type lexpt =
-    | VarT of string * uuid * typ                        (*x : T*)
-    | LamT of string * uuid * lexpt * typ                (*\x.y : T*)
+    | VarT of (string ref) * (uuid ref) * typ   (*x : T, note: the name and uuid are ref here to so we can just repoint during monomorphization*)
+    | LamT of string * uuid * lexpt * typ       (*\x.y : T*)
     | AppT of lexpt * lexpt * typ               (*x y : T*)
     | IntT of int * typ                         (*int : T*)
     | BopT of bop * lexpt * lexpt * typ         (*x bop y : T*)
@@ -80,10 +93,17 @@ type lexpt =
     | VecgetT of lexpt * lexpt * typ            (*vecget[v, i] : T*)
     | VecsetT of lexpt * lexpt * lexpt * typ    (*vecset[v, i, val] : T*)
     
-type letblkt = (string * uuid * lexpt) list
+type letbndpolyt = string * uuid * (uuid list) * lexpt
 
-type progt = letblkt * lexpt option
+type letblkpolyt = letbndpolyt list
 
+type progpolyt = letblkpolyt * lexpt option
+
+type letbndmonot = string * uuid * lexpt
+
+type letblkmonot = letbndmonot list
+
+type progmonot = letblkmonot * lexpt option
 
 
 (*Helpers*)

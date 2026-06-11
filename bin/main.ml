@@ -8,10 +8,13 @@ let main () =
   let prog = Include.lex_parse_include intlang_std_lib_path filename in
   Printf.printf "%sPARSED PROG:\n%s" headerline (PrintIntlang.sprint_prog prog); flush stdout;
 
-  let progt, env, instreg = Typecheck.typecheck prog in
+  let progt, env = Typecheck.typecheck prog in
   Printf.printf "%sTYPE ENV:\n%s\n%s" headerline (PrintIntlang.sprint_env env) headerline; flush stdout;
-  Printf.printf "%sTYPECHECKED PROG:\n%s" headerline (PrintIntlang.sprint_progt progt); flush stdout;
-  Printf.printf "%sINSTREG:\n%s" headerline (PrintIntlang.sprint_instreg instreg); flush stdout;
+  Printf.printf "%sTYPECHECKED PROG:\n%s" headerline (PrintIntlang.sprint_progpolyt_wtyp progt); flush stdout;
+  (*Printf.printf "%sINSTREG:\n%s" headerline (PrintIntlang.sprint_instreg instreg); flush stdout;*)
+
+  let monoprog = Monomorph.monomorph_progt progt in
+  Printf.printf "%sMONOMORPHIZED PROG:\n%s" headerline (PrintIntlang.sprint_progmonot_wtyp monoprog); flush stdout;
   
   let out_opt = Interp.interp_prog prog in
   (match out_opt with

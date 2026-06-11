@@ -32,7 +32,7 @@ let run_test cases_dir intlang_file =
   | Some expected ->
       try
         let prog = Include.lex_parse_include intlang_std_lib_path filepath in
-        let _,_,_ = Typecheck.typecheck prog in
+        let _,_ = Typecheck.typecheck prog in
         
         (match Interp.interp_prog prog with
          | Some out when out = expected ->
