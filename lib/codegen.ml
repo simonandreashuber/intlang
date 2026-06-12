@@ -15,16 +15,22 @@ type codegen_ctx = {
   malloc_func : llvalue;
 }
 
-module StringMap = Map.Make(String)
-type env = Llvm.llvalue StringMap.t (*mb rename to something clearer that env*)
+module UUIDMap = Map.Make(Int)
+type env = Llvm.llvalue UUIDMap.t (*mb rename to something clearer that env*)
 
-let rec lower_lexp_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexp) : llvalue =
+let get_lltype_of_typ (ctx : codegen_ctx) (t : typ) : lltype =
+  match repr t with
+  | TInt -> ctx.i32_t
+  | TVec _ -> ctx.ptr_t
+  | _ -> raise (CodegenError "Unsupported type in codegen")
+
+let rec lower_lexpt_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexpt) : llvalue =
   match e with
-  | Ast.Int n -> 
+  | Ast.IntT (n, _) -> 
     const_int ctx.i32_t n
-  | Ast.Bop (op, e1, e2) ->
-    let lhs = lower_lexp_to_llvm ctx env e1 in
-    let rhs = lower_lexp_to_llvm ctx env e2 in
+  | Ast.BopT (op, e1, e2, _) ->
+    let lhs = lower_lexpt_to_llvm ctx env e1 in
+    let rhs = lower_lexpt_to_llvm ctx env e2 in
     (
       match op with
       | Ast.Add -> build_add lhs rhs "add_tmp" ctx.llbuilder
@@ -39,16 +45,22 @@ let rec lower_lexp_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexp) : llva
         let val_i1 = build_icmp Icmp.Slt lhs rhs "lt_tmp" ctx.llbuilder in
         build_zext val_i1 ctx.i32_t "lt_ext_tmp" ctx.llbuilder
     )
-  | Ast.Letin (x, exp, body) -> 
-    let v1 = lower_lexp_to_llvm ctx env exp in
-    let ptr_x = build_alloca ctx.ptr_t x ctx.llbuilder in
+  | Ast.LetinT (name, uuid, exp, body, _) -> 
+    let v1lltyp = get_lltype_of_typ ctx (lexpt_get_type exp) in
+    let v1 = lower_lexpt_to_llvm ctx env exp in
+    (*store v1 on the stack*)
+    let ptr_x = build_alloca v1lltyp name ctx.llbuilder in
     ignore (build_store v1 ptr_x ctx.llbuilder);
-    let new_env = StringMap.add x ptr_x env in
-    lower_lexp_to_llvm ctx new_env body
-  | Ast.Var x ->
-    let ptr_x = StringMap.find x env in
-    build_load ctx.ptr_t ptr_x ("load_tmp_" ^ x)  ctx.llbuilder
-  | Ast.If (cond, ifblk, elseblk) ->
+    (*keep track where v1 is stored in the compiler*)
+    let new_env = UUIDMap.add uuid ptr_x env in
+    lower_lexpt_to_llvm ctx new_env body
+
+  | Ast.VarT (nameref, uuidref, vartyp) ->
+    (*lookup where var was stored and load it*)
+    let varlltyp = get_lltype_of_typ ctx vartyp in
+    let ptr_x = UUIDMap.find !uuidref env in
+    build_load varlltyp ptr_x ("load_tmp_" ^ !nameref)  ctx.llbuilder
+  | Ast.IfT (cond, ifblk, elseblk, _) ->
 
     (*create new blocks*)
     let caller = block_parent (insertion_block ctx.llbuilder) in
@@ -57,20 +69,20 @@ let rec lower_lexp_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexp) : llva
     let merge_block = append_block ctx.llcontext "merge" caller in
 
     (*eval cond and branch*)
-    let cond_val = lower_lexp_to_llvm ctx env cond in
+    let cond_val = lower_lexpt_to_llvm ctx env cond in
     let zero = Llvm.const_int ctx.i32_t 0 in
     let cond_val_i1 = Llvm.build_icmp Llvm.Icmp.Ne cond_val zero "is_nonzero" ctx.llbuilder in
     ignore (build_cond_br cond_val_i1 then_block else_block ctx.llbuilder);
 
     (*then block*)
     position_at_end then_block ctx.llbuilder;
-    let then_val = lower_lexp_to_llvm ctx env ifblk in
+    let then_val = lower_lexpt_to_llvm ctx env ifblk in
     ignore (build_br merge_block ctx.llbuilder);
     let incoming_then_blk = insertion_block ctx.llbuilder in
 
     (*else block*)
     position_at_end else_block ctx.llbuilder;
-    let else_val = lower_lexp_to_llvm ctx env elseblk in
+    let else_val = lower_lexpt_to_llvm ctx env elseblk in
     ignore (build_br merge_block ctx.llbuilder);
     let incoming_else_blk = insertion_block ctx.llbuilder in
 
@@ -83,16 +95,17 @@ let rec lower_lexp_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexp) : llva
     Llvm.move_block_after incoming_else_blk merge_block;
     phi
 
-  | Ast.Vecmk (defval, cnt) ->
+  | Ast.VecmkT (defval, cnt, _) ->
 
     (*eval defval and cnt*)
-    let defval_llvm = lower_lexp_to_llvm ctx env defval in
-    let cnt_i32 = lower_lexp_to_llvm ctx env cnt in
+    let defvallltyp = get_lltype_of_typ ctx (lexpt_get_type defval) in
+    let defval_llvm = lower_lexpt_to_llvm ctx env defval in
+    let cnt_i32 = lower_lexpt_to_llvm ctx env cnt in
     let cnt_i64 = build_sext cnt_i32 ctx.i64_t "cnt_i64" ctx.llbuilder in
 
     (*malloc for vec struct and data array*)
     let vec_struct_size = size_of ctx.vec_struct_t in (*size of vec struct in bytes*)
-    let vec_size = build_mul (size_of ctx.i32_t) cnt_i64 "vec_total_size" ctx.llbuilder in (*for now just assume defval is an int*)
+    let vec_size = build_mul (size_of defvallltyp) cnt_i64 "vec_total_size" ctx.llbuilder in (*for now just assume defval is an int*)
     let vec_struct_ptr = build_call ctx.malloc_t ctx.malloc_func [| vec_struct_size |] "vec_struct_malloc" ctx.llbuilder in
     let vec_ptr = build_call ctx.malloc_t ctx.malloc_func [| vec_size |] "vec_malloc" ctx.llbuilder in
 
@@ -105,15 +118,18 @@ let rec lower_lexp_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexp) : llva
     ignore (build_store vec_ptr data_field_ptr ctx.llbuilder);
 
     (*set defval*)
+    (*create loop blocks*)
     let caller = block_parent (insertion_block ctx.llbuilder) in
     let vecmk_loop_body = append_block ctx.llcontext "vecmk_loop_body" caller in
     let vecmk_merge = append_block ctx.llcontext "vecmk_merge" caller in
+    (*loopentry*)
     let idx_entry = const_int ctx.i64_t 0 in
     ignore (build_br vecmk_loop_body ctx.llbuilder);
     let incoming_blk = insertion_block ctx.llbuilder in
+    (*loop body*)
     position_at_end vecmk_loop_body ctx.llbuilder;
     let idx_phi = build_phi [(idx_entry, incoming_blk)] "vecmk_idx_phi" ctx.llbuilder in
-    let elem_ptr = build_gep ctx.i32_t vec_ptr [| idx_phi |] "elem_ptr" ctx.llbuilder in
+    let elem_ptr = build_gep defvallltyp vec_ptr [| idx_phi |] "elem_ptr" ctx.llbuilder in
     ignore (build_store defval_llvm elem_ptr ctx.llbuilder);
     let idx_next = build_add idx_phi (const_int ctx.i64_t 1) "idx_next" ctx.llbuilder in
     let cond = build_icmp Icmp.Slt idx_next cnt_i64 "loop_cond" ctx.llbuilder in
@@ -123,22 +139,27 @@ let rec lower_lexp_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexp) : llva
 
     vec_struct_ptr
 
-  | Ast.Veclen vec_exp ->
-    let vec_llvm = lower_lexp_to_llvm ctx env vec_exp in
+  | Ast.VeclenT (vec_exp, _) ->
+    let vec_llvm = lower_lexpt_to_llvm ctx env vec_exp in
     let len_field_ptr = build_gep ctx.vec_struct_t vec_llvm [| const_int ctx.i64_t 0; const_int ctx.i32_t 0 |] "len_ptr" ctx.llbuilder in
     build_load ctx.i32_t len_field_ptr "vec_len" ctx.llbuilder
 
-  | Ast.Vecget (vec_exp, idx_exp) ->
-    let vec_llvm = lower_lexp_to_llvm ctx env vec_exp in
-    let idx_llvm = lower_lexp_to_llvm ctx env idx_exp in
+  | Ast.VecgetT (vec_exp, idx_exp, vecoftyp) ->
+    let vecoflltyp = get_lltype_of_typ ctx vecoftyp in
+    let vec_llvm = lower_lexpt_to_llvm ctx env vec_exp in
+    let idx_llvm = lower_lexpt_to_llvm ctx env idx_exp in
     let data_field_ptr = build_gep ctx.vec_struct_t vec_llvm [| const_int ctx.i64_t 0; const_int ctx.i32_t 1 |] "data_ptr" ctx.llbuilder in
     let data_ptr = build_load ctx.ptr_t data_field_ptr "data_ptr" ctx.llbuilder in
-    let elem_ptr = build_gep ctx.i32_t data_ptr [| build_sext idx_llvm ctx.i64_t "idx_i64" ctx.llbuilder |] "elem_ptr" ctx.llbuilder in
-    build_load ctx.i32_t elem_ptr "vec_elem" ctx.llbuilder
+    let elem_ptr = build_gep vecoflltyp data_ptr [| build_sext idx_llvm ctx.i64_t "idx_i64" ctx.llbuilder |] "elem_ptr" ctx.llbuilder in
+    build_load vecoflltyp elem_ptr "vec_elem" ctx.llbuilder
 
   | _ -> raise (CodegenError "Expression type not yet supported in codegen")
 
-let lower_prog_to_llvm ( (_ , final_exp_opt) : prog) : llmodule =
+let lower_prog_to_llvm ( lb : letblkmonot) : llmodule =
+
+  match List.find_opt (fun (name,_,_) -> name = "@main") lb with
+  | None -> raise (CodegenError "No @main function found in program")
+  | Some (_, _, final_exp) ->
 
   (*get things for the codegen context*)
   let llcontext = global_context () in
@@ -169,14 +190,11 @@ let lower_prog_to_llvm ( (_ , final_exp_opt) : prog) : llmodule =
   let bb = append_block ctx.llcontext "entry" main_fn in
   position_at_end bb ctx.llbuilder;
 
-  match final_exp_opt with
-  | None -> raise (CodegenError "No final expression to generate code for")
-  | Some final_exp ->
-    let result = lower_lexp_to_llvm ctx StringMap.empty final_exp in
-    ignore (build_ret result ctx.llbuilder);
-    llmodule
+  let result = lower_lexpt_to_llvm ctx UUIDMap.empty final_exp in
+  ignore (build_ret result ctx.llbuilder);
+  llmodule
 
-let sprint_lower_prog_to_llvm (p : prog) : string =
+let sprint_lower_prog_to_llvm (p : letblkmonot) : string =
   let llvm_module = lower_prog_to_llvm p in
   string_of_llmodule llvm_module
 

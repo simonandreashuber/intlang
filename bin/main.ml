@@ -21,8 +21,8 @@ let main () =
   | Some out -> Printf.printf "out: %d\n%s" out headerline; flush stdout;
   | None -> Printf.printf "out: No final Expression\n%s\n" headerline; flush stdout;);
 
-  (*
-  let llvm_str = Codegen.sprint_lower_prog_to_llvm prog in
+  
+  let llvm_str = Codegen.sprint_lower_prog_to_llvm monoprogt in
   Printf.printf "LLVM IR:\n%s" llvm_str; flush stdout;
   let exit_code = Codegen.lower_llvm_to_bin_clang llvm_str "bin/out" in
 
@@ -31,7 +31,7 @@ let main () =
     Sys.remove "bin/out"
   end else
     print_endline "Clang compilation failed.";
-  *)
+  
   exit 0
 
 let () = main ()
