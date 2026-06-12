@@ -153,6 +153,101 @@ let rec lower_lexpt_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexpt) : ll
     let elem_ptr = build_gep vecoflltyp data_ptr [| build_sext idx_llvm ctx.i64_t "idx_i64" ctx.llbuilder |] "elem_ptr" ctx.llbuilder in
     build_load vecoflltyp elem_ptr "vec_elem" ctx.llbuilder
 
+  | Ast.VeclitT (lst, _) ->
+    let lst_llvals = List.map (lower_lexpt_to_llvm ctx env) lst in
+
+    let vecoflltyp = get_lltype_of_typ ctx (lexpt_get_type (List.hd lst)) in
+    let cnt_i32 = const_int ctx.i32_t (List.length lst) in
+    let cnt_i64 = const_int ctx.i64_t (List.length lst) in
+
+    (*malloc for vec struct and data array*)
+    let vec_struct_size = size_of ctx.vec_struct_t in (*size of vec struct in bytes*)
+    let vec_size = build_mul (size_of vecoflltyp) cnt_i64 "vec_total_size" ctx.llbuilder in (*for now just assume defval is an int*)
+    let vec_struct_ptr = build_call ctx.malloc_t ctx.malloc_func [| vec_struct_size |] "vec_struct_malloc" ctx.llbuilder in
+    let vec_ptr = build_call ctx.malloc_t ctx.malloc_func [| vec_size |] "vec_malloc" ctx.llbuilder in
+
+    (*store length*)
+    let len_field_ptr = build_gep ctx.vec_struct_t vec_struct_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 0 |] "len_ptr" ctx.llbuilder in
+    ignore (build_store cnt_i32 len_field_ptr ctx.llbuilder);
+
+    (*store data pointer*)
+    let data_field_ptr = build_gep ctx.vec_struct_t vec_struct_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 1 |] "data_ptr" ctx.llbuilder in
+    ignore (build_store vec_ptr data_field_ptr ctx.llbuilder);
+
+    (*store elements*)
+    List.iteri (fun i elem ->
+      let elem_ptr = build_gep vecoflltyp vec_ptr [| const_int ctx.i64_t i |] ("elem_ptr_" ^ string_of_int i) ctx.llbuilder in
+      ignore (build_store elem elem_ptr ctx.llbuilder);
+    ) lst_llvals;
+
+    vec_struct_ptr
+
+| Ast.VecsetT (vec_exp, idx_exp, newval_exp, vectyp) ->
+    (*Note on the strategy:
+        - Always Copy
+        - Shallow Copy, this is valid since all vectors are immutable or in other
+          words for every mutation we create a new vector in memory so there should be no problems with this strategy.
+    *)
+
+    (*eval defval and cnt*)
+    let newvallltyp = get_lltype_of_typ ctx (lexpt_get_type newval_exp) in
+
+    (*calc src vector*)
+    let src_vec_ptr = lower_lexpt_to_llvm ctx env vec_exp in
+
+    (*load length*)
+    let src_len_field_ptr = build_gep ctx.vec_struct_t src_vec_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 0 |] "src_len_ptr" ctx.llbuilder in
+    let cnt_i32 = build_load ctx.i32_t src_len_field_ptr "src_cnt_i32" ctx.llbuilder in
+    let cnt_i64 = build_sext cnt_i32 ctx.i64_t "src_cnt_i64" ctx.llbuilder in
+    let src_data_field_ptr = build_gep ctx.vec_struct_t src_vec_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 1 |] "src_data_ptr" ctx.llbuilder in
+    let src_data_ptr = build_load ctx.ptr_t src_data_field_ptr "src_data_ptr" ctx.llbuilder in
+
+    (*malloc for vec struct and data array*)
+    let vec_struct_size = size_of ctx.vec_struct_t in (*size of vec struct in bytes*)
+    let vec_size = build_mul (size_of newvallltyp) cnt_i64 "vec_total_size" ctx.llbuilder in (*for now just assume defval is an int*)
+    let vec_struct_ptr = build_call ctx.malloc_t ctx.malloc_func [| vec_struct_size |] "vec_struct_malloc" ctx.llbuilder in
+    let vec_ptr = build_call ctx.malloc_t ctx.malloc_func [| vec_size |] "vec_malloc" ctx.llbuilder in
+
+    (*store length*)
+    let len_field_ptr = build_gep ctx.vec_struct_t vec_struct_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 0 |] "copy_len_ptr" ctx.llbuilder in
+    ignore (build_store cnt_i32 len_field_ptr ctx.llbuilder);
+
+    (*store data pointer*)
+    let data_field_ptr = build_gep ctx.vec_struct_t vec_struct_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 1 |] "copy_data_ptr" ctx.llbuilder in
+    ignore (build_store vec_ptr data_field_ptr ctx.llbuilder);
+
+    (*copy elements*)
+    (*create loop blocks*)
+    let caller = block_parent (insertion_block ctx.llbuilder) in
+    let vecset_loop_body = append_block ctx.llcontext "vecset_copy_loop_body" caller in
+    let vecset_merge = append_block ctx.llcontext "vecset_copy_merge" caller in
+    (*loopentry*)
+    let idx_entry = const_int ctx.i64_t 0 in
+    ignore (build_br vecset_loop_body ctx.llbuilder);
+    let incoming_blk = insertion_block ctx.llbuilder in
+    (*loop body*)
+    position_at_end vecset_loop_body ctx.llbuilder;
+    let idx_phi = build_phi [(idx_entry, incoming_blk)] "vecset_idx_phi" ctx.llbuilder in
+    (*load from src vector*)
+    let src_elem_ptr = build_gep newvallltyp src_data_ptr [| idx_phi |] "src_elem_ptr" ctx.llbuilder in
+    let elem = build_load newvallltyp src_elem_ptr "vec_elem" ctx.llbuilder in
+    (*store in new vector copy*)
+    let elem_ptr = build_gep newvallltyp vec_ptr [| idx_phi |] "vecset_elem_ptr" ctx.llbuilder in
+    ignore (build_store elem elem_ptr ctx.llbuilder);
+    let idx_next = build_add idx_phi (const_int ctx.i64_t 1) "vecset_idx_next" ctx.llbuilder in
+    let cond = build_icmp Icmp.Slt idx_next cnt_i64 "loop_cond" ctx.llbuilder in
+    ignore (build_cond_br cond vecset_loop_body vecset_merge ctx.llbuilder);
+    add_incoming (idx_next, vecset_loop_body) idx_phi;
+    position_at_end vecset_merge ctx.llbuilder;
+
+    (*store newval*)(*store in new vector copy*)
+    let idx_llval = lower_lexpt_to_llvm ctx env idx_exp in
+    let newval_llval = lower_lexpt_to_llvm ctx env newval_exp in
+    let newval_elem_ptr = build_gep newvallltyp vec_ptr [| idx_llval |] "vecset_elem_ptr" ctx.llbuilder in
+    ignore (build_store newval_llval newval_elem_ptr ctx.llbuilder);
+
+    vec_struct_ptr
+  
   | _ -> raise (CodegenError "Expression type not yet supported in codegen")
 
 let lower_prog_to_llvm ( lb : letblkmonot) : llmodule =
