@@ -98,16 +98,45 @@ let rec lower_lexpt_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexpt) : ll
         let val_i1 = build_icmp Icmp.Slt lhs rhs "lt_tmp" ctx.llbuilder in
         build_zext val_i1 ctx.i32_t "lt_ext_tmp" ctx.llbuilder
     )
-  | Ast.LetinT (name, uuid, exp, body, _) -> 
-    let v1lltyp = get_lltype_of_typ ctx (lexpt_get_type exp) in
-    let v1 = lower_lexpt_to_llvm ctx env exp in
-    (*store v1 on the stack*)
-    let ptr_x = build_alloca v1lltyp name ctx.llbuilder in
-    ignore (build_store v1 ptr_x ctx.llbuilder);
-    (*keep track where v1 is stored in the compiler*)
-    let new_env = UUIDMap.add uuid ptr_x env in
-    lower_lexpt_to_llvm ctx new_env body
+  | Ast.LetinT (name, uuid, exp, body, _) -> (
 
+    match repr (lexpt_get_type exp) with
+    | TFun _ -> 
+      (*alloc the closure heap struct*)
+      let closure_struct_size = size_of ctx.closure_struct_t in (*size of closure struct in bytes*)
+      let closure_struct_ptr = build_call ctx.malloc_t ctx.malloc_func [| closure_struct_size |] "closure_struct_malloc" ctx.llbuilder in
+      (*again hacky: put the closure struct ptr on the stack so the Var impl stays uniform and the env must not be changed*)
+      let closure_struct_ptr_ptr = build_alloca ctx.ptr_t "closure_struct_ptr_alloca_ptr" ctx.llbuilder in
+      ignore (build_store closure_struct_ptr closure_struct_ptr_ptr ctx.llbuilder);
+
+      (*extend environment with closure pointer pointer*)
+      let new_env = UUIDMap.add uuid closure_struct_ptr_ptr env in
+
+      (*compile the function expression*)
+      let unnamed_closure_struct_ptr = lower_lexpt_to_llvm ctx new_env exp in
+
+      (*copy unnamed_closure_struct_ptr values to closure_struct_ptr*)
+      let fun_field_ptr_src = build_gep ctx.closure_struct_t unnamed_closure_struct_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 0 |] "fun_field_ptr_src" ctx.llbuilder in
+      let capvars_field_ptr_src = build_gep ctx.closure_struct_t unnamed_closure_struct_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 1 |] "capvars_field_ptr_src" ctx.llbuilder in
+      let fun_field_ptr_dst = build_gep ctx.closure_struct_t closure_struct_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 0 |] "fun_field_ptr_dst" ctx.llbuilder in
+      let capvars_field_ptr_dst = build_gep ctx.closure_struct_t closure_struct_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 1 |] "capvars_field_ptr_dst" ctx.llbuilder in
+      let fun_field_val = build_load ctx.ptr_t fun_field_ptr_src "fun_field_val" ctx.llbuilder in
+      let capvars_field_val = build_load ctx.ptr_t capvars_field_ptr_src "capvars_field_val" ctx.llbuilder in
+      ignore (build_store fun_field_val fun_field_ptr_dst ctx.llbuilder);
+      ignore (build_store capvars_field_val capvars_field_ptr_dst ctx.llbuilder);
+
+      (*recure on the body*)
+      lower_lexpt_to_llvm ctx new_env body
+    | _ ->
+      let v1lltyp = get_lltype_of_typ ctx (lexpt_get_type exp) in
+      let v1 = lower_lexpt_to_llvm ctx env exp in
+      (*store v1 on the stack*)
+      let ptr_x = build_alloca v1lltyp name ctx.llbuilder in
+      ignore (build_store v1 ptr_x ctx.llbuilder);
+      (*keep track where v1 is stored in the compiler*)
+      let new_env = UUIDMap.add uuid ptr_x env in
+      lower_lexpt_to_llvm ctx new_env body
+    ) 
   | Ast.VarT (nameref, uuidref, vartyp) ->
     (*lookup where var was stored and load it*)
     let varlltyp = get_lltype_of_typ ctx vartyp in
