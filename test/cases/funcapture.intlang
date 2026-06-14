@@ -1,0 +1,36 @@
+let a = 3 in \y. \x. x + y + a
+
+-- \x. x + y + a:
+-- ret x + y + a
+
+-- \y. \x. x + y + a:
+-- heap capture for a and y for \x. x + y + a
+-- ret heap struct and fun ptr to \x. x + y + a
+
+-- main:
+-- put 3 on the stack (letin)
+-- heap capture a for \y. \x. x + y + a
+-- ret heap struct and fun ptr to \y. \x. x + y + a
+
+-- Procedure for App:
+-- extract global fun ptr and heap struct from the 
+-- call fun with the closure heap struct
+
+-- Procedure for Lam:
+-- scan lam body and find closure heap memory format
+-- write closure heap memory loading code
+-- create global fun, closure heap struct (with global fun ptr and closure heap memory ptr in it)
+-- write ret closure heap struct ptr
+-- change env for recursion (is assoc list we can just stitch to the front: 
+--                           lam arg, and all captured vars in the closure heap memory get a new env binding)
+-- Prob need some 
+-- fill global fun body (recursion)
+
+-- Changes for let in recursion:
+-- if let expression is a function then already create a closure heap struct but dont fill it but put it in the env
+-- once the expression recursive lowering returns read out the returned closure heap struct and put these returned values
+-- (global fun ptr and closure heap memory ptr) in the initially created closure heap struct
+
+-- Changes for top level let recursion
+-- same as for the let in recursion but create all the empty closure heap structs in one block 
+-- then compile each top level let same as let in

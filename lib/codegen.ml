@@ -10,6 +10,7 @@ type codegen_ctx = {
   i32_t  : lltype;
   i64_t : lltype;
   vec_struct_t : lltype;
+  closure_struct_t : lltype;
   ptr_t : lltype;
   malloc_t : lltype;
   malloc_func : llvalue;
@@ -17,12 +18,64 @@ type codegen_ctx = {
 
 module UUIDMap = Map.Make(Int)
 type env = Llvm.llvalue UUIDMap.t (*mb rename to something clearer that env*)
+type capturedvars = (uuid * (lltype * llvalue)) list
 
 let get_lltype_of_typ (ctx : codegen_ctx) (t : typ) : lltype =
   match repr t with
   | TInt -> ctx.i32_t
   | TVec _ -> ctx.ptr_t
+  | TFun _ -> ctx.ptr_t
   | _ -> raise (CodegenError "Unsupported type in codegen")
+
+let get_llfuntype_of_funtyp (ctx : codegen_ctx) (ft : typ) : lltype =
+  match repr ft with
+  | TFun (intyp,outtyp) -> function_type (get_lltype_of_typ ctx outtyp) [| ctx.ptr_t ; get_lltype_of_typ ctx intyp |]
+  | _ -> raise (CodegenError "Unsupported function type in codegen")
+
+let capture_scan (ctx : codegen_ctx) (env : env) (e : Ast.lexpt) : capturedvars =
+  let capvars = ref UUIDMap.empty in
+  let rec capture_scan_aux (e : Ast.lexpt) : unit =
+    match e with
+    | Ast.VarT (_, uuidref, typ) ->
+        let id = !uuidref in
+        if not (UUIDMap.mem id !capvars) then (
+          match UUIDMap.find_opt id env with
+          | Some llval -> 
+              capvars := UUIDMap.add id ((get_lltype_of_typ ctx typ), llval) !capvars
+          | None -> ()
+        )
+    | Ast.LamT (_, _, e, _) -> capture_scan_aux e
+    | Ast.AppT (e1, e2, _) -> 
+        capture_scan_aux e1;
+        capture_scan_aux e2
+    | Ast.IntT (_, _) -> ()
+    | Ast.BopT (_, e1, e2, _) ->
+        capture_scan_aux e1;
+        capture_scan_aux e2
+    | Ast.IfT (e1, e2, e3, _) ->
+        capture_scan_aux e1;
+        capture_scan_aux e2;
+        capture_scan_aux e3
+    | Ast.LetinT (_, _, e1, e2, _) ->
+        capture_scan_aux e1;
+        capture_scan_aux e2
+    | Ast.VeclitT (es, _) ->
+        List.iter capture_scan_aux es
+    | Ast.VecmkT (e1, e2, _) ->
+        capture_scan_aux e1;
+        capture_scan_aux e2
+    | Ast.VeclenT (e, _) -> capture_scan_aux e
+    | Ast.VecgetT (e1, e2, _) ->
+        capture_scan_aux e1;
+        capture_scan_aux e2
+    | Ast.VecsetT (e1, e2, e3, _) ->
+        capture_scan_aux e1;
+        capture_scan_aux e2;
+        capture_scan_aux e3
+    in
+  capture_scan_aux e;
+  UUIDMap.bindings !capvars
+  
 
 let rec lower_lexpt_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexpt) : llvalue =
   match e with
@@ -248,8 +301,95 @@ let rec lower_lexpt_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexpt) : ll
 
     vec_struct_ptr
   
-  | _ -> raise (CodegenError "Expression type not yet supported in codegen")
+  | Ast.LamT (name, uuid, body, typ) ->
 
+    (*alloc the closure heap struct*)
+    let closure_struct_size = size_of ctx.closure_struct_t in (*size of closure struct in bytes*)
+    let closure_struct_ptr = build_call ctx.malloc_t ctx.malloc_func [| closure_struct_size |] "closure_struct_malloc" ctx.llbuilder in
+    
+    (*find captured vars and create an llvm struct type for them*)
+    let capvars = capture_scan ctx env body in
+    let capvars_lltyps = Array.of_list (List.map (fun (_, (llty, _)) -> llty) capvars) in
+    let capvars_struct_t = Llvm.struct_type ctx.llcontext capvars_lltyps in
+
+    (*alloc the captured vars heap struct*)
+    let capvars_struct_size = size_of capvars_struct_t in (*size of closure struct in bytes*)
+    let capvars_struct_ptr = build_call ctx.malloc_t ctx.malloc_func [| capvars_struct_size |] "capvars_struct_malloc" ctx.llbuilder in
+    
+    (*store captured vars in captured vars heap struct*)
+    List.iteri (fun i (uuid, (llty, llval_ptr)) ->
+      let llval = build_load llty llval_ptr ("capvar_val_" ^ string_of_int i) ctx.llbuilder in
+      let capvar_ptr = build_gep capvars_struct_t capvars_struct_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t i |] ("capvar_ptr_" ^ string_of_int i) ctx.llbuilder in
+      ignore (build_store llval capvar_ptr ctx.llbuilder);
+    ) capvars;
+
+    (*store pointer to captured vars struct in closure struct*)
+    let capvars_field_ptr = build_gep ctx.closure_struct_t closure_struct_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 1 |] "capvars_field_ptr" ctx.llbuilder in
+    ignore (build_store capvars_struct_ptr capvars_field_ptr ctx.llbuilder);
+    
+    (*get llvm function type*)
+    let fun_lltyp = get_llfuntype_of_funtyp ctx typ in
+
+    (*declare llvm function and an entry block for it*)
+    let lambda_fn = declare_function ("lambda_" ^ string_of_int uuid) fun_lltyp ctx.llmodule in
+    let lambda_bb = append_block ctx.llcontext ("entry_lambda_" ^ string_of_int uuid) lambda_fn in
+
+    (*keep track of old basic block*)
+    let old_bb = insertion_block ctx.llbuilder in
+
+    (*switch to new llvm functions entry basic block*)
+    position_at_end lambda_bb ctx.llbuilder;
+
+    (*access the captured vars and the lambda param with param*)
+    let capvars_ptr = param lambda_fn 0 in
+    let lambda_param = param lambda_fn 1 in
+    (*hacky: put lambda param on the stack so the Vars compilations stays uniform*)
+    let lambda_param_ptr = build_alloca (type_of lambda_param) "lambda_param_alloca_ptr" ctx.llbuilder in
+    ignore (build_store lambda_param lambda_param_ptr ctx.llbuilder);
+
+
+    (*load all things from the captured vars struct*)
+    let capvars_loaded = List.mapi (fun i (uuid, (llty, _)) ->
+      let capvar_ptr = build_gep capvars_struct_t capvars_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t i |] ("capvar_ptr_" ^ string_of_int i) ctx.llbuilder in
+      (*let capvar_val = build_load llty capvar_ptr ("capvar_val_" ^ string_of_int i) ctx.llbuilder in*)
+      (uuid, capvar_ptr)
+    ) capvars in
+
+    (*extend the env with the captured vars and lambda param*)
+    let newfunenv = List.fold_left (fun acc (uuid, llval) -> UUIDMap.add uuid llval acc) 
+                                       (UUIDMap.add uuid lambda_param_ptr env) capvars_loaded in
+
+    (*recursively lower the lambda body*)
+    let lambda_body_val = lower_lexpt_to_llvm ctx newfunenv body in
+
+    (*put ret for the bodys return value*)
+    ignore (build_ret lambda_body_val ctx.llbuilder);
+
+    (*switch back to the old function and basic block*)
+    position_at_end old_bb ctx.llbuilder;
+
+    (*store function pointer in closure struct*)
+    let fun_field_ptr = build_gep ctx.closure_struct_t closure_struct_ptr [| const_int ctx.i64_t 0; const_int ctx.i32_t 0 |] "fun_field_ptr" ctx.llbuilder in
+    ignore (build_store lambda_fn fun_field_ptr ctx.llbuilder);
+    
+    closure_struct_ptr
+  | Ast.AppT (e1, e2, _) ->
+    let fun_llvm = lower_lexpt_to_llvm ctx env e1 in
+    let arg_llvm = lower_lexpt_to_llvm ctx env e2 in
+
+    (*extract function pointer and captured vars pointer from closure struct*)
+    let fun_field_ptr = build_gep ctx.closure_struct_t fun_llvm [| const_int ctx.i64_t 0; const_int ctx.i32_t 0 |] "fun_field_ptr" ctx.llbuilder in
+    let capvars_field_ptr = build_gep ctx.closure_struct_t fun_llvm [| const_int ctx.i64_t 0; const_int ctx.i32_t 1 |] "capvars_field_ptr" ctx.llbuilder in
+    let fun_ptr = build_load ctx.ptr_t fun_field_ptr "fun_ptr" ctx.llbuilder in
+    let capvars_ptr = build_load ctx.ptr_t capvars_field_ptr "capvars_ptr" ctx.llbuilder in
+
+    (*get fun type*)
+    let fun_typ = lexpt_get_type e1 in
+    let fun_lltyp = get_llfuntype_of_funtyp ctx fun_typ in
+
+    (*call the function pointer with the captured vars pointer and the argument*)
+    build_call fun_lltyp fun_ptr [| capvars_ptr; arg_llvm |] "call_tmp" ctx.llbuilder
+  
 let lower_prog_to_llvm ( lb : letblkmonot) : llmodule =
 
   match List.find_opt (fun (name,_,_) -> name = "@main") lb with
@@ -264,6 +404,7 @@ let lower_prog_to_llvm ( lb : letblkmonot) : llmodule =
   let i64_t = i64_type llcontext in
   let ptr_t    = Llvm.pointer_type llcontext in
   let vec_struct_t = Llvm.struct_type llcontext [| i32_t; ptr_t |] in
+  let closure_struct_t = Llvm.struct_type llcontext [| ptr_t; ptr_t |] in
   let malloc_t   = Llvm.function_type (ptr_t) [| i64_t |] in
   let malloc_func = Llvm.declare_function "malloc" malloc_t llmodule in
 
@@ -275,6 +416,7 @@ let lower_prog_to_llvm ( lb : letblkmonot) : llmodule =
     i64_t;
     ptr_t;
     vec_struct_t;
+    closure_struct_t;
     malloc_t;
     malloc_func;
   } in
