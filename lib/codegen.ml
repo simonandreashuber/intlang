@@ -515,7 +515,7 @@ let lower_llvm_to_bin_clang (llvm_ir : string) (binary_name : string) : int =
   output_string oc llvm_ir;
   close_out oc;
   
-  let cmd = Printf.sprintf "clang-19 %s -o %s" ir_filename binary_name in
+  let cmd = Printf.sprintf "clang-19 -Wno-override-module %s -o %s" ir_filename binary_name in
   let exit_code = Sys.command cmd in
   Sys.remove ir_filename;
   exit_code
