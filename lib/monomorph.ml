@@ -53,15 +53,28 @@ let rec apply_specialization_map (smap : (int * typ) list) (t : typ) : typ =
 let specialize ((name, uuid, _, lhs) : string * uuid * (int list) * lexpt) (smap : (int * typ) list) : string * uuid * lexpt =
   let monouuid = fresh_uuid () in
   let sub = apply_specialization_map smap in
+  let newuuidmap = ref [] in
   let rec aux lexpt =
     match lexpt with
-    | VarT (n, u, oldtyp) -> VarT (ref !n, ref !u, sub oldtyp)
-    | LamT (n, u, b, oldtyp) -> LamT (n, u, aux b, sub oldtyp)
+    | VarT (n, u, oldtyp) -> (
+        match List.assoc_opt !u !newuuidmap with
+        | Some nuuid -> VarT (ref !n, ref nuuid, sub oldtyp)
+        | None -> VarT (ref !n, ref !u, sub oldtyp)
+      )
+    | LamT (n, u, b, oldtyp) -> (
+        let nuuid = fresh_uuid () in
+        newuuidmap := (u, nuuid) :: !newuuidmap;
+        LamT (n, nuuid, aux b, sub oldtyp)
+      )
     | AppT (f, arg, oldtyp) -> AppT (aux f, aux arg, sub oldtyp)
     | IntT (i, oldtyp) -> IntT (i, sub oldtyp)
     | BopT (op, e1, e2, oldtyp) -> BopT (op, aux e1, aux e2, sub oldtyp)
     | IfT (c, t, e, oldtyp) -> IfT (aux c, aux t, aux e, sub oldtyp)
-    | LetinT (n, u, e, b, oldtyp) -> LetinT (n, u, aux e, aux b, sub oldtyp)
+    | LetinT (n, u, e, b, oldtyp) -> (
+        let nuuid = fresh_uuid () in
+        newuuidmap := (u,nuuid) :: !newuuidmap;
+        LetinT (n, nuuid, aux e, aux b, sub oldtyp)
+      )
     | VeclitT (elems, oldtyp) -> VeclitT (List.map aux elems, sub oldtyp)
     | VecmkT (def, cnt, oldtyp) -> VecmkT (aux def, aux cnt, sub oldtyp)
     | VeclenT (v, oldtyp) -> VeclenT (aux v, sub oldtyp)
