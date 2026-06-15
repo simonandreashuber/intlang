@@ -20,6 +20,8 @@ module UUIDMap = Map.Make(Int)
 type env = Llvm.llvalue UUIDMap.t (*mb rename to something clearer that env*)
 type capturedvars = (uuid * (lltype * llvalue)) list
 
+let toplvl_env = ref UUIDMap.empty
+
 let get_lltype_of_typ (ctx : codegen_ctx) (t : typ) : lltype =
   match repr t with
   | TInt -> ctx.i32_t
@@ -31,6 +33,15 @@ let get_llfuntype_of_funtyp (ctx : codegen_ctx) (ft : typ) : lltype =
   match repr ft with
   | TFun (intyp,outtyp) -> function_type (get_lltype_of_typ ctx outtyp) [| ctx.ptr_t ; get_lltype_of_typ ctx intyp |]
   | _ -> raise (CodegenError "Unsupported function type in codegen")
+
+(*define all the top-level variables as globals*)
+let decl_toplvl_env (ctx : codegen_ctx) (letblk : Ast.letblkmonot) : unit =
+  toplvl_env := UUIDMap.empty; (*reset the toplvl env*)
+  List.iter (fun (name, uuid, exp) -> 
+    let explltyp = get_lltype_of_typ ctx (lexpt_get_type exp) in
+    let global_ptr = Llvm.define_global (name ^ "_global") (Llvm.const_null explltyp) ctx.llmodule in
+    toplvl_env := UUIDMap.add uuid global_ptr !toplvl_env
+  ) letblk
 
 let capture_scan (ctx : codegen_ctx) (env : env) (e : Ast.lexpt) : capturedvars =
   let capvars = ref UUIDMap.empty in
@@ -139,8 +150,15 @@ let rec lower_lexpt_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexpt) : ll
     ) 
   | Ast.VarT (nameref, uuidref, vartyp) ->
     (*lookup where var was stored and load it*)
+    let ptr_x = (
+      match UUIDMap.find_opt !uuidref env with
+      | Some px -> px
+      | None -> (
+        match UUIDMap.find_opt !uuidref !toplvl_env with
+        | Some px -> px
+        | None -> raise (CodegenError "Var uuid could not be found")
+      )) in
     let varlltyp = get_lltype_of_typ ctx vartyp in
-    let ptr_x = UUIDMap.find !uuidref env in
     build_load varlltyp ptr_x ("load_tmp_" ^ !nameref)  ctx.llbuilder
   | Ast.IfT (cond, ifblk, elseblk, _) ->
 
@@ -421,11 +439,7 @@ let rec lower_lexpt_to_llvm (ctx : codegen_ctx) (env : env) (e : Ast.lexpt) : ll
   
 let lower_prog_to_llvm ( lb : letblkmonot) : llmodule =
 
-  match List.find_opt (fun (name,_,_) -> name = "@main") lb with
-  | None -> raise (CodegenError "No @main function found in program")
-  | Some (_, _, final_exp) ->
-
-  (*get things for the codegen context*)
+  (*setup the codegen context*)
   let llcontext = global_context () in
   let llmodule = create_module llcontext "intlang_module" in
   let llbuilder = builder llcontext in
@@ -450,15 +464,45 @@ let lower_prog_to_llvm ( lb : letblkmonot) : llmodule =
     malloc_func;
   } in
 
-  (*create main and set curser at entry*)
+  (*separate main from other toplevel definitions*)
+  let main_defs, other_defs = List.partition (fun (name, _, _) -> name = "@main") lb in
+
+  (*declare globals for all other top level defs and put them in the global env*)
+  decl_toplvl_env ctx other_defs;
+
+  (*create __init__ and set curser at entry*)
+  let __init__funtyp = function_type (void_type llcontext) [||] in
+  let __init___fun = declare_function "__init__" __init__funtyp llmodule in
+  let __init__entry_bb = append_block ctx.llcontext "__init__entry" __init___fun in
+  position_at_end __init__entry_bb ctx.llbuilder;
+
+  (*lower top level defs and backpatch the globals*)
+  List.iter (fun (name, uuid, exp) ->
+    let exp_val = lower_lexpt_to_llvm ctx UUIDMap.empty exp in
+    let global_ptr = UUIDMap.find uuid !toplvl_env in
+    ignore (build_store exp_val global_ptr ctx.llbuilder)
+  ) other_defs;
+
+  (*put ret for __init__*)
+  ignore (build_ret_void ctx.llbuilder);
+
+  (*create main, set curser at entry and call __init__*)
   let main_type = function_type i32_t [||] in
   let main_fn = declare_function "main" main_type llmodule in
   let bb = append_block ctx.llcontext "entry" main_fn in
   position_at_end bb ctx.llbuilder;
+  ignore (build_call (__init__funtyp) __init___fun [||] "" ctx.llbuilder);
 
-  let result = lower_lexpt_to_llvm ctx UUIDMap.empty final_exp in
-  ignore (build_ret result ctx.llbuilder);
-  llmodule
+  (*if there is a main lower it and return the result, else return 0*)
+  match main_defs with
+  | [(_, _, final_exp)] ->
+      let result = lower_lexpt_to_llvm ctx UUIDMap.empty final_exp in
+      ignore (build_ret result ctx.llbuilder);
+      llmodule
+  | _ -> 
+      ignore (build_ret (const_int ctx.i32_t 0) ctx.llbuilder);
+      llmodule
+
 
 let sprint_lower_prog_to_llvm (p : letblkmonot) : string =
   let llvm_module = lower_prog_to_llvm p in
