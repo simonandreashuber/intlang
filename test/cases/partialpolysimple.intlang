@@ -1,0 +1,6 @@
+-- Expect: 2
+let snd = \x. \y. y;
+let fix = snd 1;
+let fixint = fix 2;
+let fixvec = fix vec[3];
+fixint

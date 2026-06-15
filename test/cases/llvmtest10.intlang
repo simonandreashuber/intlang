@@ -1,0 +1,1 @@
+let vofv = vec[vec[3,4],vec[6]] in vecget[vecget[vofv,1],0]

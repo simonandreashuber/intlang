@@ -32,14 +32,25 @@ let run_test cases_dir intlang_file =
   | Some expected ->
       try
         let prog = Include.lex_parse_include intlang_std_lib_path filepath in
-        let _ = Typecheck.typecheck prog in
+        let progt, _ = Typecheck.typecheck prog in
+        let monoprogt = Monomorph.monomorph_progt progt in
+        let llvm_str = Codegen.sprint_lower_prog_to_llvm monoprogt in
+        let exit_code = Codegen.lower_llvm_to_bin_clang llvm_str ("out"^intlang_file) in
+
+        if exit_code <> 0 then begin
+          Printf.printf "[FAIL] %s: Clang compilation failed.\n" intlang_file; flush stdout;
+          false
+        end else
         
-        (match Interp.interp_prog prog with
-         | Some out when out = expected ->
+        let execution_result = Sys.command ("./out"^intlang_file) in
+        Sys.remove ("out"^intlang_file);
+
+        (match Interp_tast.interp_prog monoprogt with
+         | Some out when (out = expected) && (execution_result = (expected mod 256)) ->
              Printf.printf "[PASS] %s\n" intlang_file; flush stdout;
              true
          | Some out ->
-             Printf.printf "[FAIL] %s: expected %d, got %d\n" intlang_file expected out; flush stdout;
+             Printf.printf "[FAIL] %s: expected %d, got %d (interp) and %d (compilation)\n" intlang_file expected out execution_result; flush stdout;
              false
          | None ->
              Printf.printf "[FAIL] %s: expected %d, got None\n" intlang_file expected; flush stdout;

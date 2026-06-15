@@ -1,6 +1,7 @@
 (library
  (name intlang_lib)
- (modules ast lexer parser errors printIntlang include typecheck interp))
+ (libraries llvm)
+ (modules ast lexer parser errors printIntlang include typecheck monomorph interp interp_tast codegen))
 
 (menhir
  (modules parser))

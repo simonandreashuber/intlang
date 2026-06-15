@@ -1,0 +1,3 @@
+let step = 4 in 
+let incfun = \x. x + step in 
+incfun 5

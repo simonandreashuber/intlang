@@ -1,5 +1,5 @@
 (executable
  (public_name intlang_main)
  (name main)
- (modes byte exe)
+ (modes exe)
  (libraries intlang_lib))
