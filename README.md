@@ -2,7 +2,7 @@
 
 A small functional language called intlang, that I came up with (wow super original, I know) to get some experience with writing a Parser. This is about trying and probably getting a bunch of things wrong but learn from the mistakes. The project a evolved a bit past what I originally imagined. 
 
-As of now it has Lexer, Parser, Typechecker Interpreter and some Tests :)
+As of now it has Lexer, Parser, Include Resolver, Typechecker, Monomorphization, Interpreter, Lowering to LLVM and some Tests :)
 
 ## Formal Semantics and Type System
 
@@ -15,6 +15,14 @@ in `doc/formal-semantics-and-type-system.tex` there are notes on:
 ## Syntax by Example
 
 in `/test/cases` and `/test/intlangstdlib` there are plenty of examples. Here are also some
+
+```
+include vector
+let v = vec[1,2,3,4,5,6,7,8,9];
+let vsum = vector.vec_left_fold (\acc. \x. acc+x) 0 v;
+vsum
+>>> 45
+```
 
 ```
 let sqr = \x. x * x;
@@ -63,6 +71,10 @@ vecget[AB,0]
 - To build `dune build`
 - To run some program (here fib.intlang): `dune exec bin/main.exe -- fib.intlang`
 - To run the tests: `dune test`
+
+## Dependencies (not complete)
+
+- LLVM 19 (also respective ocaml package) with clang for compilation
 
 ## Inspirations
 - https://github.com/twolodzko/twolodzko.github.io/tree/main/snippets/ocaml-parser
