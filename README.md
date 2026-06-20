@@ -8,8 +8,8 @@ The idea is to make the language more usable/futurefull and faster.
 	- [] optional: \ (a,b,\_). Should be possible with just syntactic sugar
 	- [] optional: mutli lambda \ a b c.
 - [] new basic data type i8
- - [] the normal ints now become i32
-  - I always liked to know what the machine is doing and this follows design philosophy 
+	- [] the normal ints now become i32
+		- I always liked to know what the machine is doing and this follows design philosophy 
 	- [] ASCII
 	- [] then str is \[i8\]
 	- [] Explicit casting functions: i32_to_i8 and i8_to_i32
@@ -17,7 +17,7 @@ The idea is to make the language more usable/futurefull and faster.
 	- [] 'c' init format for i8
 	- [] "string" shorthand for vec\['s', 't', 'r', 'i', 'n', 'g', '\n' \]
  - [] Find new name for language since there are not only ints anymore
-  - mb: Gepard 
+	- mb: Gepard 
 - [] IO
 	- [] unit type written as ()
 	- [] \\() for function with unit type
