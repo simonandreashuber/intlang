@@ -13,10 +13,12 @@ The idea is to make the language more usable/futurefull and faster.
 	- [] ASCII
 	- [] then str is \[i8\]
 	- [] Explicit casting functions: i32_to_i8 and i8_to_i32
-	- [] ==
+	- [] ==i8 !=i8 <i8 <=i8 >i8 >=i8
+	- [] +i8 -i8
+	- [] &i8 |i8 ^i8 ~i8
 	- [] 'c' init format for i8
 	- [] "string" shorthand for vec\['s', 't', 'r', 'i', 'n', 'g', '\n' \]
- - [] Find new name for language since there are not only ints anymore
+ - [] Find new name for language since there are not only "ints" anymore
 	- mb: Gepard 
 - [] IO
 	- [] unit type written as ()
@@ -25,22 +27,25 @@ The idea is to make the language more usable/futurefull and faster.
 	- [] writestr with \[i8\] -> unit type
 	- [] flush with unit -> unit type
 - [] lambda type annotations 
-	- \ (x : typx)
+	- \ x : typx.
+	- \ x : typx => typout.
 	- int: i32
 	- char: i8
 	- tupel: typa * typb
 	- vectors: \[typa\] where typa is a vector or an int
 	- functions: typa -> typb
 - [] New operators for i32
-	- [] > >= =<
- - [] u> u< u>= u<= u/ >>>
-	- [] << >> | & %
+	- [] > >= =< !+
+ 	- [] >u <u >=u <=u /u >>>
+	- [] << >> | & % ^
 	- [] - ~
-- [] letrec, letreccont
+- [] let rec, let recblk
 	- only allow letrec for function types
 	- just makes more sense in an eager language
 	- the scc is kinda neat but also potentially rearranges things
 	- I think in general I like languages where the programmer knows what is gona happen in the compiler and the scc goes a bit against this
+- [] intlangstdlib path machine independent
+	- [] relative includes are not just ascii strings so need to endforce id at the end
 - [] lower via MIR to avoid copies 
 	- [] MIR def (still need to figure out specification)
 	- [] Dataflow Analysis

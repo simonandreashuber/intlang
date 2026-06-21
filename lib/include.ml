@@ -18,7 +18,7 @@ let lex_parse (filepath: string) : parseout =
     close_in ch;
     raise (Errors.ParseError ("Parse error in file: " ^ filepath ^ " at line " ^ string_of_int lexbuf.lex_curr_p.pos_lnum ^ " (" ^  (Printexc.to_string e) ^ ")"))
 
-
+(*
 let lex_parse_include (std_lib_path: string) (filepath: string) : prog =
   (*get the optional final lexp*)
   let final_lexp = List.fold_right (fun stmt lexp_opt -> 
@@ -81,3 +81,4 @@ let lex_parse_include (std_lib_path: string) (filepath: string) : prog =
   in
   let _, letblk = acc_includes (Filename.dirname filepath) (Filename.chop_extension @@ Filename.basename filepath) false [] [] in
   (List.rev letblk, final_lexp)
+  *)

@@ -5,6 +5,9 @@ let headerline = "--------------------------------------------------------------
 
 let main () =
   let filename = Sys.argv.(Array.length Sys.argv - 1) in
+  let prog = Include.lex_parse filename in
+  Printf.printf "%sPARSED PROG:\n%s" headerline (PrintIntlang.sprint_parseout prog); flush stdout;
+  (*
   let prog = Include.lex_parse_include intlang_std_lib_path filename in
   Printf.printf "%sPARSED PROG:\n%s" headerline (PrintIntlang.sprint_prog prog); flush stdout;
 
@@ -31,7 +34,7 @@ let main () =
     Sys.remove "bin/out"
   end else
     print_endline "Clang compilation failed.";
-  
+  *)
   exit 0
 
 let () = main ()

@@ -1,107 +1,161 @@
 open Ast
 
-(*PRINTING*)
-let sprint_bop bop : string =
-    match bop with
-      | Eq  -> "=="
-      | Lt  -> "<"
-      | Mul -> "*"
-      | Sub -> "-"
-      | Add -> "+"
-      | Div -> "/"
-      
-let rec sprint_lexp l : string =
-    match l with
-        | Var s -> Printf.sprintf "%s" s
-        | Int i -> Printf.sprintf "%d" i
-        | Lam (s,l) -> Printf.sprintf "\\%s.(%s)" s (sprint_lexp l)
-        | Bop (bop, ll, lr) -> Printf.sprintf "(%s)%s(%s)" (sprint_lexp ll) (sprint_bop bop) (sprint_lexp lr)
-        | App (ll, lr) -> Printf.sprintf "(%s)(%s)" (sprint_lexp ll) (sprint_lexp lr)
-        | If (c, t, e) -> Printf.sprintf "if %s then %s else %s end" (sprint_lexp c) (sprint_lexp t) (sprint_lexp e)
-        | Letin (s, e, b) -> Printf.sprintf "let %s = %s in %s" s (sprint_lexp e) (sprint_lexp b)
-        | Veclit ls -> Printf.sprintf "vec[%s]" (String.concat ", " (List.map sprint_lexp ls))
-        | Vecmk (defval, count) -> Printf.sprintf "vecmk[%s, %s]" (sprint_lexp defval) (sprint_lexp count)
-        | Veclen v -> Printf.sprintf "veclen[%s]" (sprint_lexp v)
-        | Vecget (v, i) -> Printf.sprintf "vecget[%s, %s]" (sprint_lexp v) (sprint_lexp i)
-        | Vecset (v, i, value) -> Printf.sprintf "vecset[%s, %s, %s]" (sprint_lexp v) (sprint_lexp i) (sprint_lexp value)
-
-let rec sprint_lexp_shallow  (depth : int) (l : lexp) : string =
-    if depth <= 0 then "..."
-    else
-    match l with
-        | Var s -> Printf.sprintf "%s" s
-        | Int i -> Printf.sprintf "%d" i
-        | Lam (s,l) -> Printf.sprintf "\\%s.(%s)" s (sprint_lexp_shallow (depth - 1) l)
-        | Bop (bop, ll, lr) -> Printf.sprintf "(%s)%s(%s)" (sprint_lexp_shallow (depth - 1) ll) (sprint_bop bop) (sprint_lexp_shallow (depth - 1) lr)
-        | App (ll, lr) -> Printf.sprintf "(%s)(%s)" (sprint_lexp_shallow (depth - 1) ll) (sprint_lexp_shallow (depth - 1) lr)
-        | If (c, t, e) -> Printf.sprintf "if %s then %s else %s end" (sprint_lexp_shallow (depth - 1) c) (sprint_lexp_shallow (depth - 1) t) (sprint_lexp_shallow (depth - 1) e)
-        | Letin (s, e, b) -> Printf.sprintf "let %s = %s in %s" s (sprint_lexp_shallow (depth - 1) e) (sprint_lexp_shallow (depth - 1) b)
-        | Veclit ls -> Printf.sprintf "vec[%s]" (String.concat ", " (List.map (sprint_lexp_shallow (depth - 1)) ls))
-        | Vecmk (defval, count) -> Printf.sprintf "vecmk[%s, %s]" (sprint_lexp_shallow (depth - 1) defval) (sprint_lexp_shallow (depth - 1) count)
-        | Veclen v -> Printf.sprintf "veclen[%s]" (sprint_lexp_shallow (depth - 1) v)
-        | Vecget (v, i) -> Printf.sprintf "vecget[%s, %s]" (sprint_lexp_shallow (depth - 1) v) (sprint_lexp_shallow (depth - 1) i)
-        | Vecset (v, i, value) -> Printf.sprintf "vecset[%s, %s, %s]" (sprint_lexp_shallow (depth - 1) v) (sprint_lexp_shallow (depth - 1) i) (sprint_lexp_shallow (depth - 1) value)
-
-let sprint_stmt st : string =
-    match st with
-        | IncludeGlobal id -> Printf.sprintf "include %s" id
-        | IncludeRelative path -> Printf.sprintf "include \"%s\"" path
-        | Nlexp (s,l) -> Printf.sprintf "let %s = (%s);" s (sprint_lexp l)
-        | Lexp l -> Printf.sprintf "%s" (sprint_lexp l)
-
-let sprint_parseout p : string =
-    (*string print the ast, similar to the input but with parenthesies to show the ast structure*)
-    List.fold_left ( fun acc st -> acc ^ (sprint_stmt st) ^ "\n" ) "" p
-
-let print_parseout p : unit = Printf.printf "%s" (sprint_parseout p)
-
-let sprint_prog (letblk, lexp_opt) : string =
-    let letblk_str = List.fold_left (fun acc (name, e) -> 
-        acc ^ (sprint_stmt (Nlexp (name, e))) ^ "\n"
-    ) "" letblk in
-    let main_str = match lexp_opt with
-                    | Some lexp -> sprint_stmt (Lexp lexp)
-                    | None -> "" 
-            in
-    letblk_str ^ main_str ^ "\n"
-
-let print_prog p : unit = Printf.printf "%s" (sprint_prog p)
-
-(*PRINT FUNCTIONS*)
-
-(*not sure if its always correct, all observed bugs were fixed*)
-let sprint_typ (t : typ) : string =
-  let rec aux (t : typ)  (vis : (int * int) list) : string * (int* int) list =
-    match t with
-    | TInt -> "int", vis
-    | TVec t_inner -> 
-        let t_inner_str, vis_t_inner = aux t_inner vis in
-        "Vec[" ^ t_inner_str ^ "]", vis_t_inner
+let rec sprint_typ (t : typ) : string =
+    match repr t with
+    | TUnit -> "()"
+    | TI32 -> "i32"
+    | TI8 -> "i8"
+    | TTup t_list -> 
+        let t_lst_str = List.map sprint_typ t_list in
+        "(" ^ (String.concat ", " t_lst_str) ^ ")"
+    | TVec t_inner -> "[" ^ (sprint_typ t_inner)  ^ "]"
     | TFun (t1, t2) -> (
-        let t1str, vis_t1 = aux t1 vis in
-        let left = match t1 with
+        let t1str = sprint_typ t1 in
+        let left = match repr t1 with
           | TFun _ -> "(" ^ t1str ^ ")"
           | _ -> t1str
         in
-        let t2str, vis_t2 = aux t2 vis_t1 in
-        left ^ " -> " ^ t2str, vis_t2
-    )
-    | TVar {id; link = Some t_linked; _ } -> 
-        (
-          match List.assoc_opt id vis with
-            | Some count -> raise (Errors.TypeError "Type loop detected during printing: Recursive types are not allowed")
-            | None -> (
-              let t_linked_str, vis_t_linked = aux t_linked ((id, 0) :: vis) in
-              match List.assoc_opt id vis_t_linked with
-                | Some count when count > 0 -> "(" ^ t_linked_str ^ " as t" ^ string_of_int id ^ ")", List.filter (fun (i, _) -> i <> id) vis_t_linked
-                | _ -> t_linked_str, List.filter (fun (i, _) -> i <> id) vis_t_linked
-            )
-        ) 
-    | TVar {id; link = None; _ } -> "t" ^ string_of_int id (*^ " (lvl: " ^ string_of_int level ^ ")"*), vis
-  in 
-  let res_str, _ = aux t [] in
-  res_str
+        let t2str = sprint_typ t2 in
+        left ^ " -> " ^ t2str
+      )
+    | TVar tvar -> "t" ^ string_of_int tvar.id
 
+(* Helper to generate indentation string *)
+let indent (level : int) : string =
+  String.make (level * 4) ' '
+
+(* Sprint binary operator for i32 *)
+let sprint_bopi32 (bop : bopi32) : string =
+  match bop with
+  | Eqi32 -> "=="
+  | Neqi32 -> "!="
+  | Lti32 -> "<"
+  | Gti32 -> ">"
+  | LtEqi32 -> "<="
+  | GtEqi32 -> ">="
+  | ULti32 -> "<u"
+  | UGti32 -> ">u"
+  | ULtEqi32 -> "<=u"
+  | UGtEqi32 -> ">=u"
+  | Muli32 -> "*"
+  | Subi32 -> "-"
+  | Addi32 -> "+"
+  | Divi32 -> "/"
+  | Modi32 -> "%"
+  | UDivi32 -> "/u"
+  | UModi32 -> "%u"
+  | Andi32 -> "&"
+  | Ori32 -> "|"
+  | Xori32 -> "^"
+  | Shli32 -> "<<"
+  | Shri32 -> ">>"
+  | UShri32 -> ">>u"
+
+(* Sprint binary operator for i8 *)
+let sprint_bopi8 (bop : bopi8) : string =
+  match bop with
+  | Eqi8 -> "==i8"
+  | Neqi8 -> "!=i8"
+  | Lti8 -> "<i8"
+  | Gti8 -> ">i8"
+  | LtEqi8 -> "<=i8"
+  | GtEqi8 -> ">=i8"
+  | Addi8 -> "+i8"
+  | Subi8 -> "-i8"
+  | Andi8 -> "&i8"
+  | Ori8 -> "|i8"
+  | Xori8 -> "^i8"
+
+(* Sprint unary operator for i32 *)
+let sprint_uopi32 (uop : uopi32) : string =
+  match uop with
+  | Negi32 -> "-"
+  | Noti32 -> "~"
+
+(* Sprint unary operator for i8 *)
+let sprint_uopi8 (uop : uopi8) : string =
+  match uop with
+  | Negi8 -> "-i8"
+  | Noti8 -> "~i8"
+
+(* Note on the tab level: we use indent tab for each newline *)
+let rec sprint_lexp (tab : int) (l : lexp) : string =
+  let ind = indent tab in
+  let ind_next = indent (tab + 1) in
+  match l with
+  | Var s -> s
+  | I32Lit i -> string_of_int i
+  | I8Lit c -> "'" ^ Char.escaped c ^ "'"
+  | UnitLit -> "()"
+  | LamUnit body -> "\\().\n" ^ ind_next ^ sprint_lexp (tab + 1) body
+  
+  | Lam (id, inT_opt, outT_opt, body) -> (
+      let typ_str = match inT_opt, outT_opt with
+        | None, None -> ""
+        | Some inT, None -> " : " ^ sprint_typ inT
+        | Some inT, Some outT -> " : " ^ sprint_typ inT ^ " => " ^ sprint_typ outT
+        | None, Some _ -> "" (* shouldn't happen *)
+      in
+      match body with
+      | Lam _ -> "\\" ^ id ^ typ_str ^ ". " ^ sprint_lexp tab body
+      | _ -> "\\" ^ id ^ typ_str ^ ".\n" ^ ind_next ^ sprint_lexp (tab + 1) body
+    )
+  | Letin (id, e, body) ->
+      "let " ^ id ^ " =\n" ^ ind_next ^ sprint_lexp (tab + 1) e ^ "\n" ^
+      ind ^ "in\n" ^ ind_next ^ sprint_lexp (tab + 1) body
+  | Letrecin (id, e, body) ->
+      "let rec " ^ id ^ " =\n" ^ ind_next ^ sprint_lexp (tab + 1) e ^ "\n" ^
+      ind ^ "in\n" ^ ind_next ^ sprint_lexp (tab + 1) body
+  | LetinTuple (ids, e, body) ->
+      "let (" ^ String.concat ", " ids ^ ") =\n" ^ ind_next ^ sprint_lexp (tab + 1) e ^ "\n" ^
+      ind ^ "in\n" ^ ind_next ^ sprint_lexp (tab + 1) body
+  | Tuple exprs ->
+      "(" ^ String.concat ", " (List.map (sprint_lexp tab) exprs) ^ ")"
+  | App (f, arg) -> (*could be smarter*)
+      "(" ^ sprint_lexp tab f ^ ") (" ^ sprint_lexp tab arg ^ ")"
+  | UopI32 (uop, e) ->
+      sprint_uopi32 uop ^ " " ^ sprint_lexp tab e
+  | UopI8 (uop, e) ->
+      sprint_uopi8 uop ^ " " ^ sprint_lexp tab e
+  | BopI32 (bop, left, right) ->
+      "(" ^ sprint_lexp tab left ^ ") " ^ sprint_bopi32 bop ^ " (" ^ sprint_lexp tab right ^ ")"
+  | BopI8 (bop, left, right) ->
+      "(" ^ sprint_lexp tab left ^ ") " ^ sprint_bopi8 bop ^ " (" ^ sprint_lexp tab right ^ ")"
+  | If (cond, then_e, else_e) ->
+      "if " ^ sprint_lexp tab cond ^ " then\n" ^
+      ind_next ^ sprint_lexp (tab + 1) then_e ^ "\n" ^
+      ind ^ "else\n" ^
+      ind_next ^ sprint_lexp (tab + 1) else_e ^ "\n" ^
+      ind ^ "end"
+  | VecLit exprs ->
+      "vec[" ^ String.concat ", " (List.map (sprint_lexp tab) exprs) ^ "]"
+  | Vecmk (defval, count) ->
+      "vecmk[" ^ sprint_lexp tab defval ^ ", " ^ sprint_lexp tab count ^ "]"
+  | Veclen v ->
+      "veclen[" ^ sprint_lexp tab v ^ "]"
+  | Vecget (v, idx) ->
+      "vecget[" ^ sprint_lexp tab v ^ ", " ^ sprint_lexp tab idx ^ "]"
+  | Vecset (v, idx, val_e) ->
+      "vecset[" ^ sprint_lexp tab v ^ ", " ^ sprint_lexp tab idx ^ ", " ^ sprint_lexp tab val_e ^ "]"
+
+(* Sprint statements with proper indentation *)
+let sprint_stmt (tab : int) (st : stmt) : string =
+  let ind = indent tab in
+  match st with
+  | IncludeGlobal id -> ind ^ "include " ^ id ^ "\n"
+  | IncludeRelative path -> ind ^ "include \"" ^ path ^ "\"\n"
+  | Let (id, e) ->  ind ^ "let " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";"
+  | Letrec (id, e) -> ind ^ "let rec " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";"
+  | Letrecblk (id, e) -> ind ^ "let recblk " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";"
+  | Lexp e -> ind ^ sprint_lexp tab e
+
+let sprint_parseout p : string = List.fold_left ( fun acc st -> acc ^ (sprint_stmt 0 st) ^ "\n" ) "" p
+
+let print_parseout p : unit = Printf.printf "%s" (sprint_parseout p)
+
+ 
+
+(*
 let sprint_schema (Forall (vars, t) : schema) : string =
   let vars_str = if vars = [] then "" else "forall " ^ String.concat " " (List.map (fun v -> "t" ^ string_of_int v) vars) ^ ". " in
   vars_str ^ sprint_typ t
@@ -181,3 +235,4 @@ let sprint_instreg (instreg : instreg) : string =
               (List.map (fun (i, tvar) -> "t" ^ string_of_int i ^ " -> " ^ (sprint_typ (repr (TVar tvar)))) sublst))
   ) instreg in
   String.concat "\n" bindings
+  *)

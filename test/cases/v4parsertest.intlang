@@ -1,0 +1,30 @@
+let swap = \itup : i32 * i8 => i8 * i32.
+            let (int, char) = itup in (char, int);
+
+let special_read = \()
+            readstrln ();
+
+let endswbreak = \ istr : [i8] => [i8].
+            let endpos = veclen[istr]-1 in
+            vecget[istr, endpos] == '\n';
+
+let somestr = "hello world\n";
+
+let uppercase = \c.
+    if (c >=i8 'a') & (c <=i8 'z') then
+        c -i8 (i32_to_i8 32)
+    else
+        c
+    end;
+
+let map = \f : i32 -> i32. \v : [i32] => [i32].
+            let aux = \v. \i.
+                if i < veclen[v] then
+                    aux vecset[v, i, f (vecget[v, i])] (i+1)
+                else
+                    v
+                end
+    in
+    aux v 0;
+
+map (\x. \y. x % y)
