@@ -27,4 +27,9 @@ let map = \f : i32 -> i32. \v : [i32] => [i32].
     in
     aux v 0;
 
+let multilam = \x y z. x + y + z;
+
+let multilamanot = \ x (y : i32) (z : [i8]). y;
+let multilamanotoutT = \ x (y : i32) (z : [i8]) => i32. y;
+
 map (\x. \y. x % y)

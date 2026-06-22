@@ -1,5 +1,6 @@
 %{
 open Ast
+open Errors
 %}
 
 %token EOF
@@ -54,11 +55,25 @@ lexp:
     | LET; REC; id = ID; ASS; e1 = lexp; IN; e2 = lexp                              { Letrecin(id, e1, e2) }
     | LET; LPAR; idlst = id_list; RPAR; ASS; e1 = lexp; IN; e2 = lexp               { LetinTuple(idlst, e1, e2) }
     | IF; c = lexp; THEN; t = lexp; ELSE; e = lexp; END                             { If(c, t, e) }
-    | LAM; id = ID; DOT; l = lexp                                                   { Lam(id, None, None, l) }
+    | LAM; lamls = lamlst; DOT; l = lexp                                            { List.fold_right (fun (id, t, _) acc -> Lam(id, t, None, acc)) lamls l }
+    | LAM; lamls = lamlst; OUTTYP; outT = typ_anot; DOT; l = lexp                   { 
+                                                                                        let lamlsout = List.rev (match List.rev lamls with
+                                                                                                       | (id, inT, None) :: tl -> (id, inT, Some outT) :: tl
+                                                                                                       | _ -> raise (ParseError "internal: multi lambda combination")) in
+                                                                                        List.fold_right (fun (id, inT, outT) acc -> Lam(id, inT, outT, acc)) lamlsout l 
+                                                                                    }
     | LAM; id = ID; COLON; t = typ_anot; DOT; l = lexp                              { Lam(id, Some t, None, l) }
     | LAM; id = ID; COLON; inT = typ_anot; OUTTYP; outT = typ_anot; DOT; l = lexp   { Lam(id, Some inT, Some outT, l) }
     | LAM; LPAR; RPAR; l = lexp                                                     { LamUnit(l) }
     | lc = lexp_cmp                                                                 { lc }
+
+lamlst:
+    | id = ID; ls = lamlst                                  { (id, None, None) :: ls }
+    | LPAR; id = ID; COLON; t = typ_anot; RPAR; ls = lamlst { (id, Some t, None) :: ls }
+    | id = ID                                               { [(id, None, None)] }
+    | LPAR; id = ID; COLON; t = typ_anot; RPAR              { [(id, Some t, None)] }
+
+
 
 typ_anot:
     | tlst = typ_tuple_list; FUNTYP; rtyp = typ_anot        { TFun (TTup tlst, rtyp) }
