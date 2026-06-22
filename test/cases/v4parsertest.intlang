@@ -36,4 +36,8 @@ let emptyvecget = \v : [i32]. vecget[v];
 let emptyvecget = \v : [[i32]]. vecget[v,0,0];
 
 
+let rec countup = \ x. if x < 10 then countup2 (x+1) else x end;
+and countup2 = \ x. if x < 10 then countup (x+1) else x end;
+
+
 map (\x. \y. x % y)

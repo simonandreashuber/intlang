@@ -40,7 +40,7 @@ rule token = parse
   | "include"   { INCLUDE }
   | "let"       { LET }
   | "rec"       { REC }
-  | "recblk"    { RECBLK }
+  | "and"       { LETAND }
   | "in"        { IN }
   | "="         { ASS }
   | ";"         { SEM }
@@ -61,6 +61,7 @@ rule token = parse
   | "i32"       {I32TYP}
   | "i8"        {I8TYP}
   | "->"        {FUNTYP}
+  | "unit"      {UNITTYP}
   (*I32 ops*)
   | "=="        { EQ_I32 }
   | "!="        { NEQ_I32 }

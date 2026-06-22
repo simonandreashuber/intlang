@@ -1,5 +1,9 @@
 # intlang v4
 
+## TODO 
+	- Fix test cases and stdlib (especially the let rec things)
+## Futures
+
 The idea is to make the language more usable/futurefull and faster.
 
 - [] N-arry tuples
@@ -39,13 +43,14 @@ The idea is to make the language more usable/futurefull and faster.
  	- [] >u <u >=u <=u /u >>>
 	- [] << >> | & % ^
 	- [] - ~
-- [] let rec, let recblk
+- [] let rec, and
 	- only allow letrec for function types
 	- just makes more sense in an eager language
 	- the scc is kinda neat but also potentially rearranges things
 	- I think in general I like languages where the programmer knows what is gona happen in the compiler and the scc goes a bit against this
 - [] intlangstdlib path machine independent
 	- [] relative includes are not just ascii strings so need to endforce id at the end
+- [] Do strictness check pass
 - [] lower via MIR to avoid copies 
 	- [] MIR def (still need to figure out specification)
 	- [] Dataflow Analysis

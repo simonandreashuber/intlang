@@ -26,6 +26,14 @@ let fresh_uuid () : int =
   uuid_counter := id + 1;
   id
 
+(* 
+  Note on UUID assignment:
+    While I think that conceptually assigning UUIDs should be done in the include pass (include handles what names and references what), I do it in the typechecker.
+    In terms of how the AST is iterated and the env is kept both are suited. The main reason it is in the typechecker is because this is where I first put it in. 
+    One other benefit is that if I were to do it in the include pass, I would need one more lexp AST version with no types but UUIDs (and the additional print bloat...). 
+    Which to be honest would not be that bad and the increased separation of tasks per pass would probably justify it.... Anyways as of now it is in the typechecker.
+*)
+
 (*here as it is a basic necessary when working with types*)
 let repr (t : typ) : typ =
   let rec repr_aux t visited =
@@ -97,10 +105,11 @@ type stmt =
     | IncludeRelative of string
     | Let of string * lexp 
     | Letrec of string * lexp 
-    | Letrecblk of string * lexp
+    | Letrecblk of (string * lexp) list
     | Lexp of lexp     
 
 type parseout = stmt list    (*what the parser spits out: includes not resolved, final lexp not split of*)
+
 
 (*
 (*after include resolution before type checking*)

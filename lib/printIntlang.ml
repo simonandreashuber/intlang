@@ -148,14 +148,19 @@ let sprint_stmt (tab : int) (st : stmt) : string =
   | IncludeRelative path -> ind ^ "include \"" ^ path ^ "\"\n"
   | Let (id, e) ->  ind ^ "let " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";"
   | Letrec (id, e) -> ind ^ "let rec " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";"
-  | Letrecblk (id, e) -> ind ^ "let recblk " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";"
+  | Letrecblk lst -> (
+      match lst with
+      | ((id, e) :: tl) -> List.fold_left 
+                              (fun acc (id, e) -> acc ^ "\n" ^ ind ^ "and " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";") 
+                              (ind ^ "let rec " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";") tl
+      | _ -> raise (Errors.PrintError "Empty Letrecblk")
+  )
   | Lexp e -> ind ^ sprint_lexp tab e
 
 let sprint_parseout p : string = List.fold_left ( fun acc st -> acc ^ (sprint_stmt 0 st) ^ "\n" ) "" p
 
 let print_parseout p : unit = Printf.printf "%s" (sprint_parseout p)
 
- 
 
 (*
 let sprint_schema (Forall (vars, t) : schema) : string =

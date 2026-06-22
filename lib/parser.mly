@@ -14,7 +14,7 @@ open Errors
 %token ADD_I8 SUB_I8
 %token AND_I8 OR_I8 XOR_I8 NOT_I8
 %token LPAR RPAR            (* ( ) *)
-%token LET REC RECBLK ASS SEM          (* let = ; *)
+%token LET REC LETAND ASS SEM          (* let = ; *)
 %token IN                   
 %token LAM COLON OUTTYP DOT              (* \ . *)
 %token IF THEN ELSE END     (* if then else end *)
@@ -22,7 +22,7 @@ open Errors
 %token LBRACK RBRACK        (* [] *)
 %token COMMA
 %token VECLEN VECLIT VECMK VECGET VECSET VECRESZ
-%token FUNTYP I32TYP I8TYP
+%token FUNTYP I32TYP I8TYP UNITTYP
 %token <int>I32             (* int literal *)
 %token <char>I8
 %token <string> STR
@@ -43,10 +43,13 @@ prog:
     | l = lexp                                              { [Lexp l] }
 
 lettoplvl:
-    | LET; id = ID; ASS; l = lexp; SEM                      { Let(id, l) }
-    | LET; REC; id = ID; ASS; l = lexp; SEM                 { Letrec(id, l) }
-    | LET; RECBLK; id = ID; ASS; l = lexp; SEM              { Letrecblk(id, l) }
+    | LET; id = ID; ASS; l = lexp; SEM                              { Let(id, l) }
+    | LET; REC; id = ID; ASS; l = lexp; SEM                         { Letrec(id, l) }
+    | LET; REC; id = ID; ASS; l = lexp; SEM;  la = letand         { Letrecblk (List.rev ((id, l) :: la)) }
 
+letand:
+    | LETAND; id = ID; ASS; l = lexp; SEM; la = letand     { (id, l) :: la }
+    | LETAND; id = ID; ASS; l = lexp; SEM;                     { [(id, l)] }
 
 (* tried to keep one lexp non terminal with operator precedence 
    but I did not get it to work quickly so switched back to manual :| *)
@@ -88,7 +91,7 @@ typ_tuple_list:
 typ_anot_atom: 
     | I32TYP                                                { TI32 }
     | I8TYP                                                 { TI8 }
-    | LPAR; RPAR                                            { TUnit }
+    | UNITTYP                                               { TUnit }
     | LBRACK; ityp = typ_anot; RBRACK                       { TVec ityp }
     | LPAR; ityp = typ_anot; RPAR                           { ityp }
 
