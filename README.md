@@ -54,6 +54,7 @@ The idea is to make the language more usable/futurefull and faster.
 - [] GC with ARC
 - [] new vectors
 	- type determined by inntertype of char or int and dimension/depth
+	- for index lists allow it to be empty or just some partial access
 	- [] vecget\[oldv, index list\]
 	- [] vecset\[oldv, newval,  index list\]
 		- optional: should I allow a index list shorter than the vectors dim so we can get and set a vector

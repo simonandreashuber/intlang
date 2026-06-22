@@ -32,4 +32,8 @@ let multilam = \x y z. x + y + z;
 let multilamanot = \ x (y : i32) (z : [i8]). y;
 let multilamanotoutT = \ x (y : i32) (z : [i8]) => i32. y;
 
+let emptyvecget = \v : [i32]. vecget[v];
+let emptyvecget = \v : [[i32]]. vecget[v,0,0];
+
+
 map (\x. \y. x % y)

@@ -129,14 +129,16 @@ let rec sprint_lexp (tab : int) (l : lexp) : string =
       ind ^ "end"
   | VecLit exprs ->
       "vec[" ^ String.concat ", " (List.map (sprint_lexp tab) exprs) ^ "]"
-  | Vecmk (defval, count) ->
-      "vecmk[" ^ sprint_lexp tab defval ^ ", " ^ sprint_lexp tab count ^ "]"
+  | Vecmk (defval, size_list) ->
+      "vecmk[" ^ sprint_lexp tab defval ^ ", " ^ String.concat ", " (List.map (sprint_lexp tab) size_list) ^ "]"
   | Veclen v ->
       "veclen[" ^ sprint_lexp tab v ^ "]"
-  | Vecget (v, idx) ->
-      "vecget[" ^ sprint_lexp tab v ^ ", " ^ sprint_lexp tab idx ^ "]"
-  | Vecset (v, idx, val_e) ->
-      "vecset[" ^ sprint_lexp tab v ^ ", " ^ sprint_lexp tab idx ^ ", " ^ sprint_lexp tab val_e ^ "]"
+  | Vecget (v, size_list) ->
+      "vecget[" ^ sprint_lexp tab v ^ (if size_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp tab) size_list) ^ "]"
+  | Vecset (v, val_e, idx_list) ->
+      "vecset[" ^ sprint_lexp tab v ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp tab) idx_list) ^ ", " ^ sprint_lexp tab val_e ^ "]"
+  | Vecresz (v, newlen, idx_list) ->
+      "vecresz[" ^ sprint_lexp tab v ^ ", " ^ sprint_lexp tab newlen ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp tab) idx_list) ^ "]"
 
 (* Sprint statements with proper indentation *)
 let sprint_stmt (tab : int) (st : stmt) : string =

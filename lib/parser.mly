@@ -21,7 +21,7 @@ open Errors
 %token INCLUDE              (* include *)
 %token LBRACK RBRACK        (* [] *)
 %token COMMA
-%token VECLEN VECLIT VECMK VECGET VECSET
+%token VECLEN VECLIT VECMK VECGET VECSET VECRESZ
 %token FUNTYP I32TYP I8TYP
 %token <int>I32             (* int literal *)
 %token <char>I8
@@ -160,27 +160,32 @@ lexp_app:
     | la = lexp_atom                                        { la }
 
 lexp_atom:
-    | id = ID                                                                   { Var id }
-    | incl = ID; DOT; id = ID                                                   { Var (incl ^ "." ^ id) }
-    | LPAR; RPAR;                                                               { UnitLit }
-    | i32lit = I32                                                              { I32Lit i32lit }
-    | i8lit = I8                                                                { I8Lit i8lit }
-    | str = STR                                                                 { VecLit (List.map (fun x -> I8Lit x) (List.of_seq (String.to_seq str))) }
-    | LPAR; ls = tup_lexp_list; RPAR;                                               { Tuple ls }
-    | VECLIT; LBRACK; ls = lexp_list; RBRACK                                    { VecLit ls }
-    | VECMK; LBRACK; lit = lexp; COMMA; len = lexp; RBRACK                      { Vecmk(lit, len) }
-    | VECLEN; LBRACK; v = lexp; RBRACK                                          { Veclen v }
-    | VECGET; LBRACK; v = lexp; COMMA; i = lexp; RBRACK                         { Vecget(v, i) }
-    | VECSET; LBRACK; v = lexp; COMMA; i = lexp; COMMA; value = lexp; RBRACK    { Vecset(v, i, value) }
-    | LPAR; l = lexp; RPAR                                                      { l }
+    | id = ID                                                                                           { Var id }
+    | incl = ID; DOT; id = ID                                                                           { Var (incl ^ "." ^ id) }
+    | LPAR; RPAR;                                                                                       { UnitLit }
+    | i32lit = I32                                                                                      { I32Lit i32lit }
+    | i8lit = I8                                                                                        { I8Lit i8lit }
+    | str = STR                                                                                         { VecLit (List.map (fun x -> I8Lit x) (List.of_seq (String.to_seq str))) }
+    | LPAR; ls = lexp_list_min2; RPAR;                                                                  { Tuple ls }
+    | VECLIT; LBRACK; lit_list = lexp_list_min1; RBRACK                           { VecLit lit_list }
+    | VECMK; LBRACK; lit = lexp; COMMA; size_list = lexp_list_min1; RBRACK               { Vecmk(lit, size_list) }
+    | VECLEN; LBRACK; v = lexp; RBRACK                                                                  { Veclen v }
+    | VECGET; LBRACK; v = lexp; idx_list = lexp_list_min0; RBRACK                          { Vecget(v, idx_list) }
+    | VECSET; LBRACK; v = lexp; COMMA; value = lexp; idx_list = lexp_list_min0; RBRACK     { Vecset(v, value, idx_list) }
+    | VECRESZ; LBRACK; v = lexp; COMMA; newlen = lexp; idx_list = lexp_list_min0; RBRACK   { Vecresz(v, newlen, idx_list) }
+    | LPAR; l = lexp; RPAR                                                                              { l }
 
-lexp_list:
-    | l = lexp; COMMA; ls = lexp_list                       { l :: ls }
+lexp_list_min0:
+    | COMMA; l = lexp; ls = lexp_list_min0                  { l :: ls }
+    |                                                       { [] }
+
+lexp_list_min1:
+    | l = lexp; COMMA; ls = lexp_list_min1                  { l :: ls }
     | l = lexp                                              { [l] }
 
-tup_lexp_list:
-    | l = lexp; COMMA; ls = tup_lexp_list                       { l :: ls }
-    | l1 = lexp; COMMA; l2 = lexp                               { [l1; l2] }
+lexp_list_min2:
+    | l = lexp; COMMA; ls = lexp_list_min2                  { l :: ls }
+    | l1 = lexp; COMMA; l2 = lexp                           { [l1; l2] }
 
 id_list:
     | id = ID; COMMA; ids = id_list                         { id :: ids }

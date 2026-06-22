@@ -106,6 +106,7 @@ rule token = parse
   | "veclen"    { VECLEN }
   | "vecget"    { VECGET }
   | "vecset"    { VECSET }
+  | "vecresz"   { VECRESZ }
   | digit+ as n { I32 (int_of_string n) }
   | i8init as c { I8 (parse_char c) }
   | strinit as s{ STR (parse_string s) }
