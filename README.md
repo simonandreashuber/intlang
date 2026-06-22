@@ -2,6 +2,7 @@
 
 ## TODO 
 	- Fix test cases and stdlib (especially the let rec things)
+	- _ in tuples is seen as a local binding in the include pass should fix
 ## Futures
 
 The idea is to make the language more usable/futurefull and faster.

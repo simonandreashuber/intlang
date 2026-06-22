@@ -42,7 +42,7 @@ let lex_parse_include (std_lib_path: string) (filepath: string) : parseout =
       | LamUnit body -> LamUnit (vars_add_prefix prefix locbound body)
       | Letin (v, e1, e2) -> Letin (v, vars_add_prefix prefix locbound e1, vars_add_prefix prefix (v :: locbound) e2)
       | Letrecin (v, e1, e2) -> Letrecin (v, vars_add_prefix prefix (v :: locbound) e1, vars_add_prefix prefix (v :: locbound) e2)
-      | LetinTuple (vs, e1, e2) -> LetinTuple (vs, vars_add_prefix prefix locbound e1, vars_add_prefix prefix (vs @ locbound) e2)
+      | LetinTuple (vs, e1, e2) -> LetinTuple (vs, vars_add_prefix prefix locbound e1, vars_add_prefix prefix ((List.filter (fun x -> x <> "_") vs) @ locbound) e2)
       | Tuple es -> Tuple (List.map (vars_add_prefix prefix locbound) es)
       | App (e1, e2) -> App (vars_add_prefix prefix locbound e1, vars_add_prefix prefix locbound e2)
       | I32Lit n -> I32Lit n

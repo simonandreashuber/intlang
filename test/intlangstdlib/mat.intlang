@@ -23,7 +23,7 @@ let matmul = \n. \l. \m. \A. \B.
     -- i is in [0,n]
     -- j is in [0,m]
     -- k is in [0,l]
-    let matmulaux = \n. \l. \m. \A. \B. \C. \i. \j. \k.
+    let rec matmulaux = \n. \l. \m. \A. \B. \C. \i. \j. \k.
                 let updtC = vecset[C, 
                                    i*m+j, 
                                    vecget[C, i*m+j] + vecget[A,i*l+k]*vecget[B,k*m+j]

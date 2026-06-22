@@ -39,5 +39,11 @@ let emptyvecget = \v : [[i32]]. vecget[v,0,0];
 let rec countup = \ x. if x < 10 then countup2 (x+1) else x end;
 and countup2 = \ x. if x < 10 then countup (x+1) else x end;
 
+let tupignore = \itup : i32 * i8 => i8.
+            let (_, char) = itup in char;
+
+let swapweird = \itup : i32 * i8 => i8 * i32.
+            let (int, _) = itup in (_, int);
+
 
 map (\x. \y. x % y)
