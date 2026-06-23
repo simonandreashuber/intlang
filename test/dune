@@ -4,5 +4,5 @@
 
 (rule
  (alias runtest)
- (deps (glob_files cases/*.intlang) (glob_files cases/inclfoldr/*.intlang))
+ (deps (glob_files cases/*.intlang) (glob_files cases/inclfoldr/*.intlang) (glob_files intlangstdlib/*.intlang))
  (action (run %{exe:test_intlang.exe} cases)))

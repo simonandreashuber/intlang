@@ -19,10 +19,7 @@ let extract_expect_from_file filename =
       None
   with _ -> None
 
-let intlang_std_lib_path = "/home/simon/code/intlang/test/intlangstdlib/"
-
-
-let run_test cases_dir intlang_file =
+let run_test cases_dir intlang_std_lib_path intlang_file =
   let filepath = Filename.concat cases_dir intlang_file in
   
   match extract_expect_from_file filepath with
@@ -73,10 +70,13 @@ let () =
     List.filter (fun f -> Filename.check_suffix f ".intlang") files 
     |> List.sort String.compare
   in
+
+  (* Construct stdlib path *)
+  let intlang_std_lib_path  = (Sys.getcwd ()) ^ "/intlangstdlib/" in
   
   (* Run all tests *)
   let success = List.fold_left (fun acc f -> 
-    run_test cases_dir f && acc
+    run_test cases_dir intlang_std_lib_path f && acc
   ) true intlang_files in
 
   if success then exit 0 else exit 1
