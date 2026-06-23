@@ -1,0 +1,15 @@
+-- Expect: 0
+
+-- let rec evilrec = vecset[evilrec, 0, 0]
+
+-- let notevil = let rec otherevilrec = vecset[otherevilrec, 0, 0] in 0
+
+let rec ne2 = let i = 2 in \x. x
+
+-- let rec e2 = let i = 2 in i
+
+let rec ne3 = let i = 2 in \x. x + i
+
+-- and e3 = let i = 2 in i
+
+let main = 0

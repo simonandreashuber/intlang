@@ -1,3 +1,4 @@
+-- Expect: 0
 let swap = \itup : i32 * i8 => i8 * i32.
             let (int, char) = itup in (char, int)
 
@@ -50,4 +51,10 @@ let rec somerecfunc = \ x. if x < 10 then somerecfunc (x+1) else x end
 let seqtest =   if 0 < 10 then () else () end;
                 if 0 < 10 then () else () end 
 
-let main = map (\x. \y. x % y)
+-- let rec evilrec = vecset[evilrec, 0, 0]
+
+-- let notevil = let rec otherevilrec = vecset[otherevilrec, 0, 0] in 0
+
+let oldmain = map (\x. \y. x % y)
+
+let main = 0

@@ -5,8 +5,9 @@ let headerline = "--------------------------------------------------------------
 let main () =
   let filename = Sys.argv.(Array.length Sys.argv - 1) in
   let intlang_std_lib_path = (Sys.getcwd ()) ^ "/test/intlangstdlib/" in
-  let prog = Include.lex_parse_include intlang_std_lib_path filename in
-  Printf.printf "%sPARSED PROG:\n%s" headerline (PrintIntlang.sprint_ast prog); flush stdout;
+  let ast = Include.lex_parse_include intlang_std_lib_path filename in
+  Reccheck.reccheck ast;
+  Printf.printf "%sPARSED PROG:\n%s" headerline (PrintIntlang.sprint_ast ast); flush stdout;
   (*
   let prog = Include.lex_parse_include intlang_std_lib_path filename in
   Printf.printf "%sPARSED PROG:\n%s" headerline (PrintIntlang.sprint_prog prog); flush stdout;

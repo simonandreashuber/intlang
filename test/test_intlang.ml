@@ -31,7 +31,8 @@ let run_test cases_dir intlang_file =
       true
   | Some expected ->
       try
-        let _ = Include.lex_parse_include intlang_std_lib_path filepath in
+        let ast = Include.lex_parse_include intlang_std_lib_path filepath in
+        Reccheck.reccheck ast;
         Printf.printf "[PASS] %s\n" intlang_file; flush stdout;
           true
         (*
