@@ -1,3 +1,4 @@
+let main = 
 let a = 3 in \y. \x. x + y + a
 
 -- \x. x + y + a:

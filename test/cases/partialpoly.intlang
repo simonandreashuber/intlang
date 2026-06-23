@@ -1,8 +1,8 @@
 -- Expect: 6
-let snd = \x. \y. y;
-let fix = snd 1;
-let fixint = fix 2;
-let fixvec = fix vec[3];
-let fixint2 = fix 4;
-let fixvecvec = fix vec[vec[5]];
-fix 6
+let snd = \x. \y. y
+let fix = snd 1
+let fixint = fix 2
+let fixvec = fix vec[3]
+let fixint2 = fix 4
+let fixvecvec = fix vec[vec[5]]
+let main = fix 6

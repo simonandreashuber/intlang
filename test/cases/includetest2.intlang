@@ -1,4 +1,4 @@
 include "fib"
 include "includetest"
 include "includetest2" -- also self include
-let somefunc = \x. x + 1; -- same funcname as in includetest
+let somefunc = \x. x + 1 -- same funcname as in includetest

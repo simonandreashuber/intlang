@@ -10,10 +10,10 @@ let abstracpow = \mulf. \base. \exp.
             acc
         end
     in
-    apowaux base 1;
+    apowaux base 1
 
 -- here could work for exp = 0 but this way its so elegant, I refuse to change it
-let pow = abstracpow (\x. \y. x * y);
+let pow = abstracpow (\x. \y. x * y)
 
 let sqrt = \x. 
     let sqrtaux = \guess.
@@ -23,13 +23,13 @@ let sqrt = \x.
             guess
         end
     in
-    sqrtaux 0;
+    sqrtaux 0
 
-let mod = \x. \n. x - (x / n) * n;
+let mod = \x. \n. x - (x / n) * n
 
 let gcd = \a. \b. 
             if b == 0 then 
                 a 
             else 
                 gcd b (mod a b) 
-            end;
+            end

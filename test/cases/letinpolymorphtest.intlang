@@ -6,6 +6,6 @@
 --            appfun (\x. veclen[x])  -- the constraints should force this one to be Forall t2: TVec[t2] -> int
 --        else
 --            appfun (\x. veclen[x]+1)  -- the if else should force both returns to be of the same type
---        end;
+--        end
 --test 2 (vecmk[0,5])
-6
+let main = 6

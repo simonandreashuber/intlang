@@ -1,2 +1,2 @@
 -- check if merge block captures the correct incoming block on the phi
-if 4 then if 0 then 11 else 22 end else 33 end
+let main = if 4 then if 0 then 11 else 22 end else 33 end

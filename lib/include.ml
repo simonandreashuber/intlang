@@ -76,11 +76,9 @@ let lex_parse_include (std_lib_path: string) (filepath: string) : ast =
   let letacc = ref [] in
   let rec acc_includes (dirstem: string) (inclname:string) (is_include:bool) : unit =
     let basename = (Filename.basename inclname) in
-    Printf.printf "before: %s, basename: %s\n" (String.concat ", " !handled_includes) basename; flush stdout;
     if List.mem basename !handled_includes then ()
     else (
     handled_includes := basename :: !handled_includes;
-    Printf.printf "%s, basename: %s\n" (String.concat ", " !handled_includes) basename; flush stdout;
     let ast = lex_parse (Filename.concat dirstem (inclname ^ ".intlang")) in
     List.iter 
       (

@@ -1,9 +1,9 @@
 -- Expect: 11
-let a = 2;
-let b = 3;
-let square = \n. n * n;
-let add_a = \m. m + a;
-let final_func = \f. \g. \val. g (f val);
+let a = 2
+let b = 3
+let square = \n. n * n
+let add_a = \m. m + a
+let final_func = \f. \g. \val. g (f val)
 
-let result = final_func square add_a b;
-result
+let result = final_func square add_a b
+let main = result

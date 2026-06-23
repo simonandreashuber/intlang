@@ -1,3 +1,4 @@
+let main = 
 let fib = \n. 
     if 1 < n then 
         (fib (n-1) + fib (n-2)) 

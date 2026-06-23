@@ -12,7 +12,7 @@ let matid = \n.
             updtA 
         end
     in
-    matidaux n 0 vecmk[0,n*n];
+    matidaux n 0 vecmk[0,n*n]
 
 -- "classic triple loop untiled" matmul
 -- A is a nxl mat
@@ -42,7 +42,7 @@ let matmul = \n. \l. \m. \A. \B.
         matmulaux n l m A B vecmk[0,n*m] 0 0 0
     else 
         vecmk[0,n*m]
-    end;
+    end
 
 let matadd = \A. \B.
     let mataddaux = \A. \B. \C. \i.
@@ -60,11 +60,11 @@ let matadd = \A. \B.
         mataddaux A B vecmk[0,veclen[A]] 0
     else 
         vecmk[0,veclen[A]]
-    end;
+    end
 
-let matsmul = \A. \s. vector.vecmap (\x. x*s) A;
+let matsmul = \A. \s. vector.vecmap (\x. x*s) A
 
-let matsub = \A. \B. matadd A (matsmul B (0-1)); --haha mb I should add negative int literals 
+let matsub = \A. \B. matadd A (matsmul B (0-1)) --haha mb I should add negative int literals 
 
 let sqmattrans = \n. \A.
     let sqmattransaux = \n. \A. \i. \j.
@@ -83,4 +83,4 @@ let sqmattrans = \n. \A.
         sqmattransaux n A 0 1
     else 
         vecmk[0,n*n]
-    end;
+    end

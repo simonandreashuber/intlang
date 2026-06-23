@@ -1,7 +1,7 @@
 -- Expect: 0
 let det2x2 = \a11. \a12. 
              \a21. \a22. 
-                      a11*a22  - a21*a12;
+                      a11*a22  - a21*a12
 let det3x3 = \a11. \a12. \a13.
              \a21. \a22. \a23.
              \a31. \a32. \a33.
@@ -12,7 +12,7 @@ let det3x3 = \a11. \a12. \a13.
                                                a32 a33
 
                                 + a31 * det2x2 a12 a13 
-                                               a22 a23;
-det3x3 1 2 3
-       4 5 6
-       7 8 9
+                                               a22 a23
+let main = det3x3 1 2 3
+                  4 5 6
+                  7 8 9

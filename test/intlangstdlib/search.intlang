@@ -13,7 +13,7 @@ let linearsearch = \arr. \target.
             0-1
         end
     in
-    linearsearchaux arr target 0;
+    linearsearchaux arr target 0
 
 let binarysearch = \arr. \target.
     let binarysearchaux = \arr. \target. \left. \right.
@@ -30,4 +30,4 @@ let binarysearch = \arr. \target.
             0-1
         end
     in
-    binarysearchaux arr target 0 veclen[arr];
+    binarysearchaux arr target 0 veclen[arr]

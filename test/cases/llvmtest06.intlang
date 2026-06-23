@@ -1,1 +1,1 @@
-let v = vecmk[44,6] in vecget[v,5] + veclen[v]
+let main = let v = vecmk[44,6] in vecget[v,5] + veclen[v]

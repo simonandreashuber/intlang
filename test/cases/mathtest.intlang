@@ -3,4 +3,4 @@
 include math
 
 -- 4 + 27 + 1
-math.sqrt 16 + math.pow 3 3 + math.mod 10 3
+let main = math.sqrt 16 + math.pow 3 3 + math.mod 10 3

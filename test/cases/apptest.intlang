@@ -1,5 +1,5 @@
 -- Expect: 137
-let incf = \f. (\n. f n + 1);
-let foo = \n. ( incf (\x.n+x) );
-foo 69 67
+let incf = \f. (\n. f n + 1)
+let foo = \n. ( incf (\x.n+x) )
+let main = foo 69 67
 

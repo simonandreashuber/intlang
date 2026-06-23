@@ -4,12 +4,12 @@ include mat
 
 -- 2x3 mat
 let A = vec[1,2,3,
-            4,5,6];
+            4,5,6]
 -- 3x4 mat
 let B = vec[7,8,9,10,
             11,12,13,14,
-            15,16,17,18];
-
+            15,16,17,18]
+let main =
 let AB = mat.matmul 2 3 4 A B in
 let ABpAB = mat.matadd AB AB in
 let ABpABx3 = mat.matsmul ABpAB 3 in

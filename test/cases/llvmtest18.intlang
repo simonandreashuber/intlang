@@ -1,3 +1,4 @@
+let main = 
 let incvec = \amount. \v. 
     let vectorlen = veclen[v] in
     let helper = \v. \i. 

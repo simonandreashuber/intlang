@@ -1,4 +1,4 @@
 -- Expect: 21
 -- switched from the mult short circuiting to the if-then-else-end, as I don't specifically plan to support this short circuiting
-let fib = \n. if 1 < n then (fib (n-1) + fib (n-2)) else (n==1) end;
-fib 8
+let fib = \n. if 1 < n then (fib (n-1) + fib (n-2)) else (n==1) end
+let main = fib 8

@@ -1,8 +1,8 @@
 -- Expect: 4
--- let empty = vec[]; --this is empty and should not be allowed, so now its a test for comments in comments
-let getvecsize = \v. veclen[v];
-let createvecinit = \elm0. \elm1. vec[elm0,elm1];
-let createvecwithrange = \lit. \size. vecmk[lit, size];
-let getvecelm = \v. \idx. vecget[v,idx];
-let setvecelm = \v. \idx. \elm. vecset[v,idx,elm];
-vecget[createvecinit 4 5, 0]
+-- let empty = vec[] --this is empty and should not be allowed, so now its a test for comments in comments
+let getvecsize = \v. veclen[v]
+let createvecinit = \elm0. \elm1. vec[elm0,elm1]
+let createvecwithrange = \lit. \size. vecmk[lit, size]
+let getvecelm = \v. \idx. vecget[v,idx]
+let setvecelm = \v. \idx. \elm. vecset[v,idx,elm]
+let main = vecget[createvecinit 4 5, 0]
