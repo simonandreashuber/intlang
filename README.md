@@ -2,7 +2,6 @@
 
 ## TODO 
 	- Fix test cases and stdlib (especially the let rec things)
-	- _ in tuples is seen as a local binding in the include pass should fix
 ## Futures
 
 The idea is to make the language more usable/futurefull and faster.
@@ -23,7 +22,7 @@ The idea is to make the language more usable/futurefull and faster.
 	- [] &i8 |i8 ^i8 ~i8
 	- [] 'c' init format for i8
 	- [] "string" shorthand for vec\['s', 't', 'r', 'i', 'n', 'g', '\n' \]
- - [] Find new name for language since there are not only "ints" anymore
+ - [] Find new name for language since there are not only "ints" anymore (not true in a way there are now just two sizes of ints sooooo)
 	- mb: Gepard 
 - [] IO
 	- [] unit type written as ()
@@ -40,7 +39,7 @@ The idea is to make the language more usable/futurefull and faster.
 	- vectors: \[typa\] where typa is a vector or an int
 	- functions: typa -> typb
 - [] New operators for i32
-	- [] > >= =< !+
+	- [] > >= =< !=
  	- [] >u <u >=u <=u /u >>>
 	- [] << >> | & % ^
 	- [] - ~
