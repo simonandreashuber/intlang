@@ -107,8 +107,7 @@ type stmt =
     | IncludeGlobal of string
     | IncludeRelative of string
     | Let of string * lexp 
-    | Letrec of string * lexp 
-    | Letrecblk of (string * lexp) list
+    | Letrec of (string * lexp) list
     | Lexp of lexp     
 
 type parseout = stmt list    (*what the parser spits out: includes not resolved, final lexp not split of*)

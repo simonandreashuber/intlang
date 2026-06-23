@@ -147,13 +147,12 @@ let sprint_stmt (tab : int) (st : stmt) : string =
   | IncludeGlobal id -> ind ^ "include " ^ id ^ "\n"
   | IncludeRelative path -> ind ^ "include \"" ^ path ^ "\"\n"
   | Let (id, e) ->  ind ^ "let " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";"
-  | Letrec (id, e) -> ind ^ "let rec " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";"
-  | Letrecblk lst -> (
+  | Letrec lst -> (
       match lst with
       | ((id, e) :: tl) -> List.fold_left 
                               (fun acc (id, e) -> acc ^ "\n" ^ ind ^ "and " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";") 
                               (ind ^ "let rec " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";") tl
-      | _ -> raise (Errors.PrintError "Empty Letrecblk")
+      | _ -> raise (Errors.PrintError "Empty Letrec")
   )
   | Lexp e -> ind ^ sprint_lexp tab e
 

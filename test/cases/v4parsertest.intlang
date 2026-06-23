@@ -45,5 +45,6 @@ let tupignore = \itup : i32 * i8 => i8.
 let swapweird = \itup : i32 * i8 => i8 * i32.
             let (int, _) = itup in (_, int);
 
+let rec somerecfunc = \ x. if x < 10 then somerecfunc (x+1) else x end;
 
 map (\x. \y. x % y)

@@ -89,15 +89,11 @@ let lex_parse_include (std_lib_path: string) (filepath: string) : parseout =
                   let nl = if is_include then Let (basename ^ "." ^ name, vars_add_prefix basename builtin_names e) else Let (name, e) in
                   letacc := nl :: !letacc;
                 )
-              | Letrec (name, e) -> (
-                  let nl = if is_include then Letrec (basename ^ "." ^ name, vars_add_prefix basename builtin_names e) else Letrec (name, e) in
-                  letacc := nl :: !letacc;
-                )
-              | Letrecblk lst -> (
+              | Letrec lst -> (
                   let ltuplst = List.map (fun (name, e) -> 
                     if is_include then (basename ^ "." ^ name, vars_add_prefix basename builtin_names e) else (name, e)
                   ) lst in
-                  letacc := (Letrecblk ltuplst) :: !letacc;
+                  letacc := (Letrec ltuplst) :: !letacc;
                 )
               | IncludeRelative newinclname -> (
                   let valid_newinclname = validate_include_relative newinclname in

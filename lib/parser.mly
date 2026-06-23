@@ -44,8 +44,8 @@ prog:
 
 lettoplvl:
     | LET; id = ID; ASS; l = lexp; SEM                              { Let(id, l) }
-    | LET; REC; id = ID; ASS; l = lexp; SEM                         { Letrec(id, l) }
-    | LET; REC; id = ID; ASS; l = lexp; SEM;  la = letand         { Letrecblk (List.rev ((id, l) :: la)) }
+    | LET; REC; id = ID; ASS; l = lexp; SEM                         { Letrec [(id, l)] }
+    | LET; REC; id = ID; ASS; l = lexp; SEM;  la = letand         { Letrec (List.rev ((id, l) :: la)) }
 
 letand:
     | LETAND; id = ID; ASS; l = lexp; SEM; la = letand     { (id, l) :: la }
