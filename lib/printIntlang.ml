@@ -113,6 +113,8 @@ let rec sprint_lexp (tab : int) (l : lexp) : string =
       "(" ^ String.concat ", " (List.map (sprint_lexp tab) exprs) ^ ")"
   | App (f, arg) -> (*could be smarter*)
       "(" ^ sprint_lexp tab f ^ ") (" ^ sprint_lexp tab arg ^ ")"
+  | Seq (e1, e2) ->
+      sprint_lexp tab e1 ^ ";\n" ^ sprint_lexp tab e2
   | UopI32 (uop, e) ->
       sprint_uopi32 uop ^ " " ^ sprint_lexp tab e
   | UopI8 (uop, e) ->
@@ -146,19 +148,18 @@ let sprint_stmt (tab : int) (st : stmt) : string =
   match st with
   | IncludeGlobal id -> ind ^ "include " ^ id ^ "\n"
   | IncludeRelative path -> ind ^ "include \"" ^ path ^ "\"\n"
-  | Let (id, e) ->  ind ^ "let " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";"
+  | Let (id, e) ->  ind ^ "let " ^ id ^ " = " ^ sprint_lexp (tab + 1) e
   | Letrec lst -> (
       match lst with
       | ((id, e) :: tl) -> List.fold_left 
-                              (fun acc (id, e) -> acc ^ "\n" ^ ind ^ "and " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";") 
-                              (ind ^ "let rec " ^ id ^ " = " ^ sprint_lexp (tab + 1) e ^ ";") tl
+                              (fun acc (id, e) -> acc ^ "\n" ^ ind ^ "and " ^ id ^ " = " ^ sprint_lexp (tab + 1) e) 
+                              (ind ^ "let rec " ^ id ^ " = " ^ sprint_lexp (tab + 1) e) tl
       | _ -> raise (Errors.PrintError "Empty Letrec")
   )
-  | Lexp e -> ind ^ sprint_lexp tab e
 
-let sprint_parseout p : string = List.fold_left ( fun acc st -> acc ^ (sprint_stmt 0 st) ^ "\n" ) "" p
+let sprint_ast p : string = List.fold_left ( fun acc st -> acc ^ (sprint_stmt 0 st) ^ "\n" ) "" p
 
-let print_parseout p : unit = Printf.printf "%s" (sprint_parseout p)
+let print_ast p : unit = Printf.printf "%s" (sprint_ast p)
 
 
 (*

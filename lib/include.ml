@@ -4,16 +4,16 @@ open Parser
 open Lexer
 open Errors
 
-let lex_parse (filepath: string) : parseout =
+let lex_parse (filepath: string) : ast =
   let ch = 
     try open_in filepath
     with Sys_error msg -> raise (Errors.IncludeError ("Cannot open file: " ^ filepath ^ " (" ^ msg ^ ")"))
   in
   let lexbuf = Lexing.from_channel ch in
   try
-    let parseout = Parser.start Lexer.token lexbuf in
+    let ast = Parser.start Lexer.token lexbuf in
     close_in ch;
-    parseout
+    ast
   with e   -> 
     close_in ch;
     raise (Errors.ParseError ("Parse error in file: " ^ filepath ^ " at line " ^ string_of_int lexbuf.lex_curr_p.pos_lnum ^ " (" ^  (Printexc.to_string e) ^ ")"))
@@ -34,7 +34,7 @@ let validate_include_relative (path : string) : string =
   else
     raise (Errors.IncludeError ("Invalid relative include path: " ^ path ^ ". Must contain a '/' and end with a valid identifier."))
 
-let lex_parse_include (std_lib_path: string) (filepath: string) : parseout =
+let lex_parse_include (std_lib_path: string) (filepath: string) : ast =
   let rec vars_add_prefix (prefix: string) (locbound : string list) (e: lexp) : lexp =
     match e with
       | Var v -> if (List.mem v locbound) || (String.contains v '.') then Var v else Var (prefix ^ "." ^ v)
@@ -45,6 +45,7 @@ let lex_parse_include (std_lib_path: string) (filepath: string) : parseout =
       | LetinTuple (vs, e1, e2) -> LetinTuple (vs, vars_add_prefix prefix locbound e1, vars_add_prefix prefix ((List.filter (fun x -> x <> "_") vs) @ locbound) e2)
       | Tuple es -> Tuple (List.map (vars_add_prefix prefix locbound) es)
       | App (e1, e2) -> App (vars_add_prefix prefix locbound e1, vars_add_prefix prefix locbound e2)
+      | Seq (e1, e2) -> Seq (vars_add_prefix prefix locbound e1, vars_add_prefix prefix locbound e2)
       | I32Lit n -> I32Lit n
       | I8Lit c -> I8Lit c
       | UnitLit -> UnitLit
@@ -80,11 +81,17 @@ let lex_parse_include (std_lib_path: string) (filepath: string) : parseout =
     else (
     handled_includes := basename :: !handled_includes;
     Printf.printf "%s, basename: %s\n" (String.concat ", " !handled_includes) basename; flush stdout;
-    let parseout = lex_parse (Filename.concat dirstem (inclname ^ ".intlang")) in
+    let ast = lex_parse (Filename.concat dirstem (inclname ^ ".intlang")) in
     List.iter 
       (
         fun stmt -> 
             match stmt with
+              | IncludeGlobal newinclname -> (acc_includes std_lib_path newinclname true)
+              | IncludeRelative newinclname -> (
+                  let valid_newinclname = validate_include_relative newinclname in
+                  let updt_dirstem = Filename.dirname (Filename.concat dirstem inclname) in
+                  acc_includes updt_dirstem valid_newinclname true 
+                )
               | Let (name, e) -> (
                   let nl = if is_include then Let (basename ^ "." ^ name, vars_add_prefix basename builtin_names e) else Let (name, e) in
                   letacc := nl :: !letacc;
@@ -95,15 +102,7 @@ let lex_parse_include (std_lib_path: string) (filepath: string) : parseout =
                   ) lst in
                   letacc := (Letrec ltuplst) :: !letacc;
                 )
-              | IncludeRelative newinclname -> (
-                  let valid_newinclname = validate_include_relative newinclname in
-                  let updt_dirstem = Filename.dirname (Filename.concat dirstem inclname) in
-                  acc_includes updt_dirstem valid_newinclname true 
-                )
-              | IncludeGlobal newinclname -> (acc_includes std_lib_path newinclname true)
-              | Lexp e -> if is_include then () 
-                          else letacc := (Let ("main", e)) :: !letacc;
-      ) parseout;
+        ) ast;
       )
   in
   acc_includes (Filename.dirname filepath) (Filename.chop_extension @@ Filename.basename filepath) false;

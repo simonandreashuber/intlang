@@ -29,7 +29,7 @@ open Errors
 %token <string>ID           (* name of some thing *)
 
 %start start         
-%type <Ast.parseout> start
+%type <Ast.ast> start
 %%
 
 start:
@@ -39,20 +39,22 @@ prog:
     | INCLUDE; id = ID; p = prog                            { (IncludeGlobal id) :: p }
     | INCLUDE; pt = STR; p = prog                           { (IncludeRelative pt) :: p } (*the final module/.intlang file should be named with an ID as it must be usable as module.id*)
     | nl = lettoplvl; p = prog                              { nl :: p }
-    | nl = lettoplvl                                        { [nl] }
-    | l = lexp                                              { [Lexp l] }
+    | nl = lettoplvl                                        { [nl] }        (*should I allow empty or inlcude only programs*)
 
 lettoplvl:
-    | LET; id = ID; ASS; l = lexp; SEM                              { Let(id, l) }
-    | LET; REC; id = ID; ASS; l = lexp; SEM                         { Letrec [(id, l)] }
-    | LET; REC; id = ID; ASS; l = lexp; SEM;  la = letand         { Letrec (List.rev ((id, l) :: la)) }
+    | LET; id = ID; ASS; l = exp_seq;                       { Let(id, l) }
+    | LET; REC; id = ID; ASS; l = exp_seq                   { Letrec [(id, l)] }
+    | LET; REC; id = ID; ASS; l = exp_seq; la = letand      { Letrec (List.rev ((id, l) :: la)) }
 
 letand:
-    | LETAND; id = ID; ASS; l = lexp; SEM; la = letand     { (id, l) :: la }
-    | LETAND; id = ID; ASS; l = lexp; SEM;                     { [(id, l)] }
+    | LETAND; id = ID; ASS; l = exp_seq; la = letand        { (id, l) :: la }
+    | LETAND; id = ID; ASS; l = exp_seq;                    { [(id, l)] }
 
-(* tried to keep one lexp non terminal with operator precedence 
-   but I did not get it to work quickly so switched back to manual :| *)
+
+exp_seq:
+    | e1 = lexp; SEM; e2 = exp_seq                          { Seq(e1, e2) }
+    | e1 = lexp                                             { e1 }
+
 lexp:
     | LET; id = ID; ASS; e1 = lexp; IN; e2 = lexp                                   { Letin(id, e1, e2) }
     | LET; REC; id = ID; ASS; e1 = lexp; IN; e2 = lexp                              { Letrecin(id, e1, e2) }
@@ -69,6 +71,10 @@ lexp:
     | LAM; id = ID; COLON; inT = typ_anot; OUTTYP; outT = typ_anot; DOT; l = lexp   { Lam(id, Some inT, Some outT, l) }
     | LAM; LPAR; RPAR; l = lexp                                                     { LamUnit(l) }
     | lc = lexp_cmp                                                                 { lc }
+
+id_list:
+    | id = ID; COMMA; ids = id_list                         { id :: ids }
+    | id = ID                                               { [id] }
 
 lamlst:
     | id = ID; ls = lamlst                                  { (id, None, None) :: ls }
@@ -169,27 +175,23 @@ lexp_atom:
     | i32lit = I32                                                                                      { I32Lit i32lit }
     | i8lit = I8                                                                                        { I8Lit i8lit }
     | str = STR                                                                                         { VecLit (List.map (fun x -> I8Lit x) (List.of_seq (String.to_seq str))) }
-    | LPAR; ls = lexp_list_min2; RPAR;                                                                  { Tuple ls }
-    | VECLIT; LBRACK; lit_list = lexp_list_min1; RBRACK                           { VecLit lit_list }
-    | VECMK; LBRACK; lit = lexp; COMMA; size_list = lexp_list_min1; RBRACK               { Vecmk(lit, size_list) }
-    | VECLEN; LBRACK; v = lexp; RBRACK                                                                  { Veclen v }
-    | VECGET; LBRACK; v = lexp; idx_list = lexp_list_min0; RBRACK                          { Vecget(v, idx_list) }
-    | VECSET; LBRACK; v = lexp; COMMA; value = lexp; idx_list = lexp_list_min0; RBRACK     { Vecset(v, value, idx_list) }
-    | VECRESZ; LBRACK; v = lexp; COMMA; newlen = lexp; idx_list = lexp_list_min0; RBRACK   { Vecresz(v, newlen, idx_list) }
-    | LPAR; l = lexp; RPAR                                                                              { l }
+    | LPAR; ls = exp_seq_list_min2; RPAR;                                                                  { Tuple ls }
+    | VECLIT; LBRACK; lit_list = exp_seq_list_min1; RBRACK                           { VecLit lit_list }
+    | VECMK; LBRACK; lit = exp_seq; COMMA; size_list = exp_seq_list_min1; RBRACK               { Vecmk(lit, size_list) }
+    | VECLEN; LBRACK; v = exp_seq; RBRACK                                                                  { Veclen v }
+    | VECGET; LBRACK; v = exp_seq; idx_list = exp_seq_list_min0; RBRACK                          { Vecget(v, idx_list) }
+    | VECSET; LBRACK; v = exp_seq; COMMA; value = exp_seq; idx_list = exp_seq_list_min0; RBRACK     { Vecset(v, value, idx_list) }
+    | VECRESZ; LBRACK; v = exp_seq; COMMA; newlen = exp_seq; idx_list = exp_seq_list_min0; RBRACK   { Vecresz(v, newlen, idx_list) }
+    | LPAR; l = exp_seq; RPAR                                                                              { l }
 
-lexp_list_min0:
-    | COMMA; l = lexp; ls = lexp_list_min0                  { l :: ls }
+exp_seq_list_min0:
+    | COMMA; l = exp_seq; ls = exp_seq_list_min0            { l :: ls }
     |                                                       { [] }
 
-lexp_list_min1:
-    | l = lexp; COMMA; ls = lexp_list_min1                  { l :: ls }
-    | l = lexp                                              { [l] }
+exp_seq_list_min1:
+    | l = exp_seq; COMMA; ls = exp_seq_list_min1            { l :: ls }
+    | l = exp_seq                                           { [l] }
 
-lexp_list_min2:
-    | l = lexp; COMMA; ls = lexp_list_min2                  { l :: ls }
-    | l1 = lexp; COMMA; l2 = lexp                           { [l1; l2] }
-
-id_list:
-    | id = ID; COMMA; ids = id_list                         { id :: ids }
-    | id = ID                                               { [id] }
+exp_seq_list_min2:
+    | l = exp_seq; COMMA; ls = exp_seq_list_min2               { l :: ls }
+    | l1 = exp_seq; COMMA; l2 = exp_seq                     { [l1; l2] }
