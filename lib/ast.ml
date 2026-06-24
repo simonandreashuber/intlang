@@ -124,7 +124,7 @@ type tlexp =                                                      (*typed expres
     | IfT of tlexp * tlexp * tlexp * typ                          (*if c then t else e : T*)
     | LetinT of string * uuid * tlexp * tlexp * typ               (*let x = e in b : T*)
     | LetrecinT of string * uuid * tlexp * tlexp * typ            (*letrec x = e in b : T*)
-    | LetinTupleT of (string * uuid) list * tlexp * tlexp * typ   (*let (x1, x2, ..., xn) = e in b : T*)
+    | LetinTupleT of ((string * uuid) option) list * tlexp * tlexp * typ   (*let (x1, x2, ..., xn) = e in b : T*)
     | TupleT of tlexp list * typ                                  (*(e1, e2, ..., en) : T*)
     | I32LitT of int * typ                                        (*i32 : T*)
     | I8LitT of char * typ                                        (*i8 : T*)
@@ -190,3 +190,11 @@ let tlexp_get_type (e : tlexp) : typ =
   | VecreszT (_, _, _, t) -> t
 
 let schema_of_typ (t : typ) : schema = Forall ([], t)
+
+let typ_of_schema (s : schema) : typ =
+  match s with
+  | Forall (_, t) -> t
+
+let genvars_of_schema (s : schema) : int list =
+  match s with
+  | Forall (vars, _) -> vars
