@@ -1,4 +1,5 @@
 -- Expect: 100
+include str
 
 let true = \t. \f. t
 let false = \t. \f. f
@@ -6,4 +7,4 @@ let cif = \b. \then_branch. \else_branch. b then_branch else_branch
 
 let my_choice = true
 let result = cif my_choice 100 200
-let main = result
+let main = \() str.writei32 result

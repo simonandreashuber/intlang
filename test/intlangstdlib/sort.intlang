@@ -2,7 +2,7 @@
 -- Note: for now I implemented things to only work on vectors of ints
 
 let bubblesort = \arr.
-    let bubblesortaux = \arr. \len. \n. \i.
+    let rec bubblesortaux = \arr. \len. \n. \i.
         let arrupdt =
                     let left = vecget[arr, i] in
                     let right = vecget[arr, n] in 
@@ -10,8 +10,8 @@ let bubblesort = \arr.
                         arr
                     else
                         let temp = right in
-                        let arr1 = vecset[arr, n, left] in
-                        vecset[arr1, i, temp]
+                        let arr1 = vecset[arr, left, n] in
+                        vecset[arr1, temp, i]
                     end 
         in
         if i < (len-1) then 

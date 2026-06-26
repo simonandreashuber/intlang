@@ -4,8 +4,8 @@ include vector
 
 -- create an identity matrix of size n x n
 let matid = \n. 
-    let matidaux = \n. \i. \A.
-        let updtA = vecset[A, i*n+i, 1] in
+    let rec matidaux = \n. \i. \A.
+        let updtA = vecset[A, 1, i*n+i] in
         if i < (n-1) then 
             matidaux n (i+1) updtA 
         else 
@@ -25,8 +25,8 @@ let matmul = \n. \l. \m. \A. \B.
     -- k is in [0,l]
     let rec matmulaux = \n. \l. \m. \A. \B. \C. \i. \j. \k.
                 let updtC = vecset[C, 
-                                   i*m+j, 
-                                   vecget[C, i*m+j] + vecget[A,i*l+k]*vecget[B,k*m+j]
+                                   vecget[C, i*m+j] + vecget[A,i*l+k]*vecget[B,k*m+j],
+                                   i*m+j
                                   ] in
                 if k < (l-1) then 
                     matmulaux n l m A B updtC i j (k+1)
@@ -45,10 +45,10 @@ let matmul = \n. \l. \m. \A. \B.
     end
 
 let matadd = \A. \B.
-    let mataddaux = \A. \B. \C. \i.
+    let rec mataddaux = \A. \B. \C. \i.
                 let updtC = vecset[C, 
-                                   i, 
-                                   vecget[A,i] + vecget[B,i]
+                                   vecget[A,i] + vecget[B,i],
+                                   i
                                   ] in
                 if i < (veclen[A]-1) then 
                     mataddaux A B updtC (i+1)
@@ -64,13 +64,13 @@ let matadd = \A. \B.
 
 let matsmul = \A. \s. vector.vecmap (\x. x*s) A
 
-let matsub = \A. \B. matadd A (matsmul B (0-1)) --haha mb I should add negative int literals 
+let matsub = \A. \B. matadd A (matsmul B (-1)) --haha mb I should add negative int literals 
 
 let sqmattrans = \n. \A.
-    let sqmattransaux = \n. \A. \i. \j.
+    let rec sqmattransaux = \n. \A. \i. \j.
         let tmp = vecget[A, i*n+j] in
-        let partA = vecset[A, i*n+j, vecget[A,j*n+i]] in
-        let updtA = vecset[partA, j*n+i, tmp] in
+        let partA = vecset[A, vecget[A,j*n+i], i*n+j] in
+        let updtA = vecset[partA, tmp, j*n+i] in
         if j < (n-1) then
             sqmattransaux n updtA i (j+1)
         else if i < (n-2) then

@@ -1,0 +1,55 @@
+let i32_dig_to_ascii = \i : i32 => i8. i32_to_i8 (i + 48)
+
+let nullterm = i32_to_i8 0
+
+-- naive imp, untested
+let i32_to_str = \i : i32 => [i8].
+    let rec get_digits = \ (i : i32) -- the rest of the i32
+                         (idx : i32) -- index into acc to use for the next char
+                         (acc : [i8]) -- accumulator to make the thing tail recursive
+                         => [i8] * i32. -- return the vector and the next usable index
+        let dig = i32_dig_to_ascii (i % 10) in
+        let next_i = i / 10 in
+        let next_acc = vecset[acc, dig, idx] in
+        let next_idx = idx + 1 in
+        if next_i == 0 then
+            (next_acc, next_idx)
+        else
+            get_digits next_i next_idx next_acc
+        end
+    in
+    let rec reverse = \ (newv : [i8]) -- new vector with length smaller equal to
+                      (oldv : [i8]) -- old vector 
+                      (idx : i32)   -- index into newv
+                      => [i8].
+        if idx < veclen[newv] then
+            let val = vecget[oldv, veclen[newv] - 1 - idx] in
+            reverse vecset[newv, val, idx] oldv (idx+1)
+        else 
+            newv
+        end
+    in
+    -- range is +2147483647 to -2147483648
+    -- so we need 10 chars for the digits, on negative numbers 1 for the sign, and 1 for the null terminator
+    if i == -2147483648 then --special case where we cant flip
+        "-2147483648"
+    else if i < 0 then
+        let (rev_digs, idx) = get_digits i 0 vecmk[nullterm, 11] in
+        reverse vecmk[nullterm, idx+1] rev_digs 0
+    else 
+        let (rev_digs, idx) = get_digits (-i) 0 vecmk[nullterm, 12] in
+        reverse vecmk[nullterm, idx+2] vecset[rev_digs, '-', idx] 0
+    end end
+
+let write_str = \s : [i8] => unit.
+    let rec write_str_aux = \ (s : [i8]) (i : i32) => unit.
+        if i < veclen[s] then
+            (writei8 vecget[s, i];
+            write_str_aux s (i+1))
+        else
+            writei8 nullterm
+        end
+    in
+    write_str_aux s 0
+
+let writei32 = \i : i32 => unit. write_str (i32_to_str i)

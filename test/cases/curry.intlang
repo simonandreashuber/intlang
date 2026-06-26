@@ -1,4 +1,5 @@
 -- Expect: 15
+include str
 let add = \x. \y. x + y
 let add5 = add 5
-let main = add5 10
+let main = \() str.writei32 (add5 10)

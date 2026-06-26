@@ -1,7 +1,8 @@
 -- Expect: 2
+include str
 let pair = \x. \y. \f. f x y
 let head = \p. p (\x. \y. x)
 let tail = \p. p (\x. \y. y)
 
 let my_list = pair 1 (pair 2 3)
-let main = head (tail my_list)
+let main = \() str.writei32 (head (tail my_list))

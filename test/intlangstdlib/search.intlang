@@ -2,7 +2,7 @@
 -- Note: for now I implemented things to only work on vectors of ints
 
 let linearsearch = \arr. \target.
-    let linearsearchaux = \arr. \target. \i.
+    let rec linearsearchaux = \arr. \target. \i.
         if i < veclen[arr] then
             if vecget[arr, i] == target then
                 i
@@ -16,7 +16,7 @@ let linearsearch = \arr. \target.
     linearsearchaux arr target 0
 
 let binarysearch = \arr. \target.
-    let binarysearchaux = \arr. \target. \left. \right.
+    let rec binarysearchaux = \arr. \target. \left. \right.
         if left < right then
             let mid = (left + right) / 2 in
             if vecget[arr, mid] == target then

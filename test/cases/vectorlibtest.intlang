@@ -1,4 +1,5 @@
 -- Expect: 61
+include str
 
 include vector
 
@@ -8,8 +9,8 @@ let concatvec = vector.intvecconcat double_vec_map double_vec_map --will be inte
 let double_vec_addreduced = vector.vec_left_fold (\x. \y. x+y) 0 concatvec
 let intveccomp = vector.veccmp (\x. \y. x == y)
 
-let main = 
-  double_vec_addreduced                     -- 60
+let main = \() str.writei32 
+(  double_vec_addreduced                     -- 60
 + intveccomp double_vec_map double_vec_map  -- 1
 + intveccomp double_vec_map start_vec       -- 0
-+ intveccomp double_vec_map concatvec       -- 0 
++ intveccomp double_vec_map concatvec)       -- 0 

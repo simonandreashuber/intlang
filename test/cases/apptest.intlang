@@ -1,5 +1,6 @@
 -- Expect: 137
+include str
 let incf = \f. (\n. f n + 1)
 let foo = \n. ( incf (\x.n+x) )
-let main = foo 69 67
+let main = \() str.writei32 (foo 69 67)
 

@@ -1,6 +1,7 @@
 -- Expect: 0
 include math
+include str
 -- glorious intlang v1 I will miss u
 -- let mod = \x. \n. (1-(x-n < 0))*(mod (x-n) n) + (x-n < 0)*x
-let mod = \x. \n. if (x-n < 0) then x else mod (x-n) n end
-let main = mod 10 5
+let rec mod = \x. \n. if (x-n < 0) then x else mod (x-n) n end
+let main = \() str.writei32 (mod 10 5)

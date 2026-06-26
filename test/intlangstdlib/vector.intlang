@@ -1,9 +1,9 @@
 -- lib for vectors
 
 let vecmap = \f. \v.
-    let vecmapaux = \f. \v. \i.
+    let rec vecmapaux = \f. \v. \i.
         if i < veclen[v] then
-            vecmapaux f vecset[v, i, f (vecget[v, i])] (i+1)
+            vecmapaux f vecset[v, f (vecget[v, i]), i] (i+1)
         else
             v
         end
@@ -11,7 +11,7 @@ let vecmap = \f. \v.
     vecmapaux f v 0
 
 let veccmp = \cmp. \v1. \v2.
-    let veceqaux = \cmp. \v1. \v2. \i.
+    let rec veceqaux = \cmp. \v1. \v2. \i.
         if i < veclen[v1] then
             if cmp vecget[v1, i] vecget[v2, i] then
                 veceqaux cmp v1 v2 (i+1)
@@ -28,10 +28,8 @@ let veccmp = \cmp. \v1. \v2.
         0
     end
 
-let veceq = veccmp (\x. \y. x == y)
-
 let vec_left_fold = \f. \acc. \v.
-    let vecleftfoldaux = \f. \acc. \v. \i.
+    let rec vecleftfoldaux = \f. \acc. \v. \i.
         if i < veclen[v] then
             vecleftfoldaux f (f acc (vecget[v, i])) v (i+1)
         else
@@ -41,8 +39,8 @@ let vec_left_fold = \f. \acc. \v.
     vecleftfoldaux f acc v 0
 
 let vec_right_fold = \f. \v. \acc.
-    let vecrightfoldaux = \f. \acc. \v. \i.
-        if (0 < i) + (0 == i) then --beautiful glorious intlang
+    let rec vecrightfoldaux = \f. \acc. \v. \i.
+        if 0 <= i then
             vecrightfoldaux f v (f (vecget[v, i]) acc) (i-1)
         else
             acc
@@ -55,14 +53,25 @@ let vecsum = vec_left_fold (\x. \y. x+y) 0
 let vecprod = vec_left_fold (\x. \y. x*y) 1
 
 let intvecconcat = \v1. \v2.
-    let intvecconcataux = \v1. \v2. \v3. \i.
+    let rec intvecconcataux = \v1. \v2. \v3. \i.
         if i < veclen[v1] then
-            intvecconcataux v1 v2 (vecset[v3, i, vecget[v1, i]]) (i+1)
+            intvecconcataux v1 v2 (vecset[v3, vecget[v1, i], i]) (i+1)
         else if i < (veclen[v1]+veclen[v2]) then
-            intvecconcataux v1 v2 (vecset[v3, i, vecget[v2, i-veclen[v1]]]) (i+1)
+            intvecconcataux v1 v2 (vecset[v3, vecget[v2, i-veclen[v1]], i]) (i+1)
         else
             v3
         end end
     in
     intvecconcataux v1 v2 (vecmk[0, veclen[v1]+veclen[v2]]) 0
+
+let iter = \f v.
+    let rec iteraux = \f v i.
+        if i < veclen[v] then
+            (f vecget[v, i];
+            iteraux f v (i+1))
+        else
+            ()
+        end
+    in
+    iteraux f v 0
     

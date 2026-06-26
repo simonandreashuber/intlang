@@ -1,1 +1,3 @@
-let main = let vofv = vec[vec[3,4],vec[6]] in vecget[vecget[vofv,1],0]
+-- Expect: 6
+include str
+let main = \() str.writei32 (let vofv = vec[vec[3,4],vec[6]] in vecget[vecget[vofv,1],0])

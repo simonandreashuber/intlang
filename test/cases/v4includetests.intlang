@@ -1,2 +1,4 @@
+-- Expect: 0
 include "v4parsertest"
-let main = 0
+include str
+let main = \() str.writei32 0

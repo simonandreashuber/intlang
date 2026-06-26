@@ -1,5 +1,6 @@
 -- Expect: 0
-let reduce1 = \n. \a. if n < 0 then 0 else reduce2 (n - 1) a end
-let reduce2 = \n. \a. reduce1 (n - 2) a
-let main = reduce1 10 0 -- breaks the linear up monomorphism pass as main triggers a reduce1 mono version
+include str
+let rec reduce1 = \n. \a. if n < 0 then 0 else reduce2 (n - 1) a end
+and reduce2 = \n. \a. reduce1 (n - 2) a
+let main = \() str.writei32 (reduce1 10 0) -- breaks the linear up monomorphism pass as main triggers a reduce1 mono version
                          -- which then triggers a reduce2 mono version (which is further down)

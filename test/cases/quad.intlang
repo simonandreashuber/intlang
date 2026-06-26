@@ -1,7 +1,8 @@
 -- Expect: 4
+include str
 
 let double = \f. \x. f (f x)
 let inc = \n. n + 1
 let quad = \f. double (double f)
 let result = quad inc 0
-let main = result
+let main = \() str.writei32 result

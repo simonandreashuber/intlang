@@ -1,3 +1,5 @@
 -- Expect: 0
 -- this is a comment
-let main = 0
+include str
+
+let main = \() str.writei32 0

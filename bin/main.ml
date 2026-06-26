@@ -7,7 +7,9 @@ let main () =
   let intlang_std_lib_path = (Sys.getcwd ()) ^ "/test/intlangstdlib/" in
   let ast = Include.lex_parse_include intlang_std_lib_path filename in
   Reccheck.reccheck ast;
-  Printf.printf "%sPARSED PROG:\n%s" headerline (PrintIntlang.sprint_ast ast); flush stdout;
+  let polytast = Typecheck.typecheck ast in
+  Printf.printf "%sPOLYTAST:\n%s" headerline (PrintIntlang.sprint_polytast polytast); flush stdout;
+
   (*
   let prog = Include.lex_parse_include intlang_std_lib_path filename in
   Printf.printf "%sPARSED PROG:\n%s" headerline (PrintIntlang.sprint_prog prog); flush stdout;

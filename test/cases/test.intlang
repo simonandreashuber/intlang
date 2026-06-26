@@ -1,3 +1,4 @@
 -- Expect: 68
+include str
 let foo = \x.5+7*x
-let main = foo 9
+let main = \() str.writei32 (foo 9)

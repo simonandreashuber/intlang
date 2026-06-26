@@ -1,1 +1,3 @@
-let main = 2*(9 + 6 * 7)/3
+-- Expect: 34
+include str
+let main = \() str.writei32 (2*(9 + 6 * 7)/3)

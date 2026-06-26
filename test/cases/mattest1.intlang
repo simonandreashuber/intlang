@@ -1,6 +1,7 @@
 -- Expect: 370
 
 include mat
+include str
 
 -- 2x3 mat
 let A = vec[1,2,3,
@@ -9,9 +10,9 @@ let A = vec[1,2,3,
 let B = vec[7,8,9,10,
             11,12,13,14,
             15,16,17,18]
-let main =
-let AB = mat.matmul 2 3 4 A B in
+let main = \() str.writei32
+(let AB = mat.matmul 2 3 4 A B in
 let ABpAB = mat.matadd AB AB in
 let ABpABx3 = mat.matsmul ABpAB 3 in
 let ABpABx3sAB = mat.matsub ABpABx3 AB in -- now we should have 5AB
-vecget[ABpABx3sAB, 0] -- should be 5*(1*7 + 2*11 + 3*15) = 5*(7+22+45) = 5*74 = 370
+vecget[ABpABx3sAB, 0]) -- should be 5*(1*7 + 2*11 + 3*15) = 5*(7+22+45) = 5*74 = 370

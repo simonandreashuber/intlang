@@ -20,6 +20,20 @@ let rec sprint_typ (t : typ) : string =
       )
     | TVar tvar -> "t" ^ string_of_int tvar.id
 
+let sprint_schema (Forall (vars, t) : schema) : string =
+  let vars_str = if vars = [] then "" else "forall " ^ String.concat " " (List.map (fun v -> "t" ^ string_of_int v) vars) ^ ". " in
+  vars_str ^ sprint_typ t
+
+let sprint_env (env : typenv) : string =
+  let bindings = List.map (fun (name, (Forall (vars, t), uuid)) -> 
+    let vars_str = if vars = [] then "" else "forall " ^ String.concat " " (List.map (fun v -> "t" ^ string_of_int v) vars) ^ ". " in
+    name ^ "(uuid=" ^ string_of_int uuid ^ ")" ^ " : " ^ vars_str ^ sprint_typ t
+  ) env in
+  String.concat "\n" bindings
+
+let sprint_constraint ((t1, t2) : typ*typ) : string =
+  sprint_typ t1 ^ "==" ^ sprint_typ t2
+
 (* Helper to generate indentation string *)
 let indent (level : int) : string =
   String.make (level * 4) ' '
@@ -79,7 +93,14 @@ let sprint_uopi8 (uop : uopi8) : string =
   | Noti8 -> "~i8"
 
 (* Note on the tab level: we use indent tab for each newline *)
-let rec sprint_lexp (tab : int) (l : lexp) : string =
+let rec sprint_lexp_wdepth (d_opt : int option) (tab : int) (l : lexp) : string =
+  match d_opt with
+  | Some d when d <= 0 -> "..."
+  | _ -> (
+  let next_d = 
+    match d_opt with
+    | Some d -> Some (d-1)
+    | None -> None in
   let ind = indent tab in
   let ind_next = indent (tab + 1) in
   match l with
@@ -87,7 +108,7 @@ let rec sprint_lexp (tab : int) (l : lexp) : string =
   | I32Lit i -> string_of_int i
   | I8Lit c -> "'" ^ Char.escaped c ^ "'"
   | UnitLit -> "()"
-  | LamUnit body -> "\\().\n" ^ ind_next ^ sprint_lexp (tab + 1) body
+  | LamUnit body -> "\\().\n" ^ ind_next ^ sprint_lexp_wdepth next_d (tab + 1) body
   
   | Lam (id, inT_opt, outT_opt, body) -> (
       let typ_str = match inT_opt, outT_opt with
@@ -97,50 +118,53 @@ let rec sprint_lexp (tab : int) (l : lexp) : string =
         | None, Some _ -> "" (* shouldn't happen *)
       in
       match body with
-      | Lam _ -> "\\" ^ id ^ typ_str ^ ". " ^ sprint_lexp tab body
-      | _ -> "\\" ^ id ^ typ_str ^ ".\n" ^ ind_next ^ sprint_lexp (tab + 1) body
+      | Lam _ -> "\\" ^ id ^ typ_str ^ ". " ^ sprint_lexp_wdepth next_d tab body
+      | _ -> "\\" ^ id ^ typ_str ^ ".\n" ^ ind_next ^ sprint_lexp_wdepth next_d (tab + 1) body
     )
   | Letin (id, e, body) ->
-      "let " ^ id ^ " =\n" ^ ind_next ^ sprint_lexp (tab + 1) e ^ "\n" ^
-      ind ^ "in\n" ^ ind_next ^ sprint_lexp (tab + 1) body
+      "let " ^ id ^ " =\n" ^ ind_next ^ sprint_lexp_wdepth next_d (tab + 1) e ^ "\n" ^
+      ind ^ "in\n" ^ ind_next ^ sprint_lexp_wdepth next_d (tab + 1) body
   | Letrecin (id, e, body) ->
-      "let rec " ^ id ^ " =\n" ^ ind_next ^ sprint_lexp (tab + 1) e ^ "\n" ^
-      ind ^ "in\n" ^ ind_next ^ sprint_lexp (tab + 1) body
+      "let rec " ^ id ^ " =\n" ^ ind_next ^ sprint_lexp_wdepth next_d (tab + 1) e ^ "\n" ^
+      ind ^ "in\n" ^ ind_next ^ sprint_lexp_wdepth next_d (tab + 1) body
   | LetinTuple (ids, e, body) ->
-      "let (" ^ String.concat ", " ids ^ ") =\n" ^ ind_next ^ sprint_lexp (tab + 1) e ^ "\n" ^
-      ind ^ "in\n" ^ ind_next ^ sprint_lexp (tab + 1) body
+      "let (" ^ String.concat ", " ids ^ ") =\n" ^ ind_next ^ sprint_lexp_wdepth next_d (tab + 1) e ^ "\n" ^
+      ind ^ "in\n" ^ ind_next ^ sprint_lexp_wdepth next_d (tab + 1) body
   | Tuple exprs ->
-      "(" ^ String.concat ", " (List.map (sprint_lexp tab) exprs) ^ ")"
+      "(" ^ String.concat ", " (List.map (sprint_lexp_wdepth next_d tab) exprs) ^ ")"
   | App (f, arg) -> (*could be smarter*)
-      "(" ^ sprint_lexp tab f ^ ") (" ^ sprint_lexp tab arg ^ ")"
+      "(" ^ sprint_lexp_wdepth next_d tab f ^ ") (" ^ sprint_lexp_wdepth next_d tab arg ^ ")"
   | Seq (e1, e2) ->
-      sprint_lexp tab e1 ^ ";\n" ^ sprint_lexp tab e2
+      sprint_lexp_wdepth next_d tab e1 ^ ";\n" ^ sprint_lexp_wdepth next_d tab e2
   | UopI32 (uop, e) ->
-      sprint_uopi32 uop ^ " " ^ sprint_lexp tab e
+      sprint_uopi32 uop ^ " " ^ sprint_lexp_wdepth next_d tab e
   | UopI8 (uop, e) ->
-      sprint_uopi8 uop ^ " " ^ sprint_lexp tab e
+      sprint_uopi8 uop ^ " " ^ sprint_lexp_wdepth next_d tab e
   | BopI32 (bop, left, right) ->
-      "(" ^ sprint_lexp tab left ^ ") " ^ sprint_bopi32 bop ^ " (" ^ sprint_lexp tab right ^ ")"
+      "(" ^ sprint_lexp_wdepth next_d tab left ^ ") " ^ sprint_bopi32 bop ^ " (" ^ sprint_lexp_wdepth next_d tab right ^ ")"
   | BopI8 (bop, left, right) ->
-      "(" ^ sprint_lexp tab left ^ ") " ^ sprint_bopi8 bop ^ " (" ^ sprint_lexp tab right ^ ")"
+      "(" ^ sprint_lexp_wdepth next_d tab left ^ ") " ^ sprint_bopi8 bop ^ " (" ^ sprint_lexp_wdepth next_d tab right ^ ")"
   | If (cond, then_e, else_e) ->
-      "if " ^ sprint_lexp tab cond ^ " then\n" ^
-      ind_next ^ sprint_lexp (tab + 1) then_e ^ "\n" ^
+      "if " ^ sprint_lexp_wdepth next_d tab cond ^ " then\n" ^
+      ind_next ^ sprint_lexp_wdepth next_d (tab + 1) then_e ^ "\n" ^
       ind ^ "else\n" ^
-      ind_next ^ sprint_lexp (tab + 1) else_e ^ "\n" ^
+      ind_next ^ sprint_lexp_wdepth next_d (tab + 1) else_e ^ "\n" ^
       ind ^ "end"
   | VecLit exprs ->
-      "vec[" ^ String.concat ", " (List.map (sprint_lexp tab) exprs) ^ "]"
+      "vec[" ^ String.concat ", " (List.map (sprint_lexp_wdepth next_d tab) exprs) ^ "]"
   | Vecmk (defval, size_list) ->
-      "vecmk[" ^ sprint_lexp tab defval ^ ", " ^ String.concat ", " (List.map (sprint_lexp tab) size_list) ^ "]"
+      "vecmk[" ^ sprint_lexp_wdepth next_d tab defval ^ ", " ^ String.concat ", " (List.map (sprint_lexp_wdepth next_d tab) size_list) ^ "]"
   | Veclen v ->
-      "veclen[" ^ sprint_lexp tab v ^ "]"
+      "veclen[" ^ sprint_lexp_wdepth next_d tab v ^ "]"
   | Vecget (v, size_list) ->
-      "vecget[" ^ sprint_lexp tab v ^ (if size_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp tab) size_list) ^ "]"
+      "vecget[" ^ sprint_lexp_wdepth next_d tab v ^ (if size_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp_wdepth next_d tab) size_list) ^ "]"
   | Vecset (v, val_e, idx_list) ->
-      "vecset[" ^ sprint_lexp tab v ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp tab) idx_list) ^ ", " ^ sprint_lexp tab val_e ^ "]"
+      "vecset[" ^ sprint_lexp_wdepth next_d tab v ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp_wdepth next_d tab) idx_list) ^ ", " ^ sprint_lexp_wdepth next_d tab val_e ^ "]"
   | Vecresz (v, newlen, idx_list) ->
-      "vecresz[" ^ sprint_lexp tab v ^ ", " ^ sprint_lexp tab newlen ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp tab) idx_list) ^ "]"
+      "vecresz[" ^ sprint_lexp_wdepth next_d tab v ^ ", " ^ sprint_lexp_wdepth next_d tab newlen ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp_wdepth next_d tab) idx_list) ^ "]"
+)
+
+let sprint_lexp (tab : int) (l : lexp) : string = sprint_lexp_wdepth None tab l
 
 (* Sprint statements with proper indentation *)
 let sprint_stmt (tab : int) (st : stmt) : string =
@@ -161,6 +185,84 @@ let sprint_ast p : string = List.fold_left ( fun acc st -> acc ^ (sprint_stmt 0 
 
 let print_ast p : unit = Printf.printf "%s" (sprint_ast p)
 
+let escfatred = "\027[1;31m"
+let escreset = "\027[0m"
+let fatred s = escfatred ^ s ^ escreset
+let fatredbreak s = escreset ^ s ^ escfatred
+
+let rec sprint_tlexp (tab : int) (l : tlexp) : string =
+  let pt t = fatredbreak @@ "{" ^ sprint_typ t ^ "}" in
+  let puuid uuid = fatredbreak @@ "{uuid=" ^ string_of_int uuid ^ "}" in
+
+  let ind = indent tab in
+  let ind_next = indent (tab + 1) in
+  match l with
+  | VarT (sref, uuidref, t) -> (fatred !sref) ^ puuid !uuidref ^ pt t
+  | LamT (id, uuid, body, t) -> (
+      match body with
+      (*mb. readability would profit from adding the type only on the outer most lam 
+        but it is not trivial to implement (ie. needs a ref or passing one moore param)*)
+      | LamT _ -> (fatred @@ "\\" ^ id ^ ". " ^ sprint_tlexp tab body) ^ pt t 
+      | _ -> (fatred @@ "\\" ^ id ^ ".\n" ^ ind_next ^ sprint_tlexp (tab + 1) body) ^ pt t
+    )
+  | LamUnitT (body, t) -> (fatred @@ "\\().\n" ^ ind_next ^ sprint_tlexp (tab + 1) body) ^ pt t
+  | AppT (f, arg, t) -> (*could be smarter*)
+      (fatred @@ "(" ^ sprint_tlexp tab f ^ ") (" ^ sprint_tlexp tab arg ^ ")") ^ pt t
+  | SeqT (e1, e2, t) ->
+      (fatred @@ sprint_tlexp tab e1 ^ ";\n" ^ sprint_tlexp tab e2) ^ pt t
+  | IfT (cond, then_e, else_e, t) ->
+      (fatred @@ "if " ^ sprint_tlexp tab cond ^ " then\n" ^
+      ind_next ^ sprint_tlexp (tab + 1) then_e ^ "\n" ^
+      ind ^ "else\n" ^
+      ind_next ^ sprint_tlexp (tab + 1) else_e ^ "\n" ^
+      ind ^ "end") ^ pt t
+  | LetinT (id, uuid, e, body, t) ->
+      (fatred @@ "let " ^ id ^ puuid uuid ^ " =\n" ^ ind_next ^ sprint_tlexp (tab + 1) e ^ "\n" ^
+      ind ^ "in\n" ^ ind_next ^ puuid uuid ^ sprint_tlexp (tab + 1) body) ^ puuid uuid ^ pt t
+  | LetrecinT (id, uuid, e, body, t) ->
+      (fatred @@ "let rec " ^ id ^ " =\n" ^ ind_next ^ sprint_tlexp (tab + 1) e ^ "\n" ^
+      ind ^ "in\n" ^ ind_next ^ sprint_tlexp (tab + 1) body) ^ puuid uuid ^ pt t
+  | LetinTupleT (elmlst , e, body, t) -> (
+      let elmlst_str = String.concat ", " ( List.map 
+            (fun elm_opt -> 
+              match elm_opt with
+              | Some (id, uuid) -> fatred id ^ puuid uuid
+              | None -> "_"
+            ) elmlst ) in
+      (fatred @@ "let (" ^ elmlst_str ^ ") =\n" ^ ind_next ^ sprint_tlexp (tab + 1) e ^ "\n" ^
+      ind ^ "in\n" ^ ind_next ^ sprint_tlexp (tab + 1) body) ^ pt t)
+  | TupleT (exprs, t) ->
+      (fatred @@ "(" ^ String.concat ", " (List.map (sprint_tlexp tab) exprs) ^ ")") ^ pt t
+  | I32LitT (i, t) -> (fatred @@ string_of_int i) ^ pt t
+  | I8LitT (c,t) -> (fatred @@ "'" ^ Char.escaped c ^ "'") ^ pt t
+  | UnitLitT t -> (fatred @@ "()") ^ pt t
+  | UopI32T (uop, e, t) ->
+      (fatred @@ sprint_uopi32 uop ^ " " ^ sprint_tlexp tab e) ^ pt t
+  | UopI8T (uop, e, t) ->
+      (fatred @@ sprint_uopi8 uop ^ " " ^ sprint_tlexp tab e) ^ pt t
+  | BopI32T (bop, left, right, t) ->
+      (fatred @@ "(" ^ sprint_tlexp tab left ^ ") " ^ sprint_bopi32 bop ^ " (" ^ sprint_tlexp tab right ^ ")") ^ pt t
+  | BopI8T (bop, left, right, t) ->
+      (fatred @@ "(" ^ sprint_tlexp tab left ^ ") " ^ sprint_bopi8 bop ^ " (" ^ sprint_tlexp tab right ^ ")") ^ pt t
+  | VecLitT (exprs, t) ->
+      (fatred @@ "vec[" ^ String.concat ", " (List.map (sprint_tlexp tab) exprs) ^ "]") ^ pt t
+  | VecmkT (defval, size_list, t) ->
+      (fatred @@ "vecmk[" ^ sprint_tlexp tab defval ^ ", " ^ String.concat ", " (List.map (sprint_tlexp tab) size_list) ^ "]") ^ pt t
+  | VeclenT (v, t) ->
+      (fatred @@ "veclen[" ^ sprint_tlexp tab v ^ "]") ^ pt t
+  | VecgetT (v, size_list, t) ->
+      (fatred @@ "vecget[" ^ sprint_tlexp tab v ^ (if size_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_tlexp tab) size_list) ^ "]") ^ pt t
+  | VecsetT (v, val_e, idx_list, t) ->
+      (fatred @@ "vecset[" ^ sprint_tlexp tab v ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_tlexp tab) idx_list) ^ ", " ^ sprint_tlexp tab val_e ^ "]") ^ pt t
+  | VecreszT (v, newlen, idx_list, t) ->
+      (fatred @@ "vecresz[" ^ sprint_tlexp tab v ^ ", " ^ sprint_tlexp tab newlen ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_tlexp tab) idx_list) ^ "]") ^ pt t
+
+let sprint_polytletbnd ((name, uuid, vars, lexpt) : polytletbnd) : string =
+  let vars_str = String.concat ", " (List.map (fun i -> "t" ^ string_of_int i) vars) in
+  fatred @@ "let " ^ name ^ (fatredbreak @@ " (uuid=" ^ string_of_int uuid ^ ",[" ^ vars_str ^ "])") ^ " = " ^ sprint_tlexp 0 lexpt
+
+let sprint_polytast (tast : polytast) : string =
+  (String.concat "\n" (List.map sprint_polytletbnd tast)) ^ "\n"
 
 (*
 let sprint_schema (Forall (vars, t) : schema) : string =

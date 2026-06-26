@@ -1,1 +1,3 @@
-let main = let v = vecmk[44,6] in vecget[v,5] + veclen[v]
+-- Expect: 50
+include str
+let main =  \() str.writei32 (let v = vecmk[44,6] in vecget[v,5] + veclen[v])

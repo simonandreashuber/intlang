@@ -34,11 +34,22 @@ let repr (t : typ) : typ =
         else
           repr_aux t_linked (id :: visited)
     | _ -> t
-  in repr_aux t [] 
+  in repr_aux t []
+
+let rec cmp_typ (t1 : typ) (t2 : typ) : bool =
+  match (repr t1, repr t2) with
+  | (TUnit, TUnit) -> true
+  | (TI32, TI32) -> true
+  | (TI8, TI8) -> true
+  | (TFun (t1a, t1b), TFun (t2a, t2b)) -> cmp_typ t1a t2a && cmp_typ t1b t2b
+  | (TTup ts1, TTup ts2) -> List.length ts1 = List.length ts2 && List.for_all2 cmp_typ ts1 ts2
+  | (TVec t1_inner, TVec t2_inner) -> cmp_typ t1_inner t2_inner
+  | (TVar v1, TVar v2) -> v1.id = v2.id
+  | _ -> false
 
 type uuid = int 
 
-type schema = Forall of int list * typ
+type schema = Forall of int list * typ (*to be honest the Forall is just annoying*)
 
 type typenv = (string * (schema * uuid)) list
 
@@ -46,8 +57,8 @@ type constraints = (typ * typ) list
 
 let gen_builtins () : typenv =
   let builtins = [
-    ("readstrln", (Forall ([], TFun (TUnit, TVec (TI8))), fresh_uuid ()));
-    ("writestr", (Forall ([], TFun (TVec (TI8), TUnit)), fresh_uuid ()));
+    ("readi8", (Forall ([], TFun (TUnit, TI8)), fresh_uuid ()));
+    ("writei8", (Forall ([], TFun (TI8, TUnit)), fresh_uuid ()));
     ("flush", (Forall ([], TFun (TUnit, TUnit)), fresh_uuid ()));
     ("i32_to_i8", (Forall ([], TFun (TI32, TI8)), fresh_uuid ()));
     ("i8_to_i32", (Forall ([], TFun (TI8, TI32)), fresh_uuid ()));

@@ -2,6 +2,9 @@
 
 ## TODO 
 	- Fix test cases and stdlib (especially the let rec things)
+	- Notes after coding a bit:
+		- not writing i8 in integer form is annoying
+		- A proper resize is important, should I make shorten and extend explicitly (so 2 ops)
 ## Futures
 
 The idea is to make the language more usable/futurefull and faster.
