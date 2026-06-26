@@ -110,7 +110,7 @@ type lexp =                                             (*expression*)
     | Veclen of lexp                                    (*veclen[v]*)
     | Vecget of lexp * (lexp list)                      (*vecget[v, idx list]*)
     | Vecset of lexp * lexp * (lexp list)               (*vecset[v, val, idx list]*)
-    | Vecresz of lexp * lexp * (lexp list)              (*vecresz[v, newlen, idx list]*)
+    | Vecresz of lexp * lexp * lexp * lexp              (*vecresz[v, defval, newstart, newend]*)
 
 type stmt = 
     | IncludeGlobal of string
@@ -149,7 +149,7 @@ type tlexp =                                                      (*typed expres
     | VeclenT of tlexp * typ                                      (*veclen[v] : T*)
     | VecgetT of tlexp * (tlexp list) * typ                       (*vecget[v, idx list] : T*)
     | VecsetT of tlexp * tlexp * (tlexp list) * typ               (*vecset[v, val, idx list] : T*)
-    | VecreszT of tlexp * tlexp * (tlexp list) * typ              (*vecresz[v, newlen, idx list] : T*)
+    | VecreszT of tlexp * tlexp *  tlexp * tlexp * typ            (*vecresz[v, defval, newstart, newend] : T*)
 
 type polytletbnd = string * uuid * (uuid list) * tlexp
 
@@ -198,7 +198,7 @@ let tlexp_get_type (e : tlexp) : typ =
   | VeclenT (_, t) -> t
   | VecgetT (_, _, t) -> t
   | VecsetT (_, _, _, t) -> t
-  | VecreszT (_, _, _, t) -> t
+  | VecreszT (_, _, _, _, t) -> t
 
 let schema_of_typ (t : typ) : schema = Forall ([], t)
 

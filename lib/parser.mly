@@ -91,8 +91,8 @@ typ_anot:
     | atom = typ_anot_atom                                  { atom }
 
 typ_tuple_list:
-    | ltyp = typ_anot_atom; MUL_I32; rtyp = typ_tuple_list { ltyp :: rtyp }
-    | ltyp = typ_anot_atom; MUL_I32; rtyp = typ_anot_atom  { [ltyp; rtyp] }
+    | ltyp = typ_anot_atom; MUL_I32; rtyp = typ_tuple_list  { ltyp :: rtyp }
+    | ltyp = typ_anot_atom; MUL_I32; rtyp = typ_anot_atom   { [ltyp; rtyp] }
 
 typ_anot_atom: 
     | I32TYP                                                { TI32 }
@@ -175,14 +175,14 @@ lexp_atom:
     | i32lit = I32                                                                                      { I32Lit i32lit }
     | i8lit = I8                                                                                        { I8Lit i8lit }
     | str = STR                                                                                         { VecLit (List.map (fun x -> I8Lit x) (List.of_seq (String.to_seq str))) }
-    | LPAR; ls = exp_seq_list_min2; RPAR;                                                                  { Tuple ls }
-    | VECLIT; LBRACK; lit_list = exp_seq_list_min1; RBRACK                           { VecLit lit_list }
-    | VECMK; LBRACK; lit = exp_seq; COMMA; size_list = exp_seq_list_min1; RBRACK               { Vecmk(lit, size_list) }
-    | VECLEN; LBRACK; v = exp_seq; RBRACK                                                                  { Veclen v }
-    | VECGET; LBRACK; v = exp_seq; idx_list = exp_seq_list_min0; RBRACK                          { Vecget(v, idx_list) }
-    | VECSET; LBRACK; v = exp_seq; COMMA; value = exp_seq; idx_list = exp_seq_list_min0; RBRACK     { Vecset(v, value, idx_list) }
-    | VECRESZ; LBRACK; v = exp_seq; COMMA; newlen = exp_seq; idx_list = exp_seq_list_min0; RBRACK   { Vecresz(v, newlen, idx_list) }
-    | LPAR; l = exp_seq; RPAR                                                                              { l }
+    | LPAR; ls = exp_seq_list_min2; RPAR;                                                               { Tuple ls }
+    | VECLIT; LBRACK; lit_list = exp_seq_list_min1; RBRACK                                              { VecLit lit_list }
+    | VECMK; LBRACK; lit = exp_seq; COMMA; size_list = exp_seq_list_min1; RBRACK                        { Vecmk(lit, size_list) }
+    | VECLEN; LBRACK; v = exp_seq; RBRACK                                                               { Veclen v }
+    | VECGET; LBRACK; v = exp_seq; idx_list = exp_seq_list_min0; RBRACK                                 { Vecget(v, idx_list) }
+    | VECSET; LBRACK; v = exp_seq; COMMA; value = exp_seq; idx_list = exp_seq_list_min0; RBRACK         { Vecset(v, value, idx_list) }
+    | VECRESZ; LBRACK; v = exp_seq; COMMA; defval = exp_seq; COMMA; newstart = exp_seq; COMMA; newend = exp_seq; RBRACK   { Vecresz(v, defval, newstart, newend) }
+    | LPAR; l = exp_seq; RPAR                                                                           { l }
 
 exp_seq_list_min0:
     | COMMA; l = exp_seq; ls = exp_seq_list_min0            { l :: ls }
@@ -193,5 +193,5 @@ exp_seq_list_min1:
     | l = exp_seq                                           { [l] }
 
 exp_seq_list_min2:
-    | l = exp_seq; COMMA; ls = exp_seq_list_min2               { l :: ls }
+    | l = exp_seq; COMMA; ls = exp_seq_list_min2            { l :: ls }
     | l1 = exp_seq; COMMA; l2 = exp_seq                     { [l1; l2] }

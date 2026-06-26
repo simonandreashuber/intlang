@@ -69,9 +69,18 @@ The idea is to make the language more usable/futurefull and faster.
 	- [] vecmk\[innerval, size list\]
 		- size list determines the dim of the vector
 	- [] vec\[list of vectors, ints or chars\]
-	- [] vecresz\[oldv, newsize, defval\]
-		- resize the vector oldv to have the new size newsize 
-		- if size becomes larger place defval in new slots
+	- [] vecresz\[oldv, defval, newstart, newend\]
+		- resize the vector oldv
+			- newstart is an i32 value (signed). If positive then then start of the 
+			  vector is pushed into the old vector by that amount. If negative the vector is extended
+			  by the absolute value with prepending
+			- newend is an i32 value (signed). If negative then then end of the 
+		      vector is pushed into the old vector by that amount. If positive the vector is extended
+			  by the absolute value with appending
+			- All extension fills the new slots with defval
+			- In other words image the old vector is embedded in an infinite sequence of defval
+			  then the newstart and newend are the offsets used at the start and end of the embedded 
+			  vector to create the new vector
 	- [] optinal: write tiling
 		- the idea is to split some big matrix that needs to be written to into tiles but keep the original memory layout
 		- would have to prove at compile time what values tilefun can attain

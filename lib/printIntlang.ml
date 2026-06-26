@@ -160,8 +160,8 @@ let rec sprint_lexp_wdepth (d_opt : int option) (tab : int) (l : lexp) : string 
       "vecget[" ^ sprint_lexp_wdepth next_d tab v ^ (if size_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp_wdepth next_d tab) size_list) ^ "]"
   | Vecset (v, val_e, idx_list) ->
       "vecset[" ^ sprint_lexp_wdepth next_d tab v ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp_wdepth next_d tab) idx_list) ^ ", " ^ sprint_lexp_wdepth next_d tab val_e ^ "]"
-  | Vecresz (v, newlen, idx_list) ->
-      "vecresz[" ^ sprint_lexp_wdepth next_d tab v ^ ", " ^ sprint_lexp_wdepth next_d tab newlen ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_lexp_wdepth next_d tab) idx_list) ^ "]"
+  | Vecresz(v, defval, newstart, newend) ->
+      "vecresz[" ^ sprint_lexp_wdepth next_d tab v ^ ", " ^ sprint_lexp_wdepth next_d tab defval ^ ", " ^ sprint_lexp_wdepth next_d tab newstart ^ ", " ^ sprint_lexp_wdepth next_d tab newend ^ "]"
 )
 
 let sprint_lexp (tab : int) (l : lexp) : string = sprint_lexp_wdepth None tab l
@@ -254,8 +254,8 @@ let rec sprint_tlexp (tab : int) (l : tlexp) : string =
       (fatred @@ "vecget[" ^ sprint_tlexp tab v ^ (if size_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_tlexp tab) size_list) ^ "]") ^ pt t
   | VecsetT (v, val_e, idx_list, t) ->
       (fatred @@ "vecset[" ^ sprint_tlexp tab v ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_tlexp tab) idx_list) ^ ", " ^ sprint_tlexp tab val_e ^ "]") ^ pt t
-  | VecreszT (v, newlen, idx_list, t) ->
-      (fatred @@ "vecresz[" ^ sprint_tlexp tab v ^ ", " ^ sprint_tlexp tab newlen ^ (if idx_list = [] then "" else ", ") ^ String.concat ", " (List.map (sprint_tlexp tab) idx_list) ^ "]") ^ pt t
+  | VecreszT (v, defval, newstart, newend, t) ->
+      (fatred @@ "vecresz[" ^ sprint_tlexp tab v ^ ", " ^ sprint_tlexp tab defval ^ ", " ^ sprint_tlexp tab newstart ^ ", " ^ sprint_tlexp tab newend ^ "]") ^ pt t
 
 let sprint_polytletbnd ((name, uuid, vars, lexpt) : polytletbnd) : string =
   let vars_str = String.concat ", " (List.map (fun i -> "t" ^ string_of_int i) vars) in

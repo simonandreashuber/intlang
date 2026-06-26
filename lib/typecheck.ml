@@ -283,18 +283,19 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       log_appendln (spf "Vecset %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr) :: (t_val, t_vec_of) :: cs_idx)) );
       ((t_v, t_vec_constr) :: (t_val, t_vec_of) :: (cs_idx @ cs_idxrec @ cs_val @ cs_v), VecsetT (v_t, val_t, idx_list_t, t_vec_constr))
     )
-    | Vecresz (v, newlen, idx_list) -> (
+    | Vecresz(v, defval, newstart, newend) -> (
       let cs_v, v_t = typecheck_lexp env v in
       let t_v = tlexp_get_type v_t in
-      let cs_newlen, newlen_t = typecheck_lexp env newlen in
-      let t_newlen = tlexp_get_type newlen_t in
-      let cs_idxrec_nf, idx_list_t = List.split (List.map (fun ei -> typecheck_lexp env ei) idx_list) in
-      let cs_idxrec = List.flatten cs_idxrec_nf in
-      let cs_idx = List.map (fun et -> (tlexp_get_type et, TI32)) idx_list_t in
+      let cs_defval, defval_t = typecheck_lexp env defval in
+      let t_defval = tlexp_get_type defval_t in
+      let cs_newstart, newstart_t = typecheck_lexp env newstart in
+      let t_newstart = tlexp_get_type newstart_t in
+      let cs_newend, newend_t = typecheck_lexp env newend in
+      let t_newend = tlexp_get_type newend_t in
       let t_vec_of = TVar (fresh_tvar ()) in
-      let t_vec_constr = List.fold_left (fun acc et -> TVec acc) t_vec_of idx_list_t in
-      log_appendln (spf "Vecresz %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr) :: (t_newlen, TI32) :: cs_idx)) );
-      ((t_v, t_vec_constr) :: (t_newlen, TI32) :: (cs_idx @ cs_idxrec @ cs_newlen @ cs_v), VecreszT (v_t, newlen_t, idx_list_t, t_vec_constr))
+      let t_vec_constr = TVec (t_vec_of) in
+      log_appendln (spf "Vecresz %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr) :: (t_defval, t_vec_of) :: (t_newstart, TI32) :: (t_newend, TI32) :: [])) );
+      ((t_v, t_vec_constr) :: (t_defval, t_vec_of) :: (t_newstart, TI32) :: (t_newend, TI32) :: (cs_newend @ cs_newstart @ cs_defval @ cs_v), VecreszT (v_t, defval_t, newstart_t, newend_t, t_vec_constr))
     )
 
 let typecheck_let (id: string) (e: lexp) (env : typenv) : typenv * polytast =
