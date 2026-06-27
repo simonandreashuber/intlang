@@ -7,7 +7,7 @@ let rec sprint_typ (t : typ) : string =
     | TI8 -> "i8"
     | TTup t_list -> 
         let t_lst_str = List.map sprint_typ t_list in
-        "(" ^ (String.concat ", " t_lst_str) ^ ")"
+        "(" ^ (String.concat "," t_lst_str) ^ ")"
     | TVec t_inner -> "[" ^ (sprint_typ t_inner)  ^ "]"
     | TFun (t1, t2) -> (
         let t1str = sprint_typ t1 in
@@ -16,7 +16,7 @@ let rec sprint_typ (t : typ) : string =
           | _ -> t1str
         in
         let t2str = sprint_typ t2 in
-        left ^ " -> " ^ t2str
+        left ^ "->" ^ t2str
       )
     | TVar tvar -> "t" ^ string_of_int tvar.id
 
@@ -263,6 +263,12 @@ let sprint_polytletbnd ((name, uuid, vars, lexpt) : polytletbnd) : string =
 
 let sprint_polytast (tast : polytast) : string =
   (String.concat "\n" (List.map sprint_polytletbnd tast)) ^ "\n"
+
+let sprint_monotletbnd ((name, uuid, lexpt) : monotletbnd) : string =
+  fatred @@ "let " ^ name ^ (fatredbreak @@ " (uuid=" ^ string_of_int uuid ^ ")") ^ " = " ^ sprint_tlexp 0 lexpt
+
+let sprint_monotast (tast : monotast) : string =
+  (String.concat "\n" (List.map sprint_monotletbnd tast)) ^ "\n"
 
 (*
 let sprint_schema (Forall (vars, t) : schema) : string =

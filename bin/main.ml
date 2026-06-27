@@ -8,7 +8,8 @@ let main () =
   let ast = Include.lex_parse_include intlang_std_lib_path filename in
   Reccheck.reccheck ast;
   let polytast = Typecheck.typecheck ast in
-  Printf.printf "%sPOLYTAST:\n%s" headerline (PrintIntlang.sprint_polytast polytast); flush stdout;
+  let monotast = Monomorph.monomorph polytast in
+  Printf.printf "%sMONOTAST:\n%s" headerline (PrintIntlang.sprint_monotast monotast); flush stdout;
 
   (*
   let prog = Include.lex_parse_include intlang_std_lib_path filename in

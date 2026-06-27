@@ -1,0 +1,8 @@
+-- Expect: 2
+include str
+let snd = \x. \y. (x,y)
+let fix = snd 1
+let fixint = fix 2
+let fixvec = fix vec[3]
+let fixwtuplet = let (a,b) = fix 4 in fix vecmk[a,1,1]
+let main = \() str.writei32 (let (a,_) = fixwtuplet in a)

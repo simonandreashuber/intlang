@@ -30,7 +30,8 @@ let run_test cases_dir intlang_std_lib_path intlang_file =
       try
         let ast = Include.lex_parse_include intlang_std_lib_path filepath in
         Reccheck.reccheck ast;
-        let _ = Typecheck.typecheck ast in
+        let ptast = Typecheck.typecheck ast in
+        let _ = Monomorph.monomorph ptast in
         Printf.printf "[PASS] %s\n" intlang_file; flush stdout;
           true
         (*
