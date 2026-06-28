@@ -383,7 +383,7 @@ let typecheck (ast : ast) : polytast =
             (env', tast @ tast')
           )
         | _ -> raise (Errors.TypeError "encountered Include AST node in typechecker, probably a include pass bug"))
-    (gen_builtins (), []) ast in
+    (Ast.builtins, []) ast in
     
     (*Make sure there is no main or main is of type unit -> unit*)
     match List.assoc_opt "main" env with

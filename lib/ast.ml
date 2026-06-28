@@ -65,7 +65,11 @@ let gen_builtins () : typenv =
   ] in
   builtins
 
-let builtin_names : string list = List.map (fun (name, _) -> name) (gen_builtins ())
+let builtins = gen_builtins ()
+
+let builtin_names : string list = List.map (fun (name, _) -> name) (builtins)
+
+let builtin_uuid_to_name : (uuid * string) list = List.map (fun (name, (_, uuid)) -> (uuid, name)) (builtins)
 
 type bopi32 = 
     | Eqi32 | Neqi32 | Lti32 | Gti32 | LtEqi32 | GtEqi32

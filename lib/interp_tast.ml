@@ -10,18 +10,35 @@ type value =
     | VTup of value list
     | VVec of value array
     | VBlackhole (* Represents an uninitialized recursive binding *)
+    | VBuiltin of (value -> value)
 
 (** An environment is a mutable reference to an association list mapping uuids to values. *)
 and env = (uuid * value) list ref
 
+let get_builtin_fun (name : string) : (value -> value) =
+  match name with
+  | "readi8" -> (fun _ -> VI8 (input_char stdin))
+  | "writei8" -> (fun v -> match v with
+                            | VI8 c -> let _ = output_char stdout c in VUnit
+                            | _ -> raise (Errors.InterpError "writei8 expects an i8"))
+  | "flush" -> (fun _ -> flush stdout; VUnit)
+  | "i32_to_i8" -> (fun v -> match v with
+                             | VI32 n when n >= 0l && n <= 255l -> VI8 (Char.chr (Int32.to_int n))
+                             | _ -> raise (Errors.InterpError "i32_to_i8 expects an i32 in the range [0, 255]"))
+  | "i8_to_i32" -> (fun v -> match v with
+                             | VI8 c -> VI32 (Int32.of_int (Char.code c))
+                             | _ -> raise (Errors.InterpError "i8_to_i32 expects an i8"))
+  | _ -> raise (Errors.InterpError ("Unknown builtin function: " ^ name))
+
 (** [lookup] finds a variable in the environment by uuid. 
     If it finds a Thunk, it evaluates it (Call-by-Name). *)
 let rec lookup uuid env =
-  match List.assoc_opt uuid !env with
-  | Some VBlackhole -> 
+  match List.assoc_opt uuid !env, List.assoc_opt uuid !Ast.builtins_uuid_to_name with
+  | Some VBlackhole, None -> 
       raise (Errors.InterpError ("Circular dependency detected: uuid " ^ string_of_int uuid ^ " used before initialization"))
-  | Some v -> v
-  | None -> raise (Errors.InterpError ("Unbound variable: uuid " ^ string_of_int uuid))
+  | Some v, None -> v
+  | None, Some builtin_name -> VBuiltin (get_builtin_fun builtin_name)
+  | None, None -> raise (Errors.InterpError ("Unbound variable: uuid " ^ string_of_int uuid))
 
 (** The core evaluation function. *)
 and eval (e : lexpt) (env : env) : value =
@@ -34,6 +51,7 @@ and eval (e : lexpt) (env : env) : value =
             | VClosure (param_uuid, body, c_env) -> 
                 let param_env = ref ((param_uuid, v2) :: !c_env) in
                 eval body param_env
+            | VBuiltin f -> f v2
             | _ -> raise (Errors.InterpError "Application of a non-function")
         )
     | SeqT (e1, e2, _) -> let _ = eval e1 env in eval e2 env
@@ -140,15 +158,14 @@ and eval (e : lexpt) (env : env) : value =
         let vals = Array.of_list (List.map (fun e -> eval e env) es) in
         VVec vals
     | VecmkT (defval, size_list, typ) -> (
-        let mk_vec size fillval = 
-            match eval size env with 
-            | I32 n -> VVec ( Array.init (Int32.to_int n) (fun _ -> eval fillval env) )
-            | _ -> raise (Errors.InterpError "vecmk size must be an integer")
-        in
-        match size_list with
-        | [last_size] -> mk_vec last_size defval
-        | size :: tl -> mk_vec size (VecmkT (defval, tl, typ))
-        | [] -> raise (Errors.InterpError "vecmk requires at least one size argument"))
+        List.fold_right (fun size_exp defval ->
+            match eval size_exp env with
+            | VI32 n when n >= 0l -> 
+                let new_arr = Array.make (Int32.to_int n) defval in
+                VVec new_arr
+            | _ -> raise (Errors.InterpError "vecmk size must be a non-negative integer")
+        ) size_list (eval defval env)
+    )
     | VeclenT (v, _) ->
         (match eval v env with
          | VVec arr -> VInt (Int32.of_int @@ Array.length arr)
@@ -163,61 +180,57 @@ and eval (e : lexpt) (env : env) : value =
             | VVec arr when idx >= 0 && idx < Array.length arr -> arr.(idx)
             | _ -> raise ((Errors.InterpError "vecget expects a vector"))
         ) (eval v env) idx_list
-    | VecsetT (v, setval, idx_list, typ) -> (
-        match idx_list with
-        | idx :: tl when List.length tl > 0 ->
-            let nuuid = fresh_uuid() in
-            let nuuid_v = fresh_uuid() in
-            (* I used blank and TUnit as unimportant place holders
-               The outer let is needed as v might not satisfy
-               referential transparency ie. v might involve some
-               IO hence evaluating twice is invalid
-            *)
-            let expansion = LetinT ( "blank", nuuid_v, v,
-                            LetinT ("blank", nuuid, 
-                                    VecgetT (VarT (ref "blank", ref nuuid_v, TUnit), [idx], TUnit), 
-                                    Vecset (VarT (ref "blank", ref nuuid_v, TUnit), 
-                                            VecsetT (VarT (ref "blank", ref nuuid, TUnit), setval, tl, TUnit),
-                                            [idx], TUnit),
-                            TUnit),
-                            TUnit)
-            in
-            eval expansion env
-        | [idx_exp] -> (
-            match eval v env, eval idx_exp env with
-            | VVec arr, VInt idx when idx >= 0 && idx < Array.length arr -> (
-                (*simple rule, never mutate existing memory, so we copy and then mutate the copy*)
-                let new_arr = Array.copy arr in
-                new_arr.(idx) <- eval setval env;
-                VVec new_arr)
-            | _, _ -> raise (Errors.InterpError "vecset expects a vector, or index out of bounds")
+    | VecsetT (v, setval, idx_list, typ) -> 
+        let rec vecsetaux (v_val : value) (idx_list : lexpt list) : value =
+            match idx_list with
+            | [idx_exp] -> (
+                match v_val, eval idx_exp env with
+                | VVec arr, VI32 idx when idx >= 0 && idx < Array.length arr -> (
+                    let new_arr = Array.copy arr in
+                    new_arr.(idx) <- eval setval env;
+                    VVec new_arr)
+                | _, _ -> raise (Errors.InterpError "vecset expects a vector and a valid index")
+            )
+            | idx_exp :: tl -> (
+                match v_val, eval idx_exp env with
+                | VVec arr, VI32 idx when idx >= 0 && idx < Array.length arr -> (
+                    let elm_val = arr.(idx) in
+                    let new_elm_val = vecsetaux elm_val tl in
+                    let new_arr = Array.copy arr in
+                    new_arr.(idx) <- eval new_elm_val env;
+                    VVec new_arr)
+                | _,_ -> raise (Errors.InterpError "vecset called non vector, non I32 index or index out of bounds")
+            )
+            | _ -> raise (Errors.InterpError "vecset expects an non empty index list")
+        in
+        vecsetaux (eval v env) idx_list
+    | VecreszT (v, defval, newstart, newend) -> (
+        let defval_val = eval defval env in
+        match eval v env, eval newstart env, eval newend env with
+        | VVec arr, VI32 start_off, VI32 end_off -> (
+            let newlen = - (Int32.to_int start_off) + (Array.length arr) + (Int32.to_int end_off) in
+            let new_arr = Array.init newlen 
+                            (fun i -> if i < -(Int32.to_int start_off) || i >= (Array.length arr) - (Int32.to_int start_off) then
+                                          defval_val
+                                      else
+                                          arr.(i-(Int32.to_int start_off))) in
+            VVec new_arr
         )
-    )
+        | _, _, _ -> raise (Errors.InterpError "vecresz expects a vector and valid integer indices"))
 
 
-
-let interp_prog (letblk : letblkmonot) : int option =
+let interp_monotast (mtast : monotast) : unit =
   let global_env_ref = ref [] in
 
   (*stitch all bindings into the env, but with VBlackhole*)
   List.iter (fun (_, uuid, _) -> 
     global_env_ref := (uuid, VBlackhole) :: !global_env_ref
-  ) letblk;
-  
-  let main_uuid = ref None in
-  
+  ) mtast;
+    
   List.iter (fun (name, uuid, e) -> 
     let v = eval e global_env_ref in
     (*go and replace the VBlackhole used before in the env reference*)
     global_env_ref := List.map (fun (uuid', v') -> 
       if uuid' = uuid then (uuid', v) else (uuid', v')
     ) !global_env_ref;
-    (*detect if this is the main binding*)
-    if name = "@main" then main_uuid := Some uuid
-  ) letblk;
-
-  match !main_uuid with
-    | Some uuid -> (match (lookup uuid global_env_ref) with
-                       | VInt n -> Some n
-                       | _ -> raise (Errors.InterpError "Program ended with something else, expected int"))
-    | None -> None
+  ) mtast;
