@@ -1,0 +1,7 @@
+include vector
+include str
+
+let main = \()
+    let input = str.read_ln () in
+    let output = vector.concat input "hello world\n" in
+    (str.write_str output ; flush ())

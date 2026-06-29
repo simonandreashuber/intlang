@@ -1,0 +1,7 @@
+include vector
+include str
+
+let main = \()
+    let input = str.read_ln () in
+    let output = str.str_to_i32 input in
+    (str.write_i32 (1-output); str.write_ln ""; flush ())

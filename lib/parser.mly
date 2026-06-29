@@ -174,7 +174,12 @@ lexp_atom:
     | LPAR; RPAR;                                                                                       { UnitLit }
     | i32lit = I32                                                                                      { I32Lit i32lit }
     | i8lit = I8                                                                                        { I8Lit i8lit }
-    | str = STR                                                                                         { VecLit (List.map (fun x -> I8Lit x) (List.of_seq (String.to_seq str))) }
+    | str = STR                                                                                         { 
+                                                                                                            if String.length str = 0 then
+                                                                                                                Vecmk(I8Lit (Char.chr 0), [I32Lit 0]) (*empty vector is only possible with vecmk*)
+                                                                                                            else
+                                                                                                                VecLit (List.map (fun x -> I8Lit x) (List.of_seq (String.to_seq str))) 
+                                                                                                        }
     | LPAR; ls = exp_seq_list_min2; RPAR;                                                               { Tuple ls }
     | VECLIT; LBRACK; lit_list = exp_seq_list_min1; RBRACK                                              { VecLit lit_list }
     | VECMK; LBRACK; lit = exp_seq; COMMA; size_list = exp_seq_list_min1; RBRACK                        { Vecmk(lit, size_list) }

@@ -1,0 +1,12 @@
+include str
+
+let rec count_down = \i : i32 => unit.
+    if i >= -100 then
+        (str.write_i32 i;
+        str.write_str ", ";
+        count_down (i-1))
+    else
+        str.write_str "done!\n"
+    end
+
+let main = \() (count_down 100; flush ())

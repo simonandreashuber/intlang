@@ -219,7 +219,7 @@ and eval (e : tlexp) (env : env) : value =
                             (fun i -> if i < -(Int32.to_int start_off) || i >= (Array.length arr) - (Int32.to_int start_off) then
                                           defval_val
                                       else
-                                          arr.(i-(Int32.to_int start_off))) in
+                                          arr.(i+(Int32.to_int start_off))) in
             VVec new_arr )
         | _, _, _ -> raise (Errors.InterpError "vecresz expects a vector and valid integer indices")
     )
@@ -234,13 +234,22 @@ let interp_monotast (mtast : monotast) : unit =
   ) mtast;
     
   List.iter (fun (name, uuid, e) -> 
-    let v = eval e global_env_ref in
-    (*go and replace the VBlackhole used before in the env reference*)
-    global_env_ref := List.map (fun (uuid', v') -> 
-      if uuid' = uuid then (uuid', v) else (uuid', v')
-    ) !global_env_ref;
+    try
+        let v = eval e global_env_ref in
+        (*go and replace the VBlackhole used before in the env reference*)
+        global_env_ref := List.map (fun (uuid', v') -> 
+        if uuid' = uuid then (uuid', v) else (uuid', v')
+        ) !global_env_ref;
+    with
+    | exn -> 
+        let msg = Printexc.to_string exn in
+        raise (Errors.InterpError ("Error while evaluating binding " ^ name ^ ": " ^ msg))
   ) mtast;
-
-  match List.find_opt (fun (name, uuid, _) -> name = "main") mtast with
-    | Some (_,_ , main_fun) -> ignore (eval (AppT (main_fun, UnitLitT (TUnit), TUnit)) global_env_ref)
-    | None -> ()
+  try
+    match List.find_opt (fun (name, uuid, _) -> name = "main") mtast with
+        | Some (_,_ , main_fun) -> ignore (eval (AppT (main_fun, UnitLitT (TUnit), TUnit)) global_env_ref)
+        | None -> ()
+  with
+    | exn -> 
+        let msg = Printexc.to_string exn in
+        raise (Errors.InterpError ("Error while evaluating main function " ^ ": " ^ msg))

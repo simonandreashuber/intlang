@@ -1,0 +1,3 @@
+include str
+
+let main = \() (str.write_i32 42; flush ())

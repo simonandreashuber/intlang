@@ -1,55 +1,107 @@
-let i32_dig_to_ascii = \i : i32 => i8. i32_to_i8 (i + 48)
-
-let nullterm = i32_to_i8 0
-
--- naive imp, untested
-let i32_to_str = \i : i32 => [i8].
-    let rec get_digits = \ (i : i32) -- the rest of the i32
-                         (idx : i32) -- index into acc to use for the next char
-                         (acc : [i8]) -- accumulator to make the thing tail recursive
-                         => [i8] * i32. -- return the vector and the next usable index
-        let dig = i32_dig_to_ascii (i % 10) in
-        let next_i = i / 10 in
-        let next_acc = vecset[acc, dig, idx] in
-        let next_idx = idx + 1 in
-        if next_i == 0 then
-            (next_acc, next_idx)
+-- READING
+let read_str = \ (len : i32) => [i8].
+    let rec read_str_aux = \ (len : i32) (i : i32) (acc : [i8]) => [i8].
+        if i < len then
+            let c = readi8 () in
+            let next_acc = vecset[acc, c, i] in
+            read_str_aux len (i+1) next_acc
         else
-            get_digits next_i next_idx next_acc
+            acc
         end
     in
-    let rec reverse = \ (newv : [i8]) -- new vector with length smaller equal to
-                      (oldv : [i8]) -- old vector 
-                      (idx : i32)   -- index into newv
-                      => [i8].
-        if idx < veclen[newv] then
-            let val = vecget[oldv, veclen[newv] - 1 - idx] in
-            reverse vecset[newv, val, idx] oldv (idx+1)
-        else 
-            newv
-        end
-    in
-    -- range is +2147483647 to -2147483648
-    -- so we need 10 chars for the digits, on negative numbers 1 for the sign, and 1 for the null terminator
-    if i == -2147483648 then --special case where we cant flip
-        "-2147483648"
-    else if i < 0 then
-        let (rev_digs, idx) = get_digits i 0 vecmk[nullterm, 11] in
-        reverse vecmk[nullterm, idx+1] rev_digs 0
-    else 
-        let (rev_digs, idx) = get_digits (-i) 0 vecmk[nullterm, 12] in
-        reverse vecmk[nullterm, idx+2] vecset[rev_digs, '-', idx] 0
-    end end
+    read_str_aux len 0 (vecmk['\x00', len])
 
+-- \() => [i8]. unit lambda annotation might be nice
+let read_ln = \()
+    let rec read_ln_aux = \ (acc : [i8]) (i : i32) => [i8].
+        let acc_w_space = if i < veclen[acc] then acc else vecresz[acc, '\x00', 0, veclen[acc]] end in
+        let c = readi8 () in
+        if c ==i8 '\n' then
+            vecresz[acc_w_space, '\x00', 0, veclen[acc] - 1 - i] --resize to use the valid part of the buffer
+        else
+            read_ln_aux vecset[acc_w_space, c, i] (i+1)
+        end
+    in
+    read_ln_aux (vecmk['\x00', 128]) 0
+
+
+-- WRITING
 let write_str = \s : [i8] => unit.
     let rec write_str_aux = \ (s : [i8]) (i : i32) => unit.
         if i < veclen[s] then
             (writei8 vecget[s, i];
             write_str_aux s (i+1))
         else
-            writei8 nullterm
+            writei8 '\x00'
         end
     in
     write_str_aux s 0
 
-let writei32 = \i : i32 => unit. write_str (i32_to_str i)
+let write_ln = \s : [i8] => unit.
+    let rec write_ln_aux = \ (s : [i8]) (i : i32) => unit.
+        if i < veclen[s] then
+            (writei8 vecget[s, i];
+            write_ln_aux s (i+1))
+        else
+            (writei8 '\n';
+            writei8 '\x00')
+        end
+    in
+    write_ln_aux s 0
+
+
+-- HANDLING I32
+let ascii_is_dig = \c : i8 => i32. ('\x30' <=i8 c) & (c <=i8 '\x39')
+
+let ascii_dig_to_i32 = \c : i8 => i32. i8_to_i32 c - 48
+
+let i32_dig_to_ascii = \i : i32 => i8. i32_to_i8 (i + 48)
+
+let str_to_i32 = \s : [i8] => i32.
+    let rec strtoi32aux = \ (s : [i8]) (i : i32) (acc : i32) => i32.
+        if i < veclen[s] then
+            let c = vecget[s, i] in
+            if ascii_is_dig c then
+                let digit = ascii_dig_to_i32 c in
+                strtoi32aux s (i+1) (acc * 10 + digit)
+            else
+                acc -- intlang does not have proper error handling, sad, so the best we can do is return the number we have so far
+            end
+        else
+            acc
+        end
+    in
+    if (veclen[s] > 0) & (vecget[s, 0] ==i8 '-') then 
+        -(strtoi32aux s 1 0) 
+    else 
+        strtoi32aux s 0 0 
+    end
+
+let i32_to_str = \i : i32 => [i8].
+    let rec get_digits = \ (i : i32) -- the rest of the i32
+                         (idx : i32) -- index into acc to use for the next char
+                         (acc : [i8]) -- accumulator to make the thing tail recursive
+                         => [i8] * i32. -- return the vector and the next usable index
+        let dig = i32_dig_to_ascii (i % 10) in
+        let next_i = i / 10 in -- think some weird shift and mutl can do this faster
+        let next_acc = vecset[acc, dig, idx] in
+        let next_idx = idx - 1 in
+        if next_i == 0 then
+            (next_acc, next_idx)
+        else
+            get_digits next_i next_idx next_acc
+        end
+    in
+    -- range is +2147483647 to -2147483648
+    -- so we need 10 chars for the digits, on negative numbers 1 for the sign, and 1 for the null terminator
+    if i == -2147483648 then --special case where we cant flip
+        "-2147483648"
+    else if i >= 0 then
+        let (buff, idx) = get_digits i 9 vecmk['-', 10] in
+        vecresz[buff, '\x00', idx+1, 0] -- resize to use the valid part of the buffers
+    else 
+        let (buff, idx) = get_digits (-i) 10 vecmk['-', 11] in
+        vecresz[buff, '\x00', idx, 0] --resize to use the valid part of the buffer
+    end end
+
+let write_i32 = \i : i32 => unit. write_str (i32_to_str i)

@@ -4,6 +4,10 @@
 	- Fix test cases and stdlib (especially the let rec things)
 	- Notes after coding a bit:
 		- if u have unsigned ops mb u should have an unsigned literal
+	- \() => [i8]. unit lambda annotation might be nice
+	- typecheker: give each constraint an error string attachment for better error messages
+	- vecmk should be callable with a type not only with a defval
+
 ## Futures
 
 The idea is to make the language more usable/futurefull and faster.

@@ -52,17 +52,21 @@ let vecsum = vec_left_fold (\x. \y. x+y) 0
 
 let vecprod = vec_left_fold (\x. \y. x*y) 1
 
-let intvecconcat = \v1. \v2.
-    let rec intvecconcataux = \v1. \v2. \v3. \i.
-        if i < veclen[v1] then
-            intvecconcataux v1 v2 (vecset[v3, vecget[v1, i], i]) (i+1)
-        else if i < (veclen[v1]+veclen[v2]) then
-            intvecconcataux v1 v2 (vecset[v3, vecget[v2, i-veclen[v1]], i]) (i+1)
-        else
-            v3
-        end end
+let concat = \v1. \v2.
+    let rec concataux = \vacc. \i.
+        if i < veclen[v2] then
+            concataux (vecset[vacc, vecget[v2, i], i + veclen[v1]]) (i+1)
+        else 
+            vacc
+        end
     in
-    intvecconcataux v1 v2 (vecmk[0, veclen[v1]+veclen[v2]]) 0
+    if veclen[v1] == 0 then
+        v2
+    else if veclen[v2] == 0 then
+        v1
+    else
+        concataux (vecresz[v1, vecget[v2, 0], 0, veclen[v2]]) 0
+    end end
 
 let iter = \f v.
     let rec iteraux = \f v i.
