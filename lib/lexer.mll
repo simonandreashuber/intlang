@@ -10,9 +10,26 @@ let next_line lexbuf =
       pos_bol = lexbuf.lex_curr_p.pos_cnum; (*set begining of line char number to char number*)
     }
 
-let parse_char s =
-  let inner = String.sub s 1 (String.length s - 2) in
-  Scanf.sscanf ("\"" ^ inner ^ "\"") "%S" (fun decoded -> decoded.[0])
+let parse_i8 s : char =
+    (* s still has the outer single quotes, e.g., "'a'" or "'\\x41'" *)
+    let inner = String.sub s 1 (String.length s - 2) in
+    if String.length inner = 1 then
+      inner.[0]
+    else if inner.[0] = '\\' then
+      match inner.[1] with
+      | 'n'  -> '\n'
+      | 't'  -> '\t'
+      | 'r'  -> '\r'
+      | '\\' -> '\\'
+      | '\'' -> '\''
+      | '"'  -> '"'
+      | 'x'  -> 
+          (* Extract the two hex digits after '\x' *)
+          let hex_digits = String.sub inner 2 2 in
+          Char.chr (int_of_string ("0x" ^ hex_digits))
+      | _ -> failwith "Lexer error: Unknown escape sequence"
+    else
+      failwith "Lexer error: Invalid character literal"
 
 let parse_string s =
   let inner = String.sub s 1 (String.length s - 2) in
@@ -26,9 +43,11 @@ let whitespace = [' ' '\t' '\r' ]+
 let newline = '\n' | "\r\n"
 let comment = "--" [^ '\n' '\r']*
 let escape = '\\' ['\\' '\'' '"' 'n' 't' 'r']
+let hex_digit = ['0'-'9' 'a'-'f' 'A'-'F']
+let hex_escape = '\\' 'x' hex_digit hex_digit
 
 let ascii_char = [^ '\'' '\\']
-let i8init = "'" (ascii_char | escape) "'"
+let i8init = "'" (ascii_char | escape | hex_escape) "'"
 
 let string_char = [^ '"' '\\']
 let strinit = '"' (string_char | escape)* '"'
@@ -109,7 +128,7 @@ rule token = parse
   | "vecset"    { VECSET }
   | "vecresz"   { VECRESZ }
   | digit+ as n { I32 (int_of_string n) }
-  | i8init as c { I8 (parse_char c) }
+  | i8init as c { I8 (parse_i8 c) }
   | strinit as s{ STR (parse_string s) }
   | id as s     { ID s }
   | eof         { EOF }

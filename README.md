@@ -3,8 +3,6 @@
 ## TODO 
 	- Fix test cases and stdlib (especially the let rec things)
 	- Notes after coding a bit:
-		- not writing i8 in integer form is annoying
-		- A proper resize is important, should I make shorten and extend explicitly (so 2 ops)
 		- if u have unsigned ops mb u should have an unsigned literal
 ## Futures
 
@@ -24,7 +22,7 @@ The idea is to make the language more usable/futurefull and faster.
 	- [] ==i8 !=i8 <i8 <=i8 >i8 >=i8
 	- [] +i8 -i8
 	- [] &i8 |i8 ^i8 ~i8
-	- [] 'c' init format for i8
+	- [] 'c' or '\xff' init format for i8
 	- [] "string" shorthand for vec\['s', 't', 'r', 'i', 'n', 'g', '\n' \]
  - [] Find new name for language since there are not only "ints" anymore (not true in a way there are now just two sizes of ints sooooo)
 	- mb: Gepard 
