@@ -136,8 +136,9 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let cs1, et1 = typecheck_lexp env e1 in
       let cs2, et2 = typecheck_lexp env e2 in
       let t_e1 = tlexp_get_type et1 in
+      let t_e2 = tlexp_get_type et2 in
       log_appendln (spf "Seq %s: constr= %s" (sples e) (spc (t_e1, TUnit)) );
-      ((t_e1, TUnit) :: cs1 @ cs2, et2)
+      ((t_e1, TUnit) :: cs1 @ cs2, SeqT( et1, et2, t_e2))
     )
     | If (c, t, els) -> (
       let cs_c, ct = typecheck_lexp env c in
@@ -365,7 +366,6 @@ let typecheck_letrecblk (letblk : (string * lexp) list) (env : typenv) : typenv 
 let typecheck (ast : ast) : polytast =
   (*reset counters for consistency*)
   tvar_counter := 0;
-  uuid_counter := 0;
   log := "";
   log_appendln "----------------------- TYPECHECK -----------------------";
 

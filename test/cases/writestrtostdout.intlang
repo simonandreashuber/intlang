@@ -1,0 +1,3 @@
+include str
+
+let main = \() (str.write_str "this is some random text\n"; flush ())

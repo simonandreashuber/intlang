@@ -1,0 +1,1 @@
+let main = \() (writei8 'e'; writei8 '\n'; flush ()) 

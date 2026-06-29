@@ -6,7 +6,8 @@ type value =
     | VI32 of Int32.t
     | VI8 of char
     | VUnit
-    | VClosure of uuid * lexpt * env
+    | VClosure of uuid * tlexp * env
+    | VClosureUnit of tlexp * env
     | VTup of value list
     | VVec of value array
     | VBlackhole (* Represents an uninitialized recursive binding *)
@@ -19,7 +20,7 @@ let get_builtin_fun (name : string) : (value -> value) =
   match name with
   | "readi8" -> (fun _ -> VI8 (input_char stdin))
   | "writei8" -> (fun v -> match v with
-                            | VI8 c -> let _ = output_char stdout c in VUnit
+                            | VI8 c -> let _ = output_char stdout c in VUnit 
                             | _ -> raise (Errors.InterpError "writei8 expects an i8"))
   | "flush" -> (fun _ -> flush stdout; VUnit)
   | "i32_to_i8" -> (fun v -> match v with
@@ -33,23 +34,28 @@ let get_builtin_fun (name : string) : (value -> value) =
 (** [lookup] finds a variable in the environment by uuid. 
     If it finds a Thunk, it evaluates it (Call-by-Name). *)
 let rec lookup uuid env =
-  match List.assoc_opt uuid !env, List.assoc_opt uuid !Ast.builtins_uuid_to_name with
+  match List.assoc_opt uuid !env, List.assoc_opt uuid Ast.builtin_uuid_to_name with
   | Some VBlackhole, None -> 
       raise (Errors.InterpError ("Circular dependency detected: uuid " ^ string_of_int uuid ^ " used before initialization"))
   | Some v, None -> v
   | None, Some builtin_name -> VBuiltin (get_builtin_fun builtin_name)
+  | Some _, Some _ -> raise (Errors.InterpError ("Somehow a uuid is bound to both a value and a builtin: uuid " ^ string_of_int uuid))
   | None, None -> raise (Errors.InterpError ("Unbound variable: uuid " ^ string_of_int uuid))
 
 (** The core evaluation function. *)
-and eval (e : lexpt) (env : env) : value =
+and eval (e : tlexp) (env : env) : value =
   match e with
     | VarT (_, uuid_ref, _) -> lookup !uuid_ref env
     | LamT (x, param_uuid, body, _) -> VClosure (param_uuid, body, env)
+    | LamUnitT (body, _) -> VClosureUnit (body, env)  (* -1 indicates no parameter *)
     | AppT (e1, e2, _) -> (
             let v2 = eval e2 env in
             match eval e1 env with
             | VClosure (param_uuid, body, c_env) -> 
                 let param_env = ref ((param_uuid, v2) :: !c_env) in
+                eval body param_env
+            | VClosureUnit (body, c_env) -> 
+                let param_env = ref !c_env in
                 eval body param_env
             | VBuiltin f -> f v2
             | _ -> raise (Errors.InterpError "Application of a non-function")
@@ -58,18 +64,18 @@ and eval (e : lexpt) (env : env) : value =
     | IfT (cond, then_branch, else_branch, _) ->
         let interp_cond = eval cond env in
         (match interp_cond with
-        | VI32 n -> if n <> 0 then eval then_branch env else eval else_branch env
+        | VI32 n -> if n <> 0l then eval then_branch env else eval else_branch env
         | _ -> raise (Errors.InterpError "Condition in if must be an integer"))
     | LetinT (x, param_uuid, e1, e2, _) -> 
         let v1 = eval e1 env in
         let param_env = ref ((param_uuid, v1) :: !env) in
         eval e2 param_env
-    | LetinT (x, param_uuid, e1, e2, _) -> 
+    | LetrecinT (x, param_uuid, e1, e2, _) -> 
         let param_env = ref ((param_uuid, VBlackhole) :: !env) in
         let v1 = eval e1 param_env in
         param_env := (param_uuid, v1) :: !env;
         eval e2 param_env
-    | LetintupleT (iduuid_opt_list, e1, e2, _) ->
+    | LetinTupleT (iduuid_opt_list, e1, e2, _) ->
         let v1 = eval e1 env in
         (match v1 with
         | VTup vals when List.length iduuid_opt_list = List.length vals ->
@@ -131,10 +137,10 @@ and eval (e : lexpt) (env : env) : value =
             | Andi32 -> VI32 (Int32.logand n1 n2)
             | Ori32 -> VI32 (Int32.logor n1 n2)
             | Xori32 -> VI32 (Int32.logxor n1 n2)
-            | Shli32 -> if n2 < 0l || n2 >= 32l then raise (Errors.InterpError "Shift amount out of bounds") else VI32 (Int32.shift_left n1 n2)
-            | Shri32 -> if n2 < 0l || n2 >= 32l then raise (Errors.InterpError "Shift amount out of bounds") else VI32 (Int32.shift_right n1 n2)
-            | UShri32 -> if n2 < 0l || n2 >= 32l then raise (Errors.InterpError "Shift amount out of bounds") else VI32 (Int32.shift_right_logical n1 n2)
-        | _ -> raise (Errors.InterpError "Binary operation on non-integers"))
+            | Shli32 -> if n2 < 0l || n2 >= 32l then raise (Errors.InterpError "Shift amount out of bounds") else VI32 (Int32.shift_left n1 (Int32.to_int n2))
+            | Shri32 -> if n2 < 0l || n2 >= 32l then raise (Errors.InterpError "Shift amount out of bounds") else VI32 (Int32.shift_right n1 (Int32.to_int n2))
+            | UShri32 -> if n2 < 0l || n2 >= 32l then raise (Errors.InterpError "Shift amount out of bounds") else VI32 (Int32.shift_right_logical n1 (Int32.to_int n2)))
+        | _, _ -> raise (Errors.InterpError "Binary operation on non-integers"))
     | BopI8T (op, e1, e2, _) -> (
         let v1 = eval e1 env in
         let v2 = eval e2 env in
@@ -157,7 +163,7 @@ and eval (e : lexpt) (env : env) : value =
     | VecLitT (es, _) -> 
         let vals = Array.of_list (List.map (fun e -> eval e env) es) in
         VVec vals
-    | VecmkT (defval, size_list, typ) -> (
+    | VecmkT (defval, size_list, _) -> (
         List.fold_right (fun size_exp defval ->
             match eval size_exp env with
             | VI32 n when n >= 0l -> 
@@ -168,43 +174,43 @@ and eval (e : lexpt) (env : env) : value =
     )
     | VeclenT (v, _) ->
         (match eval v env with
-         | VVec arr -> VInt (Int32.of_int @@ Array.length arr)
+         | VVec arr -> VI32 (Int32.of_int @@ Array.length arr)
          | _ -> raise (Errors.InterpError "veclen expects a vector"))
     | VecgetT (v, idx_list, _) -> 
         List.fold_left (fun v_val idx_val ->
-            let idx = match idx_val with
-                | VInt n -> Int32.to_int n
+            let idx = match eval idx_val env with
+                | VI32 n -> Int32.to_int n
                 | _ -> raise (Errors.InterpError "vecget index must be an integer")
             in
             match v_val with
             | VVec arr when idx >= 0 && idx < Array.length arr -> arr.(idx)
             | _ -> raise ((Errors.InterpError "vecget expects a vector"))
         ) (eval v env) idx_list
-    | VecsetT (v, setval, idx_list, typ) -> 
-        let rec vecsetaux (v_val : value) (idx_list : lexpt list) : value =
+    | VecsetT (v, setval, idx_list, _) -> 
+        let rec vecsetaux (v_val : value) (idx_list : tlexp list) : value =
             match idx_list with
             | [idx_exp] -> (
                 match v_val, eval idx_exp env with
-                | VVec arr, VI32 idx when idx >= 0 && idx < Array.length arr -> (
+                | VVec arr, VI32 idx when idx >= 0l && idx < Int32.of_int @@ Array.length arr -> (
                     let new_arr = Array.copy arr in
-                    new_arr.(idx) <- eval setval env;
+                    new_arr.(Int32.to_int idx) <- eval setval env;
                     VVec new_arr)
                 | _, _ -> raise (Errors.InterpError "vecset expects a vector and a valid index")
             )
             | idx_exp :: tl -> (
                 match v_val, eval idx_exp env with
-                | VVec arr, VI32 idx when idx >= 0 && idx < Array.length arr -> (
-                    let elm_val = arr.(idx) in
+                | VVec arr, VI32 idx when idx >= 0l && idx < Int32.of_int @@ Array.length arr -> (
+                    let elm_val = arr.(Int32.to_int idx) in
                     let new_elm_val = vecsetaux elm_val tl in
                     let new_arr = Array.copy arr in
-                    new_arr.(idx) <- eval new_elm_val env;
+                    new_arr.(Int32.to_int idx) <- new_elm_val;
                     VVec new_arr)
                 | _,_ -> raise (Errors.InterpError "vecset called non vector, non I32 index or index out of bounds")
             )
             | _ -> raise (Errors.InterpError "vecset expects an non empty index list")
         in
         vecsetaux (eval v env) idx_list
-    | VecreszT (v, defval, newstart, newend) -> (
+    | VecreszT (v, defval, newstart, newend, _) -> (
         let defval_val = eval defval env in
         match eval v env, eval newstart env, eval newend env with
         | VVec arr, VI32 start_off, VI32 end_off -> (
@@ -214,9 +220,9 @@ and eval (e : lexpt) (env : env) : value =
                                           defval_val
                                       else
                                           arr.(i-(Int32.to_int start_off))) in
-            VVec new_arr
-        )
-        | _, _, _ -> raise (Errors.InterpError "vecresz expects a vector and valid integer indices"))
+            VVec new_arr )
+        | _, _, _ -> raise (Errors.InterpError "vecresz expects a vector and valid integer indices")
+    )
 
 
 let interp_monotast (mtast : monotast) : unit =
@@ -234,3 +240,7 @@ let interp_monotast (mtast : monotast) : unit =
       if uuid' = uuid then (uuid', v) else (uuid', v')
     ) !global_env_ref;
   ) mtast;
+
+  match List.find_opt (fun (name, uuid, _) -> name = "main") mtast with
+    | Some (_,_ , main_fun) -> ignore (eval (AppT (main_fun, UnitLitT (TUnit), TUnit)) global_env_ref)
+    | None -> ()
