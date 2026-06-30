@@ -3,46 +3,90 @@ open Intlang_lib
 let headerline = "-------------------------------------------------------------------\n"
 
 let main () =
-  let filename = Sys.argv.(Array.length Sys.argv - 1) in
-  let intlang_std_lib_path = (Sys.getcwd ()) ^ "/test/intlangstdlib/" in
-  let ast = Include.lex_parse_include intlang_std_lib_path filename in
-  Printf.printf "%sPARSED AST:\n%s" headerline (PrintIntlang.sprint_ast ast); flush stdout;
-  Reccheck.reccheck ast;
-  let polytast = Typecheck.typecheck ast in
-  Printf.printf "%sPOLYTAST:\n%s" headerline (PrintIntlang.sprint_polytast polytast); flush stdout;
-
-  let monotast = Monomorph.monomorph polytast in
-  Printf.printf "%sMONOTAST:\n%s" headerline (PrintIntlang.sprint_monotast monotast); flush stdout;
-  Interp.interp_monotast monotast;
-
-  (*
-  let prog = Include.lex_parse_include intlang_std_lib_path filename in
-  Printf.printf "%sPARSED PROG:\n%s" headerline (PrintIntlang.sprint_prog prog); flush stdout;
-
-  let progt, env = Typecheck.typecheck prog in
-  Printf.printf "%sTYPE ENV:\n%s\n%s" headerline (PrintIntlang.sprint_env env) headerline; flush stdout;
-  Printf.printf "%sTYPECHECKED PROG:\n%s" headerline (PrintIntlang.sprint_progpolyt_wtyp progt); flush stdout;
-  (*Printf.printf "%sINSTREG:\n%s" headerline (PrintIntlang.sprint_instreg instreg); flush stdout;*)
-
-  let monoprogt = Monomorph.monomorph_progt progt in
-  Printf.printf "%sMONOMORPHIZED PROG:\n%s" headerline (PrintIntlang.sprint_progmonot_wtyp monoprogt); flush stdout;
+  (* Define mutable references *)
+  let repeat_count = ref 1 in
+  let test_flag_passed = ref false in
+  let print_ast = ref false in
+  let filename = ref "" in
   
-  let out_opt = Interp_tast.interp_prog monoprogt in
-  (match out_opt with
-  | Some out -> Printf.printf "out: %d\n%s" out headerline; flush stdout;
-  | None -> Printf.printf "out: No final Expression\n%s\n" headerline; flush stdout;);
+  (* Initialize with your current path as the default value *)
+  let default_path = (Sys.getcwd ()) ^ "/test/intlangstdlib/" in
+  let stdlib_path = ref default_path in
 
-  
-  let llvm_str = Codegen.sprint_lower_prog_to_llvm monoprogt in
-  Printf.printf "LLVM IR:\n%s" llvm_str; flush stdout;
-  let exit_code = Codegen.lower_llvm_to_bin_clang llvm_str "bin/out" in
+  (* Map command-line flags *)
+  let speclist = [
+    ("--test", Arg.Int (fun i ->
+       if i <= 0 then
+         raise (Arg.Bad "must be greater than 0")
+       else begin
+         repeat_count := i;
+         test_flag_passed := true
+       end
+     ), "<int> Number of times to execute the interpreter (default: 1)");
+    ("--print", Arg.Set print_ast, "Print the parsed AST to stdout");
+    ("--stdlibpath", Arg.Set_string stdlib_path, "<path> Custom path to the standard library");
+  ] in
 
-  if exit_code = 0 then begin
-    ignore (Sys.command "./bin/out; echo \"Execution Result: $?\"");
-    Sys.remove "bin/out"
-  end else
-    print_endline "Clang compilation failed.";
-  *)
-  exit 0
+  (* --help *)
+  let usage_msg = "Usage: " ^ Sys.argv.(0) ^ " [--test <int>] [--print] [--stdlibpath <path>] <filename>" in
+
+  (* Parse the arguments *)
+  Arg.parse speclist (fun anon -> filename := anon) usage_msg;
+
+  (* Guard against missing filename errors *)
+  if !filename = "" then begin
+    prerr_endline "Error: No input file specified.";
+    Arg.usage speclist usage_msg;
+    exit 1
+  end;
+
+  (* Guard against incompatible flags *)
+  if !test_flag_passed && !print_ast then begin
+    prerr_endline "Error: --test and --print are incompatible. (printing breaks the test protocol)";
+    Arg.usage speclist usage_msg;
+    exit 1
+  end;
+
+  (* Ensure the path ends with a trailing slash so file concatenation doesn't break *)
+  let intlang_std_lib_path = 
+    let p = !stdlib_path in
+    if String.length p > 0 && p.[String.length p - 1] = '/' then p else p ^ "/"
+  in
+
+  try
+    (* Lex, Parse and Include Pass *)
+    let ast = Include.lex_parse_include intlang_std_lib_path !filename in
+    (*Printf.printf "%sPARSED AST:\n%s" headerline (PrintIntlang.sprint_ast ast); flush stdout;*)
+
+    (* Recursive Check Pass *)
+    Reccheck.reccheck ast;
+
+    (* Type Check Pass *)
+    let polytast = Typecheck.typecheck ast in
+    (*Printf.printf "%sPOLYTAST:\n%s" headerline (PrintIntlang.sprint_polytast polytast); flush stdout;*)
+
+    (* Monomorphization Pass *)
+    let monotast = Monomorph.monomorph polytast in
+    if !print_ast then begin
+      Printf.printf "%sMONOTAST:\n%s" headerline (PrintIntlang.sprint_monotast monotast); flush stdout;
+    end;
+
+    (* Execute the interpreter *)
+    if !test_flag_passed then
+      for _ = 1 to !repeat_count do
+        Interp.interp_monotast monotast;
+        flush stdout;
+        Printf.eprintf "REPDONE\n";
+        flush stderr;
+      done
+    else
+      Interp.interp_monotast monotast;
+    
+    exit 0
+
+  with exn ->
+    (* Print the exception message to stderr *)
+    prerr_endline ("Error: " ^ Printexc.to_string exn);
+    exit 1
 
 let () = main ()

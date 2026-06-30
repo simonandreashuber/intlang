@@ -32,7 +32,7 @@ let write_str = \s : [i8] => unit.
             (writei8 vecget[s, i];
             write_str_aux s (i+1))
         else
-            writei8 '\x00'
+            ()
         end
     in
     write_str_aux s 0
@@ -43,8 +43,7 @@ let write_ln = \s : [i8] => unit.
             (writei8 vecget[s, i];
             write_ln_aux s (i+1))
         else
-            (writei8 '\n';
-            writei8 '\x00')
+            writei8 '\n'
         end
     in
     write_ln_aux s 0
@@ -93,7 +92,7 @@ let i32_to_str = \i : i32 => [i8].
         end
     in
     -- range is +2147483647 to -2147483648
-    -- so we need 10 chars for the digits, on negative numbers 1 for the sign, and 1 for the null terminator
+    -- so we need 10 chars for the digits, on negative numbers 1 for the sign
     if i == -2147483648 then --special case where we cant flip
         "-2147483648"
     else if i >= 0 then
