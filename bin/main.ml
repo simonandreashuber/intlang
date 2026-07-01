@@ -56,14 +56,18 @@ let main () =
   try
     (* Lex, Parse and Include Pass *)
     let ast = Include.lex_parse_include intlang_std_lib_path !filename in
-    (*Printf.printf "%sPARSED AST:\n%s" headerline (PrintIntlang.sprint_ast ast); flush stdout;*)
+    if !print_ast then begin
+      Printf.printf "%sPARSED AST:\n%s" headerline (PrintIntlang.sprint_ast ast); flush stdout;
+    end;
 
     (* Recursive Check Pass *)
     Reccheck.reccheck ast;
 
     (* Type Check Pass *)
     let polytast = Typecheck.typecheck ast in
-    (*Printf.printf "%sPOLYTAST:\n%s" headerline (PrintIntlang.sprint_polytast polytast); flush stdout;*)
+    if !print_ast then begin
+      Printf.printf "%sPOLYTAST:\n%s" headerline (PrintIntlang.sprint_polytast polytast); flush stdout;
+    end;
 
     (* Monomorphization Pass *)
     let monotast = Monomorph.monomorph polytast in
