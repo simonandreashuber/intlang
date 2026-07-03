@@ -95,4 +95,7 @@ let () =
   let interp_binary = Sys.argv.(1) in
 
   Printf.printf "=== Starting Tests ===\n";
-  List.iter (run_test interp_binary) tests
+  List.iter ( fun (testgroupname, testcases) ->
+              Printf.printf "=== Running Test Group: %s ===\n" testgroupname;
+              List.iter (run_test interp_binary) testcases
+            ) tests

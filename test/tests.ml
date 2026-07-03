@@ -5,7 +5,7 @@ type test_case = {
   generator  : int -> (string * string);
 }
 
-let tests = [
+let strlib_tests = [
   {
     testname = "read_write_i32_positive";
     filename = "cases/read_write_i32.intlang";
@@ -26,4 +26,8 @@ let tests = [
       (string_of_int (i32) ^ "\n", string_of_int (i32) ^ "\n")
     );
   }
+]
+
+let tests = [
+  ("strlib", strlib_tests)
 ]
