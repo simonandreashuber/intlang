@@ -1,72 +1,40 @@
 -- lib for vectors
 
-let vecmap = \f. \v.
-    let rec vecmapaux = \f. \v. \i.
+let map = \f v.
+    let rec mapaux = \acc i.
         if i < veclen[v] then
-            vecmapaux f vecset[v, f (vecget[v, i]), i] (i+1)
+            mapaux vecset[acc, f vecget[v, i], i] (i+1)
         else
             v
         end
     in
-    vecmapaux f v 0
+    -- here shows a clear deficiency in the vector system as it is now
+    -- in the case where we get an empty vector we have no way to get its type
+    -- meaning we have two options:
+    --      1. do the access to the first element and risk a runtime error (bad but only malfunctions in an edge case)
+    --      2. return v or even a zero length vector of some fixed type which break the polymorphic power partially (very bad)
+    -- I think there should probably just be a type type and then some vecgettype[v]
+    mapaux vecmk[vecget[v, 0], veclen[v]] 0
 
-let veccmp = \cmp. \v1. \v2.
-    let rec veceqaux = \cmp. \v1. \v2. \i.
-        if i < veclen[v1] then
-            if cmp vecget[v1, i] vecget[v2, i] then
-                veceqaux cmp v1 v2 (i+1)
-            else
-                0
-            end
-        else
-            1
-        end
-    in
-    if veclen[v1] == veclen[v2] then
-        veceqaux cmp v1 v2 0
-    else
-        0
-    end
-
-let vec_left_fold = \f. \acc. \v.
-    let rec vecleftfoldaux = \f. \acc. \v. \i.
+let left_fold = \f acc v.
+    let rec leftfoldaux = \acc i.
         if i < veclen[v] then
-            vecleftfoldaux f (f acc (vecget[v, i])) v (i+1)
+            leftfoldaux (f acc vecget[v, i]) (i+1)
         else
             acc
         end
     in
-    vecleftfoldaux f acc v 0
+    leftfoldaux acc 0
 
-let vec_right_fold = \f. \v. \acc.
-    let rec vecrightfoldaux = \f. \acc. \v. \i.
+let right_fold = \f v acc.
+    let rec rightfoldaux = \acc i.
         if 0 <= i then
-            vecrightfoldaux f v (f (vecget[v, i]) acc) (i-1)
+            rightfoldaux (f (vecget[v, i]) acc) (i-1)
         else
             acc
         end
     in
-    vecrightfoldaux f v acc (veclen[v]-1)
-
-let vecsum = vec_left_fold (\x. \y. x+y) 0
-
-let vecprod = vec_left_fold (\x. \y. x*y) 1
-
-let concat = \v1. \v2.
-    let rec concataux = \vacc. \i.
-        if i < veclen[v2] then
-            concataux (vecset[vacc, vecget[v2, i], i + veclen[v1]]) (i+1)
-        else 
-            vacc
-        end
-    in
-    if veclen[v1] == 0 then
-        v2
-    else if veclen[v2] == 0 then
-        v1
-    else
-        concataux (vecresz[v1, vecget[v2, 0], 0, veclen[v2]]) 0
-    end end
+    rightfoldaux acc (veclen[v]-1)
 
 let iter = \f v.
     let rec iteraux = \f v i.
@@ -78,4 +46,40 @@ let iter = \f v.
         end
     in
     iteraux f v 0
+
+let append = \v a. vecresz[v,a,0,1]
+
+let concat = \v1 v2.
+    let rec concataux = \acc i.
+        if i < veclen[v2] then
+            concataux (vecset[acc, vecget[v2, i], i + veclen[v1]]) (i+1)
+        else 
+            acc
+        end
+    in
+    if veclen[v1] == 0 then
+        v2
+    else if veclen[v2] == 0 then
+        v1
+    else
+        concataux (vecresz[v1, vecget[v2, 0], 0, veclen[v2]]) 0
+    end end
     
+
+let cmp = \cmpelm v1 v2.
+    let rec cmpaux = \i.
+        if i < veclen[v1] then
+            if cmpelm vecget[v1, i] vecget[v2, i] then
+                cmpaux (i+1)
+            else
+                0
+            end
+        else
+            1
+        end
+    in
+    if veclen[v1] == veclen[v2] then
+        cmpaux 0
+    else
+        0
+    end

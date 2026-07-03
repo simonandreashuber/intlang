@@ -3,5 +3,5 @@ include str
 include vector
 
 let v = vec[1,2,3,4,5,6,7,8,9]
-let vsum = vector.vec_left_fold (\acc. \x. acc+x) 0 v
+let vsum = vector.left_fold (\acc. \x. acc+x) 0 v
 let main = \() str.writei32 (vsum)

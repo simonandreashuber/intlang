@@ -1,0 +1,67 @@
+-- a queue is (front, back, vec) where
+-- the actual elements start at index front and end at index back-1 (all in the mod n group)
+
+
+-- Note: here we have a similar issue again, all functions are polymorphic regarding the actual element type
+--       but for this we would need a way to pass the element type here
+--       which we can by passing a defval that in terms of semantics carries nothing but the type
+let mkQueue = \defval. (0,0, vecmk[defval, 128]) -- default size of 128, can be changed by extendQueues
+
+let sizeQueue = \q. 
+            let (front, back, v) = q in
+            if front < back then back - front else (veclen[v] - front) + (back - 1) end
+
+let isemptyQueue = \q. sizeQueue q == 0
+
+let isfullQueue = \q.
+            let (_, _, v) = q in
+            -- note: both an empty queue and a queue with size veclen[v] would have the representation
+            --       where front == back and since they are clearly not the same and I dont want to add
+            --       a len part to a 3 way tuple, I will just say the max size is veclen[v]-1 
+            sizeQueue q == veclen[v]-1
+
+let extendQueue = \q. 
+            let (front, back, oldvec) = q in
+            let oldlen = veclen[oldvec] in
+            -- note: again the same issue for the function to remain polymorphic we need to get the element type
+            --       which in this case is only convenient with an unsafe access
+            let newvec = vecresz[oldvec, vecget[oldvec, 0], 0, oldlen] in
+            let rec aux = \acc i.
+                if i < back then
+                    aux vecset[acc, vecget[oldvec, i], oldlen + i] (i+1)
+                else 
+                    (front, oldlen + i, acc)
+                end
+            in
+            if front > back then
+                aux newvec 0
+            else 
+                (front, back, newvec)
+            end
+            
+
+let deQueue = \q. 
+            let (front, back, v) = q in
+            if isemptyQueue q then
+                -- note: again only practical way to satisfy the typechecker and keep polymorphism is to do an unsafe access
+                --       why even bother to do the case distinction: the queue will stay empty and not move to 
+                --       a mistaken full state with garbage
+                (vecget[v, front], q)
+            else
+                let elm = vecget[v, front] in
+                let newfront = (front + 1) % veclen[v] in
+                (elm, (newfront, back, v))
+            end
+            
+
+let enQueue = \q x. 
+            let (front, back, v) = q in
+            if isfullQueue q then
+                let nq = extendQueue q in
+                let (nfront, nback, nv) = nq in
+                let newback = (nback + 1) % veclen[nv] in
+                (nfront, newback, vecset[nv, x, nback])
+            else
+                let newback = (back + 1) % veclen[v] in
+                (front, newback, vecset[v, x, back])
+            end

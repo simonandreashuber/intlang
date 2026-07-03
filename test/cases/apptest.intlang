@@ -1,4 +1,5 @@
--- Expect: 137
+--- Expect: 137
+-- deprecated
 include str
 let incf = \f. (\n. f n + 1)
 let foo = \n. ( incf (\x.n+x) )
