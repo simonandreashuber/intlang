@@ -1,0 +1,9 @@
+let x = 5
+let x = 10
+let rec min2x = \y. if y < 2*x then min2x (y + 1) else y end
+let main = \() (
+    writei8 (i32_to_i8 x);
+    writei8 (i32_to_i8 (min2x x));
+    flush ()
+
+    )

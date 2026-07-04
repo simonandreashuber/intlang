@@ -1,10 +1,14 @@
 open Tests
 
+exception TestExecutionError of string
+
+
 let is_stdout_nonempty (stdout_ch : in_channel) : bool =
   let fd = Unix.descr_of_in_channel stdout_ch in
   let (ready, _, _) = Unix.select [fd] [] [] 0.0 in
   ready <> []
 
+(* Returns Some error_msg string if the test failed, or None if it passed *)
 let run_test interp_binary case =
 
   (*
@@ -34,10 +38,8 @@ let run_test interp_binary case =
       
       if sync_token <> "REPDONE" then begin
         let leftover_error = try input_line stderr_ch with End_of_file -> "" in
-        Printf.eprintf "\n[TEST FAILED]: %s (Iteration %d)\n" case.filename i;
-        Printf.eprintf "Reason: Got someting in stderr that was not REPDONE\n";
-        Printf.eprintf "=== INTERPRETER STDERR ===\n%s\n%s\n" sync_token leftover_error;
-        exit 1
+        let msg = Printf.sprintf "\n[TEST FAILED]: %s (Iteration %d)\nReason: Got someting in stderr that was not REPDONE\n=== INTERPRETER STDERR ===\n%s\n%s\n" case.filename i sync_token leftover_error in
+        raise (TestExecutionError msg)
       end;
 
       if is_stdout_nonempty stdout_ch then begin
@@ -45,18 +47,14 @@ let run_test interp_binary case =
         let buf = Bytes.create 100 in
         let bytes_read = Unix.read fd buf 0 100 in
         let extra_garbage = Bytes.sub_string buf 0 bytes_read in
-
-        Printf.eprintf "\n[TEST FAILED]: %s (Iteration %d)\n" case.testname i;
-        Printf.eprintf "Reason: Interpreter emitted MORE characters than specified!\n";
-        Printf.eprintf "=== EXPECTED ===\n%S\n=== ACTUAL ===\n%S\n=== EXTRA ===\n%S\n" 
-          expected_output actual_output extra_garbage;
-        exit 1
+        let msg = Printf.sprintf "\n[TEST FAILED]: %s (Iteration %d)\nReason: Interpreter emitted MORE characters than specified!\n=== EXPECTED ===\n%S\n=== ACTUAL ===\n%S\n=== EXTRA ===\n%S\n" 
+          case.testname i expected_output actual_output extra_garbage in
+        raise (TestExecutionError msg)
       end;
 
       if actual_output <> expected_output then begin
-        Printf.eprintf "\n[TEST FAILED]: %s (Iteration %d)\n" case.testname i;
-        Printf.eprintf "=== EXPECTED ===\n%S\n=== ACTUAL ===\n%S\n\n" expected_output actual_output;
-        exit 1
+        let msg = Printf.sprintf "\n[TEST FAILED]: %s (Iteration %d)\n=== EXPECTED ===\n%S\n=== ACTUAL ===\n%S\n\n" case.testname i expected_output actual_output in
+        raise (TestExecutionError msg)
       end
     done;
 
@@ -64,28 +62,28 @@ let run_test interp_binary case =
     let status = Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch) in
     
     match status with
-    | Unix.WEXITED 0 -> 
-        Printf.printf "[TEST PASSED]: %s Passed all %d iterations successfully.\n" case.testname case.iterations
+    | Unix.WEXITED 0 -> None
     | Unix.WEXITED code -> 
-        Printf.eprintf "\n[TEST FAILED]: %s\nReason: Non-zero exit code %d\n" case.testname code;
-        exit 1
-    | _ -> 
-        exit 1
+        let msg = Printf.sprintf "\n[TEST FAILED]: %s\nReason: Non-zero exit code %d\n" case.testname code in
+        Some msg
+    | _ -> Some (Printf.sprintf "\n[TEST FAILED]: %s\nReason: Process terminated abnormally\n" case.testname)
 
   with
+  | TestExecutionError msg ->
+      ignore (Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch));
+      Some msg
   | End_of_file ->
       let rec gather_stderr acc =
         try gather_stderr (input_line stderr_ch :: acc) with End_of_file -> String.concat "\n" (List.rev acc)
       in
       let stderr_log = gather_stderr [] in
       ignore (Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch));
-
-      Printf.eprintf "\n[TEST FAILED]: %s\nReason: Interpreter pipe severed cleanly (End_of_file).\n" case.testname;
-      if stderr_log <> "" then Printf.eprintf "=== INTERPRETER STDERR ===\n%s\n" stderr_log;
-      exit 1
+      let msg = Printf.sprintf "\n[TEST FAILED]: %s\nReason: Interpreter pipe severed cleanly (End_of_file).\n" case.testname ^
+                (if stderr_log <> "" then Printf.sprintf "=== INTERPRETER STDERR ===\n%s\n" stderr_log else "") in
+      Some msg
   | e ->
       ignore (Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch));
-      raise e
+      Some (Printf.sprintf "\n[TEST FAILED]: %s\nReason: Unexpected exception: %s\n" case.testname (Printexc.to_string e))
 
 let () = 
   if Array.length Sys.argv < 2 then begin
@@ -95,7 +93,26 @@ let () =
   let interp_binary = Sys.argv.(1) in
 
   Printf.printf "=== Starting Tests ===\n";
-  List.iter ( fun (testgroupname, testcases) ->
-              Printf.printf "=== Running Test Group: %s ===\n" testgroupname;
-              List.iter (run_test interp_binary) testcases
-            ) tests
+  let global_failed = ref false in
+
+  List.iter (fun (testgroupname, testcases) ->
+    let total_tests = List.length testcases in
+    let group_failures = ref [] in
+
+    List.iter (fun case ->
+      match run_test interp_binary case with
+      | None -> ()
+      | Some error_msg -> group_failures := error_msg :: !group_failures
+    ) testcases;
+
+    if !group_failures = [] then
+      (Printf.printf "[TEST GROUP PASSED]: %s (All %d tests passed successfully.)\n" testgroupname total_tests; flush stdout)
+    else begin
+      global_failed := true;
+      Printf.printf "=== Running Test Group: %s ===\n" testgroupname;
+      List.iter (fun msg -> Printf.printf "%s" msg) (List.rev !group_failures);
+      flush stderr;
+    end
+  ) tests;
+
+  if !global_failed then exit 1 else exit 0

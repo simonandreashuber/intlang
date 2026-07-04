@@ -1,0 +1,7 @@
+let main = \() ( 
+    let c = i8_to_i32 (readi8 ()) in
+    let et = readi8 () in
+    let ef = readi8 () in
+    let o = if c then et else ef end in
+    writei8 o; flush ()
+    )

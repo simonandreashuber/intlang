@@ -7,6 +7,17 @@
 	- \() => [i8]. unit lambda annotation might be nice
 	- typecheker: give each constraint an error string attachment for better error messages
 	- vecmk should be callable with a type not only with a defval
+	- mb dont include _sometoplevelname, kinda as a means to private functions...
+	- add pass after the mono to check that there are no vectors of functions
+
+## Test Suite Should Have
+ - need to add read i32 vector to str lib
+ - test all bop and uops, input two i32 then output an int with results from all the uops and bops that exist
+ - to test specific basic language futures we need to write the test without str lib as it uses almost all language futures
+	- to get these test I think I should start at the io then the cast builtins
+	- then go through the ast and just try to write test that test as little as possible (if some future is needed additionally try to test the additional future first)
+ - if else
+ - builtin casts
 
 ## Futures
 
@@ -124,7 +135,7 @@ in `/test/cases` and `/test/intlangstdlib` there are plenty of examples. Here ar
 ```
 include vector
 let v = vec[1,2,3,4,5,6,7,8,9];
-let vsum = vector.vec_left_fold (\acc. \x. acc+x) 0 v;
+let vsum = vector.left_fold (\acc. \x. acc+x) 0 v;
 vsum
 >>> 45
 ```
@@ -151,7 +162,7 @@ let answers = \x. if mod x 2 then vec[6,7] else vec[4,2] end;
 
 ```
 include vector
-vector.vec_left_fold (\x. \y. x+y) 0 vec[1,2,3,4,5];
+vector.left_fold (\x. \y. x+y) 0 vec[1,2,3,4,5];
 >>> 15
 ```
 

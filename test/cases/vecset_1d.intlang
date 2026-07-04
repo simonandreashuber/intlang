@@ -1,0 +1,12 @@
+let main = \() ( 
+    let vmk = vecmk['\xaa', 5] in
+    let vset = vecset[vmk, '\x30', 3] in
+    (
+    writei8 (vecget[vset, 0]); 
+    writei8 (vecget[vset, 1]); 
+    writei8 (vecget[vset, 2]); 
+    writei8 (vecget[vset, 3]); 
+    writei8 (vecget[vset, 4]); 
+    flush ()
+    )
+    )

@@ -70,7 +70,7 @@ let str_to_i32 = \s : [i8] => i32.
             acc
         end
     in
-    if (veclen[s] > 0) & (vecget[s, 0] ==i8 '-') then 
+    if (0 < veclen[s]) & (vecget[s, 0] ==i8 '-') then 
         -(strtoi32aux s 1 0) 
     else 
         strtoi32aux s 0 0 
@@ -95,7 +95,7 @@ let i32_to_str = \i : i32 => [i8].
     -- so we need 10 chars for the digits, on negative numbers 1 for the sign
     if i == -2147483648 then --special case where we cant flip
         "-2147483648"
-    else if i >= 0 then
+    else if 0 <= i then
         let (buff, idx) = get_digits i 9 vecmk['-', 10] in
         vecresz[buff, '\x00', idx+1, 0] -- resize to use the valid part of the buffers
     else 

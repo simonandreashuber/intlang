@@ -106,8 +106,8 @@ and eval (e : tlexp) (env : env) : value =
         match v with
         | VI8 c -> (
             match op with
-            | Negi8 -> VI8 (Char.chr (-(Char.code c)))
-            | Noti8 -> VI8 (Char.chr (lnot (Char.code c)))
+            | Negi8 -> VI8 (Char.chr (Int.logand (256-(Char.code c)) 0xFF))
+            | Noti8 -> VI8 (Char.chr (Int.logand (Int.lognot (Char.code c)) 0xFF))
         )
         | _ -> raise (Errors.InterpError "Unary operation on non-i8"))
     | BopI32T (op, e1, e2, _) -> (
@@ -153,11 +153,11 @@ and eval (e : tlexp) (env : env) : value =
             | Gti8 -> VI32 (if c1 > c2 then 1l else 0l)
             | LtEqi8 -> VI32 (if c1 <= c2 then 1l else 0l)
             | GtEqi8 -> VI32 (if c1 >= c2 then 1l else 0l)
-            | Addi8 -> VI8 (Char.chr ((Char.code c1) + (Char.code c2)))
-            | Subi8 -> VI8 (Char.chr ((Char.code c1) - (Char.code c2)))
-            | Andi8 -> VI8 (Char.chr ((Char.code c1) land (Char.code c2)))
-            | Ori8 -> VI8 (Char.chr ((Char.code c1) lor (Char.code c2)))
-            | Xori8 -> VI8 (Char.chr ((Char.code c1) lxor (Char.code c2)))
+            | Addi8 -> VI8 (Char.chr (((Char.code c1) + (Char.code c2)) mod 256))
+            | Subi8 -> VI8 (Char.chr ((256 + (Char.code c1) - (Char.code c2)) mod 256))
+            | Andi8 -> VI8 (Char.chr (Int.logand ((Char.code c1) land (Char.code c2)) 0xFF))
+            | Ori8 -> VI8 (Char.chr (Int.logand ((Char.code c1) lor (Char.code c2)) 0xFF))
+            | Xori8 -> VI8 (Char.chr (Int.logand ((Char.code c1) lxor (Char.code c2)) 0xFF))
         )
         | _ -> raise (Errors.InterpError "Binary operation on non-i8"))
     | VecLitT (es, _) -> 
