@@ -1,6 +1,6 @@
-include str
+include io
 
 let main = \()
-    let input = str.read_ln () in
-    let output = str.str_to_i32 input in
-    (str.write_i32 output; str.write_ln ""; flush ())
+    let input = io.read_ln () in
+    let output = io.str_to_i32 input in
+    (io.write_i32 output; io.write_ln ""; flush ())

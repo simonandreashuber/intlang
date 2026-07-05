@@ -5,11 +5,40 @@ type test_case = {
   generator  : int -> (string * string);
 }
 
-(*some helpers for the generators*)
+(*
+  ==== HELPER FOR THE GENERATOR FUNCTIONS ====
+*)
+
 (*string of int mod 256*)
 let sim256 (i : int) : string = String.make 1 (char_of_int (Int.logand i 0xFF))
 
-let basicIO_tests = [
+let idx_to_randi32 seed i =
+  let open Int32 in
+  let x = logxor (of_int i) seed in
+  let x = mul (logxor x (shift_right_logical x 16)) 0x45d9f3bl in
+  let x = mul (logxor x (shift_right_logical x 16)) 0x45d9f3bl in
+  let x = logxor x (shift_right_logical x 16) in
+  to_int x
+
+let rand_printable_string maxlen seed =
+  let state = Random.State.make [| seed |] in
+  (* Generates a semi-random length between 1 and 64 *)
+  let length = 1 + Random.State.int state maxlen in
+  String.init length (fun _ ->
+    (* 32 to 126 is the printable ASCII range (excludes all line breaks) *)
+    Char.chr (32 + Random.State.int state 95)
+  )
+
+(*
+  ==== IOBasic Tests ====
+  Theses test all the builtin functions, including
+  basic i8 IO and i8 to i32 and reverse casting.
+  They from the very most basic Tests on which all other Tests rely.
+  As with the LangBasic Test these also rely on some language futures
+  that are just needed even for the minimal program (see LangBasic Tests
+  for a detailed description)
+*)
+let iobasic_tests = [
   {
     testname = "write_i8_const";
     filename = "cases/write_i8_const.intlang";
@@ -30,7 +59,16 @@ let basicIO_tests = [
   }
 ]
 
-let basicLang_tests = [
+(*
+  ==== Language Basic Tests ====
+  These test the basic futures of the Language while only relying on
+  the (IOBasic Tests). Some futures are so essential to a minimal program
+  that they cant really be tested in isolation. These include: Application,
+  Unit Lambda, Unit Literal, Sequence and the top level main let binding.
+  Before these test the IOBasic tests should run since these test rely on 
+  the builtin IO and Cast functions
+*)
+let langbasic_tests = [
   {
     testname = "lit_i8";
     filename = "cases/lit_i8.intlang";
@@ -179,7 +217,14 @@ let basicLang_tests = [
   };
 ]
 
-let strlib_tests = [
+(*
+  ==== IOLib tests ====
+  Test the input / output library (io.intlang).
+  Critical as all test (exluding IOBasic and LangBasic tests)
+  rely on a correctly working IO Library.
+  Potential Extensions: Test read_str and write_str
+*)
+let iolib_tests = [
   {
     testname = "read_write_i32_positive";
     filename = "cases/read_write_i32.intlang";
@@ -187,8 +232,9 @@ let strlib_tests = [
     generator = (fun i ->
       let max_i32 = Int32.to_int Int32.max_int in
       let i32 =  Int.shift_right max_i32 i in
-      (string_of_int (i32) ^ "\n", string_of_int (i32) ^ "\n")
-    );
+      let i32str = string_of_int (i32) ^ "\n" in
+      (i32str, i32str)
+      );
   };
   {
     testname = "read_write_i32_negative";
@@ -197,13 +243,34 @@ let strlib_tests = [
     generator = (fun i ->
       let min_i32 = Int32.to_int Int32.min_int in
       let i32 =  Int.shift_right min_i32 i in
-      (string_of_int (i32) ^ "\n", string_of_int (i32) ^ "\n")
+      let i32str = string_of_int (i32) ^ "\n" in
+      (i32str, i32str)
+      );
+  };
+  {
+    testname = "read_write_i32_rand";
+    filename = "cases/read_write_i32.intlang";
+    iterations = 1024;
+    generator = (fun i ->
+      let i32 =  idx_to_randi32 2026070511l i in
+      let i32str = string_of_int (i32) ^ "\n" in
+      (i32str, i32str)
     );
-  }
+  };
+  {
+    testname = "read_write_ln";
+    filename = "cases/read_write_ln.intlang";
+    iterations = 256;
+    generator = (fun i ->
+      let rln = rand_printable_string 900 i ^ "\n" in
+      (rln, rln)
+    );
+  };
 ]
 
+
 let tests = [
-  ("basicIO", basicIO_tests);
-  ("basicLang", basicLang_tests);
-  ("strlib", strlib_tests)
+  ("IOBasic", iobasic_tests);
+  ("LangBasic", langbasic_tests);
+  ("IOLib", iolib_tests);
 ]

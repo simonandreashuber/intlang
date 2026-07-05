@@ -17,7 +17,7 @@ let read_ln = \()
         let acc_w_space = if i < veclen[acc] then acc else vecresz[acc, '\x00', 0, veclen[acc]] end in
         let c = readi8 () in
         if c ==i8 '\n' then
-            vecresz[acc_w_space, '\x00', 0, veclen[acc] - 1 - i] --resize to use the valid part of the buffer
+            vecresz[acc_w_space, '\x00', 0, i - (veclen[acc_w_space] - 1) - 1 ] --resize to use the valid part of the buffer
         else
             read_ln_aux vecset[acc_w_space, c, i] (i+1)
         end
