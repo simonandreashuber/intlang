@@ -76,31 +76,92 @@ let str_to_i32 = \s : [i8] => i32.
         strtoi32aux s 0 0 
     end
 
-let i32_to_str = \i : i32 => [i8].
-    let rec get_digits = \ (i : i32) -- the rest of the i32
-                         (idx : i32) -- index into acc to use for the next char
-                         (acc : [i8]) -- accumulator to make the thing tail recursive
-                         => [i8] * i32. -- return the vector and the next usable index
+let i32_to_str_buff = \ (i : i32) -- i32 to convert
+                        (idx : i32) -- buffer index to count down from
+                        (acc : [i8]) -- buffer
+                        => (i32 * [i8]). -- updated buffer index and buffer
+
+    let rec _get_digits = \ (i : i32) -- the rest of the i32
+                            (idx : i32) -- index into acc to use for the next char
+                            (acc : [i8]) -- accumulator to make the thing tail recursive
+                            => i32 * [i8]. -- return the vector and the next usable index
         let dig = i32_dig_to_ascii (i % 10) in
         let next_i = i / 10 in -- think some weird shift and mutl can do this faster
         let next_acc = vecset[acc, dig, idx] in
         let next_idx = idx - 1 in
         if next_i == 0 then
-            (next_acc, next_idx)
+            (next_idx, next_acc)
         else
-            get_digits next_i next_idx next_acc
+            _get_digits next_i next_idx next_acc
         end
     in
+
     -- range is +2147483647 to -2147483648
     -- so we need 10 chars for the digits, on negative numbers 1 for the sign
-    if i == -2147483648 then --special case where we cant flip
-        "-2147483648"
+    if i == -2147483648 then --special case where we cant flip, we just "unroll" once and then flip
+        let acc = vecset[acc, '8', idx] in
+        let idx = idx - 1 in
+        let (idx, acc) = _get_digits (214748364) idx acc in
+        let acc = vecset[acc, '-', idx] in
+        let idx = idx - 1 in
+        (idx, acc)
     else if 0 <= i then
-        let (buff, idx) = get_digits i 9 vecmk['-', 10] in
-        vecresz[buff, '\x00', idx+1, 0] -- resize to use the valid part of the buffers
+        let (idx, acc) = _get_digits i idx acc in
+        (idx, acc)
     else 
-        let (buff, idx) = get_digits (-i) 10 vecmk['-', 11] in
-        vecresz[buff, '\x00', idx, 0] --resize to use the valid part of the buffer
+        let (idx, acc) = _get_digits (-i) idx acc in
+        let acc = vecset[acc, '-', idx] in
+        let idx = idx - 1 in
+        (idx, acc)
     end end
 
-let write_i32 = \i : i32 => unit. write_str (i32_to_str i)
+let i32_to_str = \i : i32 => [i8].
+    let (idx, acc) = i32_to_str_buff i 11 (vecmk['\x00', 12]) in
+    vecresz[acc, '\x00', idx+1, 0]
+
+
+-- COMMA SEPARATED I32
+let csi32str_to_i32vec = \s : [i8] => [i32].
+    let n = veclen[s] in
+    let rec aux = \ (l : i32) (r : i32) (idx : i32) (acc : [i32]) => [i32].
+        if r < n then
+            let c = vecget[s, r] in
+            if c ==i8 ',' then
+                let num_str = vecresz[s, '\x00', l, r-1-(n-1)] in
+                let num = str_to_i32 num_str in
+                aux (r+1) (r+1) (idx+1) vecset[acc, num, idx]
+            else
+                aux l (r+1) idx acc
+            end
+        else
+            let num_str = vecresz[s, '\x00', l, 0] in
+            let num = str_to_i32 num_str in
+            vecresz[vecset[acc, num, idx], 0, 0 , idx - veclen[acc]+1]
+        end
+    in
+    aux 0 0 0 vecmk[0, n/2 + 1] -- there are at most veclen[s]/2 numbers in the string (only 0 to 9 for all numbers)
+
+let i32vec_to_csi32str = \v : [i32] => [i8].
+    let n = veclen[v] in
+    let rec aux = \ (i : i32) 
+                    (idx : i32) 
+                    (acc : [i8]) 
+                    => [i8].
+        if 0 <= i then
+            let (idx, acc) = i32_to_str_buff (vecget[v, i]) idx acc in
+            let acc = vecset[acc, ',', idx] in
+            let idx = idx - 1 in
+            aux (i-1) idx acc
+        else
+            vecresz[acc, '\x00', idx+2, 0] --also remove the last comma that was added
+        end
+    in
+    if n == 0 then
+        vecmk['\x00', 0]
+    else    
+        aux (n-1) (n * 12 - 1) (vecmk['\x00', n * 12]) -- the max string size is 12 characters (10 digits + 1 sign + 1 comma per number)
+    end
+
+-- Some shorthands for convinience
+let writeln_i32 = \i : i32 => unit. write_ln (i32_to_str i)
+let writeln_i32vec = \v. io.write_ln (io.i32vec_to_csi32str v)

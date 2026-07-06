@@ -184,7 +184,8 @@ and eval (e : tlexp) (env : env) : value =
             in
             match v_val with
             | VVec arr when idx >= 0 && idx < Array.length arr -> arr.(idx)
-            | _ -> raise ((Errors.InterpError "vecget expects a vector"))
+            | VVec arr -> raise ((Errors.InterpError ("index out of bounds" ^ " (index: " ^ string_of_int idx ^ ", vector length: " ^ string_of_int (Array.length arr) ^ ")")))
+            | _ -> raise ((Errors.InterpError ("vecget expects a vector ")))
         ) (eval v env) idx_list
     | VecsetT (v, setval, idx_list, _) -> 
         let rec vecsetaux (v_val : value) (idx_list : tlexp list) : value =

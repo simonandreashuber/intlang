@@ -1,0 +1,15 @@
+include io
+include math
+
+let main = \() (
+    let input = io.read_ln () in
+    let vi32 = io.csi32str_to_i32vec input in
+    let get = \idx. vecget[vi32, idx] in
+    (
+        io.writeln_i32 (math.sqrt (get 0));
+        io.writeln_i32 (math.pow (get 1) (get 2));
+        io.writeln_i32 (math.gcd (get 3) (get 4));
+        io.writeln_i32 (math.cmp_i32 (get 5) (get 6));
+        io.writeln_i32 (math.inbounds (get 7) (get 8) (get 9))
+    )
+)

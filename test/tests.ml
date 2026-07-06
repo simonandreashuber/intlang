@@ -267,6 +267,33 @@ let iolib_tests = [
       (rln, rln)
     );
   };
+  {
+    testname = "read_write_csi32_rand";
+    filename = "cases/read_write_csi32.intlang";
+    iterations = 14;
+    generator = (fun i ->
+      let csi32 = String.concat "," (List.init (6*i + 1) (fun j ->  Int32.to_string (idx_to_randi32 2026070611l (j + (3*i*(i-1)))))) ^ "\n" in
+      (csi32, csi32)
+    );
+  };
+  {
+    testname = "read_write_csi32_edge";
+    filename = "cases/read_write_csi32.intlang";
+    iterations = 4;
+    generator = (fun i ->
+      let csi32 = 
+      if i = 0 then
+        "0,0,0,0,0,0\n" (*minimal string len => maximal vec len*)
+      else if i = 1 then
+        "-2147483648,-2147483648,-2147483648,-2147483648,-2147483648,-2147483648\n" (*max str len => minimal vec len*)
+      else if i = 2 then
+        "0\n" (*minimal string len => maximal vec len*)
+      else
+        "-2147483645,-2147483645,-2147483645,-2147483645,-2147483645,-2147483645\n" (*max str len => minimal vec len*)
+      in
+      (csi32, csi32)
+    );
+  };
 ]
 
 (*
@@ -328,6 +355,12 @@ let lang_tests = [
       (input, expected));
   };
 ]
+
+let lib_tests = [
+  (*mathlib.intlang test case here*)
+  (*vectorlib_1d_i32.intlang test case here*)
+]
+
 
 
 let tests = [
