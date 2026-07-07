@@ -30,6 +30,17 @@ let rand_printable_string maxlen seed =
     Char.chr (32 + Random.State.int state 95)
   )
 
+let int32csv xs = String.concat "," (List.map Int32.to_string xs) ^ "\n"
+let int32csv_trailing xs = String.concat "," (List.map Int32.to_string xs) ^ ",\n"
+
+let ranged_int32 seed min max i =
+  Int32.add (Int32.unsigned_rem (idx_to_randi32 seed i) (Int32.sub max min)) min
+
+let ranged_int32vec seed range maxlen i =
+  let seed0 = idx_to_randi32 seed i in
+  let len = 1 + Int32.to_int (Int32.unsigned_rem (idx_to_randi32 seed0 0) maxlen) in
+  List.init len (fun j -> ranged_int32 seed0 (Int32.neg range) range (j+1))
+
 (*
   ==== IOBasic Tests ====
   Theses test all the builtin functions, including
@@ -111,7 +122,7 @@ let langbasic_tests = [
   {
     testname = "bop_i8";
     filename = "cases/bop_i8.intlang";
-    iterations = 256 * 256;
+    iterations = 256 * 256; (*dont even think about running this in separate mode it takes forever *)
     generator = (fun i -> let (i0, i1) = (i / 256, i mod 256) in
       (sim256 i0 ^ sim256 i1,
         sim256 (if i0 = i1 then 1 else 0) ^ 
@@ -356,9 +367,86 @@ let lang_tests = [
   };
 ]
 
+(*
+  ==== Lib Tests ====
+  These test test the intlangstdlib
+*)
+
+let isqrt_i32 x =
+  if x < 0l then raise (Invalid_argument "isqrt: negative argument");
+  Int32.of_float (sqrt (Int32.to_float x))
+
+let pow_i32 base exp = Int32.of_float ((Int32.to_float base) ** (Int32.to_float exp))
+
+let gcd_i32 a b =
+  let rec loop x y =
+    if y = 0l then x else loop y (Int32.rem x y)
+  in
+  loop a b
+
+let cmp_i32 a b =
+  if Int32.compare a b < 0 then -1l else if Int32.compare a b > 0 then 1l else 0l
+
+let inbounds_i32 low high value =
+  if Int32.compare low value <= 0 && Int32.compare value high < 0 then 1l else 0l
+
+let cmp_i32_lists lst0 lst1 =
+  let elcmp = (fun x y -> Int32.to_int @@ cmp_i32 x y) in
+  if List.compare elcmp lst0 lst1 < 0 then -1l else if List.compare elcmp lst0 lst1 > 0 then 1l else 0l
+
 let lib_tests = [
-  (*mathlib.intlang test case here*)
-  (*vectorlib_1d_i32.intlang test case here*)
+  {
+    testname = "mathlib";
+    filename = "cases/mathlib.intlang";
+    iterations = 32;
+    generator = (fun i ->
+      let sqrt_input = ranged_int32 2026070701l 0l 10000l i in
+      let pow_base = ranged_int32 2026070702l (-100l) 100l i in
+      let pow_exp = ranged_int32 2026070703l 1l 4l i in
+      let gcd_a = ranged_int32 2026070704l 0l 100000l i in
+      let gcd_b = ranged_int32 2026070705l 0l 100000l i in
+      let cmp_a = idx_to_randi32 2026070706l i in
+      let cmp_b = idx_to_randi32 2026070707l i in
+      let low = idx_to_randi32 2026070708l i in
+      let value = idx_to_randi32 2026070709l i in
+      let high = idx_to_randi32 2026070710l i in
+      let input = int32csv [sqrt_input; pow_base; pow_exp; gcd_a; gcd_b; cmp_a; cmp_b; low; high; value] in
+      let expected = String.concat "" [
+        strofint32 (isqrt_i32 sqrt_input);
+        strofint32 (pow_i32 pow_base pow_exp);
+        strofint32 (gcd_i32 gcd_a gcd_b);
+        strofint32 (cmp_i32 cmp_a cmp_b);
+        strofint32 (inbounds_i32 low high value)
+      ] in
+      (input, expected));
+  };
+  {
+    testname = "vectorlib_1d_i32";
+    filename = "cases/vectorlib_1d_i32.intlang";
+    iterations = 32;
+    generator = (fun i ->
+      let vi32 = ranged_int32vec 2026070711l 1000l 32l i in
+      let double = List.map (Int32.mul 2l) vi32 in
+      let copied = vi32 @ vi32 in
+      let addreduce_left = List.fold_left Int32.add 0l vi32 in
+      let addreduce_right = List.fold_right Int32.add vi32 0l in
+      let middle = (List.length vi32) / 2 in
+      let vi32larger = List.mapi (fun idx value -> if idx = middle then Int32.add value 1l else value) vi32 in
+      let input = int32csv vi32 in
+      let expected = String.concat "" [
+        int32csv double;
+        int32csv copied;
+        strofint32 addreduce_left;
+        strofint32 addreduce_right;
+        strofint32 (cmp_i32_lists vi32 vi32);
+        strofint32 (cmp_i32_lists vi32 vi32larger);
+        strofint32 (cmp_i32_lists vi32larger vi32);
+        strofint32 (cmp_i32_lists vi32 copied);
+        strofint32 (cmp_i32_lists copied vi32);
+        int32csv_trailing vi32
+      ] in
+      (input, expected));
+  };
 ]
 
 
@@ -368,4 +456,5 @@ let tests = [
   ("LangBasic", langbasic_tests);
   ("IOLib", iolib_tests);
   ("Lang", lang_tests);
+  ("Lib", lib_tests);
 ]

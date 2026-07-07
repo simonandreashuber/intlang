@@ -20,7 +20,7 @@ let sqrt = \x.
         if guess*guess < x then
             sqrtaux (guess+1)
         else
-            guess
+            guess-1
         end
     in
     sqrtaux 0

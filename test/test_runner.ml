@@ -2,116 +2,147 @@ open Tests
 
 exception TestExecutionError of string
 
+(* Helper to read all contents of an in_channel until EOF *)
+let read_all_channel ic =
+  let buf = Buffer.create 1024 in
+  let chunk = Bytes.create 1024 in
+  let rec loop () =
+    let bytes_read = input ic chunk 0 1024 in
+    if bytes_read > 0 then begin
+      Buffer.add_subbytes buf chunk 0 bytes_read;
+      loop ()
+    end
+  in
+  try 
+    loop (); 
+    Buffer.contents buf
+  with End_of_file -> 
+    Buffer.contents buf
 
-let is_stdout_nonempty (stdout_ch : in_channel) : bool =
-  let fd = Unix.descr_of_in_channel stdout_ch in
-  let (ready, _, _) = Unix.select [fd] [] [] 0.0 in
-  ready <> []
+(* Generates a clean, line-by-line diff pointing to the first mismatch *)
+let generate_diff expected actual =
+  let exp_lines = String.split_on_char '\n' expected in
+  let act_lines = String.split_on_char '\n' actual in
+  
+  let rec find_mismatch line_num l1 l2 =
+    match l1, l2 with
+    | [], [] -> None
+    | h1::t1, h2::t2 when h1 = h2 -> find_mismatch (line_num + 1) t1 t2
+    | h1::_, h2::_ -> 
+        Some (Printf.sprintf "Mismatch at line %d:\n  - EXPECTED: %S\n  + ACTUAL  : %S" line_num h1 h2)
+    | [], h2::_ -> 
+        Some (Printf.sprintf "Mismatch at line %d:\n  - EXPECTED: <End of Output>\n  + ACTUAL  : %S\n    (Interpreter emitted extra lines)" line_num h2)
+    | h1::_, [] -> 
+        Some (Printf.sprintf "Mismatch at line %d:\n  - EXPECTED: %S\n  + ACTUAL  : <End of Output>\n    (Interpreter stopped early)" line_num h1)
+  in
+  match find_mismatch 1 exp_lines act_lines with
+  | Some diff -> diff
+  | None -> "Outputs differ, but line-by-line match failed to find exact point (possible line ending mismatch)."
 
-(* Returns Some error_msg string if the test failed, or None if it passed *)
-let run_test interp_binary case =
-
-  (*
-    General Methodology:
-      - The main idea is to have some .intlang file that has a main and does IO, for each such file we also have one or more entries in our 
-        tests list (in tests.ml) that specifies an integer range and a function mapping this integer range to input output string pairs
-      - the main executable has a special flag where one execution actually runs the interpreter many times
-        - after each interpreter iteration the main proc will then print REPDONE to stderr which the test runner can capture and know 
-          that the next test iteration can proceed
-        - this way one proc is needed per "test" not per "test iteration"
-  *)
-
-  (*using open_process_full allows full control over stdin and stdout*)
-  let cmd = Printf.sprintf "%s --stdlibpath %s --test %d %s" interp_binary ((Sys.getcwd ()) ^ "/intlangstdlib/") case.iterations case.filename in
+(* Runs a single process, feeds it input, and returns the output/error *)
+let execute_process cmd input_data =
   let (stdout_ch, stdin_ch, stderr_ch) = Unix.open_process_full cmd [||] in
-
   try
-    for i = 0 to case.iterations - 1 do
-      let (input_data, expected_output) = case.generator i in
-      let expected_len = String.length expected_output in
+    output_string stdin_ch input_data;
+    close_out stdin_ch; (* Close stdin so interpreter knows input is done *)
 
-      output_string stdin_ch input_data;
-      flush stdin_ch;
-
-      let actual_output = really_input_string stdout_ch expected_len in
-      let sync_token = input_line stderr_ch in
-      
-      if sync_token <> "REPDONE" then begin
-        let leftover_error = try input_line stderr_ch with End_of_file -> "" in
-        let msg = Printf.sprintf "\n[TEST FAILED]: %s (Iteration %d)\nReason: Got someting in stderr that was not REPDONE\n=== INTERPRETER STDERR ===\n%s\n%s\n" case.filename i sync_token leftover_error in
-        raise (TestExecutionError msg)
-      end;
-
-      if is_stdout_nonempty stdout_ch then begin
-        let fd = Unix.descr_of_in_channel stdout_ch in
-        let buf = Bytes.create 100 in
-        let bytes_read = Unix.read fd buf 0 100 in
-        let extra_garbage = Bytes.sub_string buf 0 bytes_read in
-        let msg = Printf.sprintf "\n[TEST FAILED]: %s (Iteration %d)\nReason: Interpreter emitted MORE characters than specified!\n=== EXPECTED ===\n%S\n=== ACTUAL ===\n%S\n=== EXTRA ===\n%S\n" 
-          case.testname i expected_output actual_output extra_garbage in
-        raise (TestExecutionError msg)
-      end;
-
-      if actual_output <> expected_output then begin
-        let msg = Printf.sprintf "\n[TEST FAILED]: %s (Iteration %d)\n=== EXPECTED ===\n%S\n=== ACTUAL ===\n%S\n\n" case.testname i expected_output actual_output in
-        raise (TestExecutionError msg)
-      end
-    done;
-
-    close_out stdin_ch;
+    let actual_output = read_all_channel stdout_ch in
+    let stderr_output = read_all_channel stderr_ch in
     let status = Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch) in
-    
+
     match status with
-    | Unix.WEXITED 0 -> None
+    | Unix.WEXITED 0 -> Ok actual_output
     | Unix.WEXITED code -> 
-        let msg = Printf.sprintf "\n[TEST FAILED]: %s\nReason: Non-zero exit code %d\n" case.testname code in
-        Some msg
-    | _ -> Some (Printf.sprintf "\n[TEST FAILED]: %s\nReason: Process terminated abnormally\n" case.testname)
+        Error (Printf.sprintf "Non-zero exit code %d.\nStderr:\n%s" code stderr_output)
+    | _ -> Error "Process terminated abnormally."
+  with e ->
+    ignore (Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch));
+    Error (Printf.sprintf "Exception during execution: %s" (Printexc.to_string e))
 
-  with
-  | TestExecutionError msg ->
-      ignore (Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch));
-      Some msg
-  | End_of_file ->
-      let rec gather_stderr acc =
-        try gather_stderr (input_line stderr_ch :: acc) with End_of_file -> String.concat "\n" (List.rev acc)
-      in
-      let stderr_log = gather_stderr [] in
-      ignore (Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch));
-      let msg = Printf.sprintf "\n[TEST FAILED]: %s\nReason: Interpreter pipe severed cleanly (End_of_file).\n" case.testname ^
-                (if stderr_log <> "" then Printf.sprintf "=== INTERPRETER STDERR ===\n%s\n" stderr_log else "") in
-      Some msg
-  | e ->
-      ignore (Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch));
-      Some (Printf.sprintf "\n[TEST FAILED]: %s\nReason: Unexpected exception: %s\n" case.testname (Printexc.to_string e))
+(* BATCH MODE: Generates all data, runs once with --test N *)
+let run_batch interp_binary case =
+  let input_buf = Buffer.create 4096 in
+  let expect_buf = Buffer.create 4096 in
+  
+  for i = 0 to case.iterations - 1 do
+    let (in_str, exp_str) = case.generator i in
+    Buffer.add_string input_buf in_str;
+    Buffer.add_string expect_buf exp_str
+  done;
 
-let () = 
-  if Array.length Sys.argv < 2 then begin
-    Printf.eprintf "Error: Test runner missing target interpreter binary path argument.\n";
+  let all_input = Buffer.contents input_buf in
+  let all_expected = Buffer.contents expect_buf in
+  let cmd = Printf.sprintf "%s --stdlibpath %s --test %d %s" 
+      interp_binary (Sys.getcwd () ^ "/intlangstdlib/") case.iterations case.filename in
+
+  match execute_process cmd all_input with
+  | Ok actual ->
+      if actual = all_expected then None
+      else Some (Printf.sprintf "Batch mismatch:\n%s\n" (generate_diff all_expected actual))
+  | Error msg -> Some (Printf.sprintf "Batch Execution Failed:\n%s" msg)
+
+(* SEPARATE MODE: Runs a new process for every iteration *)
+let run_separate interp_binary case =
+  let cmd = Printf.sprintf "%s --stdlibpath %s %s" 
+      interp_binary (Sys.getcwd () ^ "/intlangstdlib/") case.filename in
+  
+  let rec loop i =
+    if i >= case.iterations then None
+    else
+      let (in_str, exp_str) = case.generator i in
+      match execute_process cmd in_str with
+      | Ok actual ->
+          if actual = exp_str then loop (i + 1)
+          else Some (Printf.sprintf "Iteration %d mismatch:\n%s\n" i (generate_diff exp_str actual))
+      | Error msg -> Some (Printf.sprintf "Iteration %d Execution Failed:\n%s" i msg)
+  in
+  loop 0
+
+let () =
+  (* CLI Parsing *)
+  let separate_mode = ref false in
+  let interp_binary = ref "" in
+
+  let speclist = [
+    ("--separate", Arg.Set separate_mode, "Run each test iteration in a separate process");
+  ] in
+  let usage_msg = "Usage: test_runner [--separate] <interp_binary>" in
+  
+  Arg.parse speclist (fun s -> interp_binary := s) usage_msg;
+
+  if !interp_binary = "" then begin
+    Printf.eprintf "Error: Target interpreter binary path argument missing.\n%s\n" usage_msg;
     exit 1
   end;
-  let interp_binary = Sys.argv.(1) in
 
-  Printf.printf "=== Starting Tests ===\n";
+  let run_test = if !separate_mode then run_separate else run_batch in
   let global_failed = ref false in
 
+  Printf.printf "=== Starting Tests (Mode: %s) ===\n" (if !separate_mode then "Separate" else "Batch");
+
   List.iter (fun (testgroupname, testcases) ->
-    let total_tests = List.length testcases in
-    let group_failures = ref [] in
+    (* Evaluate all cases in the group first *)
+    let results = List.map (fun case -> (case, run_test !interp_binary case)) testcases in
+    
+    let group_failed = List.exists (fun (_, res) -> res <> None) results in
 
-    List.iter (fun case ->
-      match run_test interp_binary case with
-      | None -> ()
-      | Some error_msg -> group_failures := error_msg :: !group_failures
-    ) testcases;
-
-    if !group_failures = [] then
-      (Printf.printf "[TEST GROUP PASSED]: %s (All %d tests passed successfully.)\n" testgroupname total_tests; flush stdout)
-    else begin
+    if not group_failed then begin
+      (* Print single line if everything passes *)
+      Printf.printf "[TEST GROUP PASSED]: %s (All %d cases)\n" testgroupname (List.length testcases);
+      flush stdout
+    end else begin
+      (* Print detailed lines if something failed *)
       global_failed := true;
-      Printf.printf "=== Running Test Group: %s ===\n" testgroupname;
-      List.iter (fun msg -> Printf.printf "%s" msg) (List.rev !group_failures);
-      flush stderr;
+      Printf.printf "\n=== TEST GROUP FAILED: %s ===\n" testgroupname;
+      
+      List.iter (fun (case, res) ->
+        match res with
+        | None -> Printf.printf "  [PASS] %s\n" case.testname
+        | Some err -> 
+            Printf.printf "  [FAIL] %s\n" case.testname;
+            Printf.printf "         %s\n" (String.concat "\n         " (String.split_on_char '\n' err))
+      ) results;
+      flush stdout;
     end
   ) tests;
 

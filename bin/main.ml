@@ -80,8 +80,6 @@ let main () =
       for _ = 1 to !repeat_count do
         Interp.interp_monotast monotast;
         flush stdout;
-        Printf.eprintf "REPDONE\n";
-        flush stderr;
       done
     else
       Interp.interp_monotast monotast;
