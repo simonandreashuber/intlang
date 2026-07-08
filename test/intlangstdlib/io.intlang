@@ -163,5 +163,8 @@ let i32vec_to_csi32str = \v : [i32] => [i8].
     end
 
 -- Some shorthands for convinience
+let readln_i32 = \() str_to_i32 (read_ln ())
+let readln_i32vec = \() csi32str_to_i32vec (read_ln ())
+
 let writeln_i32 = \i : i32 => unit. write_ln (i32_to_str i)
 let writeln_i32vec = \v. io.write_ln (io.i32vec_to_csi32str v)

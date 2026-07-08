@@ -81,7 +81,7 @@ let sqmattrans = \n A.
         end end
     in
     if veclen[A] == n*n then
-        sqmattransaux A 0 1
+        sqmattransaux A 0 0
     else 
         vecmk[0,n*n]
     end

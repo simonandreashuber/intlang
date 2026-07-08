@@ -1,0 +1,8 @@
+include io
+include sort
+
+let main = \() (
+    let arr = io.readln_i32vec () in
+    let sorted = sort.bubblesort_i32 arr in
+    io.writeln_i32vec sorted
+)

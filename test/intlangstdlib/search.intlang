@@ -24,7 +24,17 @@ let binarysearch = \cmpf arr target.
             let mid = (left + right) / 2 in
             let cmpresult = cmpf vecget[arr, mid] target in
             if cmpresult == 0 then
-                mid
+                let rec findleft = \i. -- makes the binary search O(n) in the worst case (while one could do the findleft as binary search too, I am simply too lazy to optimize this edge case)
+                    if (0 < i) then
+                        if cmpf vecget[arr, (i-1)] target == 0 then -- no logic shortcutting as of now :(
+                            findleft (i-1)
+                        else 
+                            i
+                        end
+                    else
+                        i
+                    end
+                in findleft mid
             else if cmpresult < 0 then
                 binarysearchaux (mid+1) right
             else

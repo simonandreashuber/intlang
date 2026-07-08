@@ -1,0 +1,13 @@
+include io
+include mat
+
+let main = \() (
+    let dim = io.readln_i32 () in
+    let a = io.readln_i32vec () in
+    let aT = mat.sqmattrans dim a in
+    let idmat = mat.matid dim in
+    (
+        io.writeln_i32vec aT;
+        io.writeln_i32vec idmat
+    )
+)

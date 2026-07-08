@@ -11,17 +11,14 @@ type test_case = {
 
 (*string of int mod 256*)
 let sim256 (i : int) : string = String.make 1 (char_of_int (Int.logand i 0xFF))
-let strofint32 (i : int32) : string = Int32.to_string i ^ "\n"
+let prln_int32 (i : int32) : string = Int32.to_string i ^ "\n"
 
-let idx_to_randi32 seed i =
-  let open Int32 in
-  let x = logxor (of_int i) seed in
-  let x = mul (logxor x (shift_right_logical x 16)) 0x45d9f3bl in
-  let x = mul (logxor x (shift_right_logical x 16)) 0x45d9f3bl in
-  let x = logxor x (shift_right_logical x 16) in
-  x
+let prln_int32lst xs = String.concat "," (List.map Int32.to_string xs) ^ "\n"
+let prln_int32lst_trailing xs = String.concat "," (List.map Int32.to_string xs) ^ ",\n"
 
-let rand_printable_string maxlen seed =
+let prln_int32array arr = prln_int32lst (Array.to_list arr)
+
+let rand_printable_str maxlen seed =
   let state = Random.State.make [| seed |] in
   (* Generates a semi-random length between 1 and 64 *)
   let length = 1 + Random.State.int state maxlen in
@@ -30,16 +27,26 @@ let rand_printable_string maxlen seed =
     Char.chr (32 + Random.State.int state 95)
   )
 
-let int32csv xs = String.concat "," (List.map Int32.to_string xs) ^ "\n"
-let int32csv_trailing xs = String.concat "," (List.map Int32.to_string xs) ^ ",\n"
+let rand_int32 seed i =
+  let open Int32 in
+  let x = logxor (of_int i) seed in
+  let x = mul (logxor x (shift_right_logical x 16)) 0x45d9f3bl in
+  let x = mul (logxor x (shift_right_logical x 16)) 0x45d9f3bl in
+  let x = logxor x (shift_right_logical x 16) in
+  x
 
-let ranged_int32 seed min max i =
-  Int32.add (Int32.unsigned_rem (idx_to_randi32 seed i) (Int32.sub max min)) min
+let rand_int32_ranged seed i min max =
+  Int32.add (Int32.unsigned_rem (rand_int32 seed i) (Int32.sub max min)) min
 
-let ranged_int32vec seed range maxlen i =
-  let seed0 = idx_to_randi32 seed i in
-  let len = 1 + Int32.to_int (Int32.unsigned_rem (idx_to_randi32 seed0 0) maxlen) in
-  List.init len (fun j -> ranged_int32 seed0 (Int32.neg range) range (j+1))
+let rand_int32lst_ranged seed i min max maxlen =
+  let seed0 = rand_int32 seed i in
+  let len = 1 + Int32.to_int (Int32.unsigned_rem (rand_int32 seed0 0) maxlen) in
+  List.init len (fun j -> rand_int32_ranged seed0 (j+1) min max)
+
+let rand_int32array_ranged seed i min max len = 
+  let seed0 = rand_int32 seed i in
+  Array.init (Int32.to_int len) (fun j -> rand_int32_ranged seed0 j min max)
+
 
 (*
   ==== IOBasic Tests ====
@@ -264,8 +271,8 @@ let iolib_tests = [
     filename = "cases/read_write_i32.intlang";
     iterations = 1024;
     generator = (fun i ->
-      let i32 =  idx_to_randi32 2026070511l i in
-      let i32str = strofint32 i32 in
+      let i32 =  rand_int32 2026070511l i in
+      let i32str = prln_int32 i32 in
       (i32str, i32str)
     );
   };
@@ -274,7 +281,7 @@ let iolib_tests = [
     filename = "cases/read_write_ln.intlang";
     iterations = 256;
     generator = (fun i ->
-      let rln = rand_printable_string 900 i ^ "\n" in
+      let rln = rand_printable_str 900 i ^ "\n" in
       (rln, rln)
     );
   };
@@ -283,7 +290,7 @@ let iolib_tests = [
     filename = "cases/read_write_csi32.intlang";
     iterations = 14;
     generator = (fun i ->
-      let csi32 = String.concat "," (List.init (6*i + 1) (fun j ->  Int32.to_string (idx_to_randi32 2026070611l (j + (3*i*(i-1)))))) ^ "\n" in
+      let csi32 = String.concat "," (List.init (6*i + 1) (fun j ->  Int32.to_string (rand_int32 2026070611l (j + (3*i*(i-1)))))) ^ "\n" in
       (csi32, csi32)
     );
   };
@@ -319,11 +326,11 @@ let lang_tests = [
     filename = "cases/uop_i32.intlang";
     iterations = 256;
     generator = (fun i ->
-      let x = idx_to_randi32 2026070512l i in
-      let input = strofint32 x in
+      let x = rand_int32 2026070512l i in
+      let input = prln_int32 x in
       let expected =
-        strofint32 (Int32.neg x) ^
-        strofint32 (Int32.lognot x)
+        prln_int32 (Int32.neg x) ^
+        prln_int32 (Int32.lognot x)
       in
       (input, expected));
   };
@@ -332,36 +339,36 @@ let lang_tests = [
     filename = "cases/bop_i32.intlang";
     iterations = 256;
     generator = (fun i ->
-      let x = idx_to_randi32 2026070513l i in
-      let y = idx_to_randi32 150706202l i in
+      let x = rand_int32 2026070513l i in
+      let y = rand_int32 150706202l i in
       let y_nonzero = if y = 0l then 1l else y in
       let y_shift = Int32.to_int @@ Int32.unsigned_rem y 32l in
       let b32 b = if b then 1l else 0l in
-      let input = strofint32 x ^ strofint32 y in
+      let input = prln_int32 x ^ prln_int32 y in
       let expected =
-        strofint32 (b32 (x = y)) ^
-        strofint32 (b32 (x <> y)) ^
-        strofint32 (b32 (x < y)) ^ 
-        strofint32 (b32 (x > y)) ^
-        strofint32 (b32 (x <= y)) ^
-        strofint32 (b32 (x >= y)) ^
-        strofint32 (b32 (Int32.unsigned_compare x y < 0)) ^
-        strofint32 (b32 (Int32.unsigned_compare x y > 0)) ^
-        strofint32 (b32 (Int32.unsigned_compare x y <= 0)) ^
-        strofint32 (b32 (Int32.unsigned_compare x y >= 0)) ^
-        strofint32 (Int32.mul x y) ^
-        strofint32 (Int32.sub x y) ^
-        strofint32 (Int32.add x y) ^
-        strofint32 (Int32.div x y_nonzero) ^
-        strofint32 (Int32.rem x y_nonzero) ^
-        strofint32 (Int32.unsigned_div x y_nonzero) ^
-        strofint32 (Int32.unsigned_rem x y_nonzero) ^
-        strofint32 (Int32.logand x y) ^
-        strofint32 (Int32.logor x y) ^
-        strofint32 (Int32.logxor x y) ^
-        strofint32 (Int32.shift_left x y_shift) ^
-        strofint32 (Int32.shift_right x y_shift) ^
-        strofint32 (Int32.shift_right_logical x y_shift)
+        prln_int32 (b32 (x = y)) ^
+        prln_int32 (b32 (x <> y)) ^
+        prln_int32 (b32 (x < y)) ^ 
+        prln_int32 (b32 (x > y)) ^
+        prln_int32 (b32 (x <= y)) ^
+        prln_int32 (b32 (x >= y)) ^
+        prln_int32 (b32 (Int32.unsigned_compare x y < 0)) ^
+        prln_int32 (b32 (Int32.unsigned_compare x y > 0)) ^
+        prln_int32 (b32 (Int32.unsigned_compare x y <= 0)) ^
+        prln_int32 (b32 (Int32.unsigned_compare x y >= 0)) ^
+        prln_int32 (Int32.mul x y) ^
+        prln_int32 (Int32.sub x y) ^
+        prln_int32 (Int32.add x y) ^
+        prln_int32 (Int32.div x y_nonzero) ^
+        prln_int32 (Int32.rem x y_nonzero) ^
+        prln_int32 (Int32.unsigned_div x y_nonzero) ^
+        prln_int32 (Int32.unsigned_rem x y_nonzero) ^
+        prln_int32 (Int32.logand x y) ^
+        prln_int32 (Int32.logor x y) ^
+        prln_int32 (Int32.logxor x y) ^
+        prln_int32 (Int32.shift_left x y_shift) ^
+        prln_int32 (Int32.shift_right x y_shift) ^
+        prln_int32 (Int32.shift_right_logical x y_shift)
       in
       (input, expected));
   };
@@ -384,68 +391,186 @@ let gcd_i32 a b =
   in
   loop a b
 
-let cmp_i32 a b =
+let cmp_int32 a b =
   if Int32.compare a b < 0 then -1l else if Int32.compare a b > 0 then 1l else 0l
 
-let inbounds_i32 low high value =
+let inbounds_int32 low high value =
   if Int32.compare low value <= 0 && Int32.compare value high < 0 then 1l else 0l
 
-let cmp_i32_lists lst0 lst1 =
-  let elcmp = (fun x y -> Int32.to_int @@ cmp_i32 x y) in
+let cmp_int32_lists lst0 lst1 =
+  let elcmp = (fun x y -> Int32.to_int @@ cmp_int32 x y) in
   if List.compare elcmp lst0 lst1 < 0 then -1l else if List.compare elcmp lst0 lst1 > 0 then 1l else 0l
+
+let matmul_flat rows shared cols lhs rhs =
+  let rows = Int32.to_int rows in
+  let shared = Int32.to_int shared in
+  let cols = Int32.to_int cols in
+  Array.init (rows * cols) (fun idx ->
+    let row = idx / cols in
+    let col = idx mod cols in
+    let acc = ref 0l in
+    for k = 0 to shared - 1 do
+      let lhs_idx = row * shared + k in
+      let rhs_idx = k * cols + col in
+      acc := Int32.add !acc (Int32.mul lhs.(lhs_idx) rhs.(rhs_idx))
+    done;
+    !acc)
+
+let matadd_flat lhs rhs =
+  Array.init (Array.length lhs) (fun idx -> Int32.add lhs.(idx) rhs.(idx))
+
+let matsmul_flat lhs scalar =
+  Array.init (Array.length lhs) (fun idx -> Int32.mul lhs.(idx) scalar)
+
+let matsub_flat lhs rhs =
+  Array.init (Array.length lhs) (fun idx -> Int32.sub lhs.(idx) rhs.(idx))
+
+let matid_flat n =
+  let n = Int32.to_int n in
+  Array.init (n * n) (fun idx -> if idx / n = idx mod n then 1l else 0l)
+
+let matsqtrans_flat n lhs =
+  let n = Int32.to_int n in
+  Array.init (n * n) (fun idx ->
+    let row = idx / n in
+    let col = idx mod n in
+    lhs.(col * n + row))
+
+let search_int32lst (lst : int32 list) (target : int32) =
+  List.fold_right (fun (idx, x) acc -> if Int32.compare x target = 0 then idx else acc) (List.mapi (fun idx x -> (Int32.of_int idx, x)) lst) (-1l) 
 
 let lib_tests = [
   {
-    testname = "mathlib";
-    filename = "cases/mathlib.intlang";
+    testname = "math_libtest";
+    filename = "cases/math_libtest.intlang";
     iterations = 32;
     generator = (fun i ->
-      let sqrt_input = ranged_int32 2026070701l 0l 10000l i in
-      let pow_base = ranged_int32 2026070702l (-100l) 100l i in
-      let pow_exp = ranged_int32 2026070703l 1l 4l i in
-      let gcd_a = ranged_int32 2026070704l 0l 100000l i in
-      let gcd_b = ranged_int32 2026070705l 0l 100000l i in
-      let cmp_a = idx_to_randi32 2026070706l i in
-      let cmp_b = idx_to_randi32 2026070707l i in
-      let low = idx_to_randi32 2026070708l i in
-      let value = idx_to_randi32 2026070709l i in
-      let high = idx_to_randi32 2026070710l i in
-      let input = int32csv [sqrt_input; pow_base; pow_exp; gcd_a; gcd_b; cmp_a; cmp_b; low; high; value] in
+      let sqrt_input = rand_int32_ranged 2026070701l i 0l 10000l in
+      let pow_base = rand_int32_ranged 2026070702l i (-100l) 100l in
+      let pow_exp = rand_int32_ranged 2026070703l i 1l 4l in
+      let gcd_a = rand_int32_ranged 2026070704l i 0l 100000l in
+      let gcd_b = rand_int32_ranged 2026070705l i 0l 100000l in
+      let cmp_a = rand_int32 2026070706l i in
+      let cmp_b = rand_int32 2026070707l i in
+      let low = rand_int32 2026070708l i in
+      let value = rand_int32 2026070709l i in
+      let high = rand_int32 2026070710l i in
+      let input = prln_int32lst [sqrt_input; pow_base; pow_exp; gcd_a; gcd_b; cmp_a; cmp_b; low; high; value] in
       let expected = String.concat "" [
-        strofint32 (isqrt_i32 sqrt_input);
-        strofint32 (pow_i32 pow_base pow_exp);
-        strofint32 (gcd_i32 gcd_a gcd_b);
-        strofint32 (cmp_i32 cmp_a cmp_b);
-        strofint32 (inbounds_i32 low high value)
+        prln_int32 (isqrt_i32 sqrt_input);
+        prln_int32 (pow_i32 pow_base pow_exp);
+        prln_int32 (gcd_i32 gcd_a gcd_b);
+        prln_int32 (cmp_int32 cmp_a cmp_b);
+        prln_int32 (inbounds_int32 low high value)
       ] in
       (input, expected));
   };
   {
-    testname = "vectorlib_1d_i32";
-    filename = "cases/vectorlib_1d_i32.intlang";
+    testname = "vector_libtest_1d_i32";
+    filename = "cases/vector_libtest_1d_i32.intlang";
     iterations = 32;
     generator = (fun i ->
-      let vi32 = ranged_int32vec 2026070711l 1000l 32l i in
+      let vi32 = rand_int32lst_ranged 2026070711l i (-10000l) 10000l 32l in
       let double = List.map (Int32.mul 2l) vi32 in
       let copied = vi32 @ vi32 in
       let addreduce_left = List.fold_left Int32.add 0l vi32 in
       let addreduce_right = List.fold_right Int32.add vi32 0l in
       let middle = (List.length vi32) / 2 in
       let vi32larger = List.mapi (fun idx value -> if idx = middle then Int32.add value 1l else value) vi32 in
-      let input = int32csv vi32 in
+      let input = prln_int32lst vi32 in
       let expected = String.concat "" [
-        int32csv double;
-        int32csv copied;
-        strofint32 addreduce_left;
-        strofint32 addreduce_right;
-        strofint32 (cmp_i32_lists vi32 vi32);
-        strofint32 (cmp_i32_lists vi32 vi32larger);
-        strofint32 (cmp_i32_lists vi32larger vi32);
-        strofint32 (cmp_i32_lists vi32 copied);
-        strofint32 (cmp_i32_lists copied vi32);
-        int32csv_trailing vi32
+        prln_int32lst double;
+        prln_int32lst copied;
+        prln_int32 addreduce_left;
+        prln_int32 addreduce_right;
+        prln_int32 (cmp_int32_lists vi32 vi32);
+        prln_int32 (cmp_int32_lists vi32 vi32larger);
+        prln_int32 (cmp_int32_lists vi32larger vi32);
+        prln_int32 (cmp_int32_lists vi32 copied);
+        prln_int32 (cmp_int32_lists copied vi32);
+        prln_int32lst_trailing vi32
       ] in
       (input, expected));
+  };
+  {
+    testname = "mat_libtest_nonsq";
+    filename = "cases/mat_libtest_nonsq.intlang";
+    iterations = 50;
+    generator = (fun i ->
+      let seed0 = rand_int32 820401106l i in
+      let rows = rand_int32_ranged seed0 0 1l 15l in
+      let shared = rand_int32_ranged seed0 1 1l 15l in
+      let cols = rand_int32_ranged seed0 2 1l 15l in
+      let a = rand_int32array_ranged seed0 3 (-10000l) 10000l (Int32.mul rows shared) in
+      let a' = rand_int32array_ranged seed0 4 (-10000l) 10000l (Int32.mul rows shared) in
+      let b = rand_int32array_ranged seed0 5 (-10000l) 10000l (Int32.mul shared cols) in
+      let ab = matmul_flat rows shared cols a b in
+      let a3 = matsmul_flat a 3l in
+      let apa' = matadd_flat a a' in
+      let a2 = matsub_flat a3 a in
+      let input = String.concat "" [
+        prln_int32 rows;
+        prln_int32 shared;
+        prln_int32 cols;
+        prln_int32array a;
+        prln_int32array a';
+        prln_int32array b
+      ] in
+      let expected = String.concat "" [
+        prln_int32array ab;
+        prln_int32array a3;
+        prln_int32array apa';
+        prln_int32array a2
+      ] in
+      (input, expected));
+    };
+    {
+    testname = "mat_libtest_sq";
+    filename = "cases/mat_libtest_sq.intlang";
+    iterations = 50;
+    generator = (fun i ->
+      let seed0 = rand_int32 97757234l i in
+      let dim = rand_int32_ranged seed0 0 1l 15l in
+      let a = rand_int32array_ranged seed0 1 (-10000l) 10000l (Int32.mul dim dim) in
+      let aT = matsqtrans_flat dim a in
+      let idmat = matid_flat dim in
+      let input = String.concat "" [
+        prln_int32 dim;
+        prln_int32array a
+      ] in
+      let expected = String.concat "" [
+        prln_int32array aT;
+        prln_int32array idmat
+      ] in
+      (input, expected));
+  };
+  {
+    testname = "sort_libtest_i32";
+    filename = "cases/sort_libtest_i32.intlang";
+    iterations = 32;
+    generator = (fun i ->
+      let input_vec = rand_int32lst_ranged 30659444l i (-30l) 30l 64l in
+      let sorted_vec = List.sort Int32.compare input_vec in
+      let input = prln_int32lst input_vec in
+      let expected = prln_int32lst sorted_vec in
+      (input, expected));
+  };
+  {
+    testname = "search_libtest_i32";
+    filename = "cases/search_libtest_i32.intlang";
+    iterations = 32;
+    generator = (fun i ->
+      let input_vec0 = rand_int32lst_ranged 30659444l i (-30l) 30l 32l in
+      let target = rand_int32_ranged 80773817l i (-30l) (30l) in
+      let input_vec1 = rand_int32lst_ranged 19772196l i (-30l) 30l 32l in
+      let input_vec = input_vec0 @ [target] @ input_vec1 in
+      let sorted_vec = List.sort Int32.compare input_vec in
+      let input = prln_int32 target ^
+                  prln_int32lst input_vec ^ 
+                  prln_int32lst sorted_vec in
+      let expected =  prln_int32 (search_int32lst input_vec target) ^
+                      prln_int32 (search_int32lst sorted_vec target) in
+      (input, expected))
   };
 ]
 

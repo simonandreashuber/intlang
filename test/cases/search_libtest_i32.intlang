@@ -1,0 +1,12 @@
+include io
+include search
+
+let main = \() (
+    let target = io.readln_i32 () in
+    let arr = io.readln_i32vec () in
+    let sorted = io.readln_i32vec () in
+    (
+        io.writeln_i32 (search.linearsearch_i32 arr target);
+        io.writeln_i32 (search.binarysearch_i32 sorted target)
+    )
+) 

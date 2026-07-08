@@ -53,7 +53,7 @@ let execute_process cmd input_data =
     match status with
     | Unix.WEXITED 0 -> Ok actual_output
     | Unix.WEXITED code -> 
-        Error (Printf.sprintf "Non-zero exit code %d.\nStderr:\n%s" code stderr_output)
+        Error (Printf.sprintf "Non-zero exit code %d.\nStderr:\n%s\nInput:\n%s" code stderr_output input_data)
     | _ -> Error "Process terminated abnormally."
   with e ->
     ignore (Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch));
@@ -93,7 +93,7 @@ let run_separate interp_binary case =
       match execute_process cmd in_str with
       | Ok actual ->
           if actual = exp_str then loop (i + 1)
-          else Some (Printf.sprintf "Iteration %d mismatch:\n%s\n" i (generate_diff exp_str actual))
+          else Some (Printf.sprintf "Iteration %d mismatch:\n%s\nInput:\n%s" i (generate_diff exp_str actual) in_str)
       | Error msg -> Some (Printf.sprintf "Iteration %d Execution Failed:\n%s" i msg)
   in
   loop 0
