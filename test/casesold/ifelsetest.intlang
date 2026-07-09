@@ -1,5 +1,0 @@
--- Expect: 7
-include str
-include math
-let answers = \x. if math.mod x 2 then 7 else 6 end
-let main = \() str.writei32 (answers 3)

@@ -1,7 +1,0 @@
--- Expect: 2
-include str
-let snd = \x. \y. y
-let fix = snd 1
-let fixint = fix 2
-let fixvec = fix vec[3]
-let main = \() str.writei32 fixint

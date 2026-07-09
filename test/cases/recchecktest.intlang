@@ -1,4 +1,6 @@
--- Expect: 0
+-- not part of the test suite as of now since testing this requires failing
+-- to succeed, which the test suite currently does not support. 
+
 include str
 
 -- let rec evilrec = vecset[evilrec, 0, 0]

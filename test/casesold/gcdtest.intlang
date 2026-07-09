@@ -1,6 +1,0 @@
--- Expect: 21
-include str
-
-include math
-
-let main = \() str.writei32 (math.gcd 1071 462)

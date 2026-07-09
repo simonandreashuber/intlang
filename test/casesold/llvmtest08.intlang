@@ -1,3 +1,0 @@
--- Expect: 11
-include str
-let main = \() str.writei32 (let v = vec[44,6,3,7] in vecget[v,3] + veclen[v])

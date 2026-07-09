@@ -1,4 +1,0 @@
--- Expect: 22
-include str
--- check if merge block captures the correct incoming block on the phi
-let main = \() str.writei32 (if 4 then if 0 then 11 else 22 end else 33 end)

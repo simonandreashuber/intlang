@@ -1,3 +1,0 @@
--- Expect: 2
-include str
-let main = \() str.writei32 (3 + 4 - 5 * 7 / 6)

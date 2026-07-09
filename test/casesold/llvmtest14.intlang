@@ -1,3 +1,0 @@
--- Expect: 6
-include str
-let main = \() str.writei32 (let incfun = \x. x + 1 in incfun 5)

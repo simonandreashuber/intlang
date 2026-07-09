@@ -1,0 +1,3 @@
+-- this is a comment
+let main = \() writei8 '\x55' --this is another comment
+-- and a comment here too

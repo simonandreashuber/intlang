@@ -1,4 +1,0 @@
--- Expect: 0
-include "v4parsertest"
-include str
-let main = \() str.writei32 0

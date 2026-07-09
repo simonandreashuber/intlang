@@ -1,7 +1,0 @@
---- Expect: 137
--- deprecated
-include str
-let incf = \f. (\n. f n + 1)
-let foo = \n. ( incf (\x.n+x) )
-let main = \() str.writei32 (foo 69 67)
-

@@ -1,6 +1,0 @@
--- Expect: 15
-include str
-let main = \() str.writei32 
-    (let v = vec[vec[1,2],vec[4,5]] in 
-    let v1 = vecset[v,vecset[vecget[v,1],10,1],1] in
-    vecget[vecget[v1, 1], 1] + vecget[vecget[v, 1], 1])

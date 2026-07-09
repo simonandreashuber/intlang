@@ -1,7 +1,0 @@
--- Expect: 20
-include str
-let main = \() str.writei32
-    (let step = 4 in
-    let mul = \x. x * step in 
-    let incfun = \x. mul x in 
-    incfun 5)

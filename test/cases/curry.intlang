@@ -1,0 +1,4 @@
+include io
+let add = \x. \y. x + y
+let add5 = add 5
+let main = \() io.writeln_i32 (add5 10)

@@ -1,5 +1,5 @@
--- Expect: 0
-include str
+include io
+
 let swap = \itup : i32 * i8 => i8 * i32.
             let (int, char) = itup in (char, int)
 
@@ -58,4 +58,4 @@ let map = \f : i32 -> i32. \v : [i32] => [i32].
 
 let parity = map (\x. x % 2)
 
-let main = \() str.writei32 0
+let main = \() io.writeln_i32 9

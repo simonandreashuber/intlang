@@ -1,5 +1,5 @@
--- Expect: 11
-include str
+include io
+
 let a = 2
 let b = 3
 let square = \n. n * n
@@ -7,4 +7,4 @@ let add_a = \m. m + a
 let final_func = \f. \g. \val. g (f val)
 
 let result = final_func square add_a b
-let main = \() str.writei32 result
+let main = \() io.writeln_i32 result

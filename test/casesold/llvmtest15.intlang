@@ -1,6 +1,0 @@
--- Expect: 9
-include str
-let main =  \() str.writei32
-    (let step = 4 in 
-    let incfun = \x. x + step in 
-    incfun 5)

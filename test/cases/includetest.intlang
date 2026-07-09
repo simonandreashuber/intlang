@@ -1,8 +1,6 @@
--- Expect: 8
-include str
 include "includetest" -- self include
 include "includetest2"
 include  mat -- std lib include
 include "inclfoldr/folderincl1" -- relative but in subfolder
 let somefunc = \x. x + 1
-let main = \() str.writei32 (math.pow 2 3)
+let main = \() (writei8 (i32_to_i8 (math.pow 2 3)))

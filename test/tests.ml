@@ -242,6 +242,18 @@ let langbasic_tests = [
       let n = ((i * 7 + 1) mod 255) + 1 in
       (sim256 n, sim256 (collatz n)));
   };
+  {
+    testname = "comments";
+    filename = "cases/comments.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", sim256 0x55));
+  };
+  {
+    testname = "includetest";
+    filename = "cases/includetest.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", sim256 8));
+  };
 ]
 
 (*
@@ -380,7 +392,89 @@ let lang_tests = [
       in
       (input, expected));
   };
+  {
+    testname = "strlit";
+    filename = "cases/strlit.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "wow a string literal!!!!\n"));
+  };
 ]
+
+(* 
+  ==== Monomorphism Tests ====
+  These test the monomorphism pass of the compiler. The test suite is not designed
+  to test this well (very focused on the io) but still they provide a certain level of confidence
+  since these examples would not work without the monomorphism pass. Also note that these tests are more
+  meaningfull for the compiler than for the interpreter since the interpreter is not really in need
+  of the monomorphism pass. 
+*)
+
+let monomorphism_tests = [
+  {
+    testname = "cyclepolymorph";
+    filename = "cases/cyclepolymorph.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "hello\n5\n"));
+  };
+  {
+    testname = "partialpoly";
+    filename = "cases/partialpoly.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "6\n"));
+  };
+  {
+    testname = "tuppartialpoly";
+    filename = "cases/tuppartialpoly.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "44\n"));
+  };
+  {
+    testname = "v4parsertest";
+    filename = "cases/v4parsertest.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "9\n"));
+  };
+]
+
+
+(*
+  ==== Legacy Tests ====
+  These tests are the legacy tests the I kinda liked so they can stay
+*)
+let legacy_tests = [
+  {
+    testname = "churchbool";
+    filename = "cases/churchbool.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "100\n"));
+  };
+  {
+    testname = "curry";
+    filename = "cases/curry.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "15\n"));
+  };
+  {
+    testname = "funclist";
+    filename = "cases/funclist.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "2\n"));
+  }; 
+  {
+    testname = "pipe";
+    filename = "cases/pipe.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "11\n"));
+  }; 
+  {
+    testname = "quad";
+    filename = "cases/quad.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "4\n"));
+  }
+]
+  
+
 
 (*
   ==== Lib Tests ====
