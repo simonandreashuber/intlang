@@ -1,0 +1,32 @@
+include io
+include vector
+include queue
+
+let main = \() (
+    let rounds = io.readln_i32 () in
+    let q = queue.mkQueue 0 in
+    let rec aux = \i q. 
+        if i < rounds then
+            let q = vector.left_fold (queue.enQueue) q (io.readln_i32vec ()) in
+            let q =(
+                io.writeln_i32 (queue.sizeQueue q);
+                let toremove = io.readln_i32 () in
+                let rec rep = \j q.
+                    if (j < toremove) & (0 < queue.sizeQueue q) then
+                        let (e, q) = queue.deQueue q in
+                        (io.write_i32 e; writei8 ',';
+                        rep (j+1) q)
+                    else
+                        (writei8 '\n'; 
+                        q
+                        )
+                    end
+                in
+                rep 0 q
+            ) in
+            aux (i+1) q
+        else 
+            q
+        end in
+    let _ = aux 0 q in ()
+)

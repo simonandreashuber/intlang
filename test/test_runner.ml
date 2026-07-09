@@ -41,21 +41,33 @@ let generate_diff expected actual =
 
 (* Runs a single process, feeds it input, and returns the output/error *)
 let execute_process cmd input_data =
-  let (stdout_ch, stdin_ch, stderr_ch) = Unix.open_process_full cmd [||] in
+  let (stdout_ch, stdin_ch, stderr_ch) = Unix.open_process_full cmd (Unix.environment ()) in
+  
+  (* Thread-safe references to capture string data *)
+  let stdout_output = ref "" in
+  let stderr_output = ref "" in
+  
+  (* Spawn concurrent threads to drain stdout and stderr parallelly *)
+  let stdout_thread = Thread.create (fun () -> stdout_output := read_all_channel stdout_ch) () in
+  let stderr_thread = Thread.create (fun () -> stderr_output := read_all_channel stderr_ch) () in
+  
   try
+    (* Main thread pushes data into stdin *)
     output_string stdin_ch input_data;
-    close_out stdin_ch; (* Close stdin so interpreter knows input is done *)
+    close_out stdin_ch; (* Signal EOF to the interpreter *)
 
-    let actual_output = read_all_channel stdout_ch in
-    let stderr_output = read_all_channel stderr_ch in
+    (* Wait for the background reading threads to fully consume remaining buffers *)
+    Thread.join stdout_thread;
+    Thread.join stderr_thread;
+
     let status = Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch) in
-
     match status with
-    | Unix.WEXITED 0 -> Ok actual_output
+    | Unix.WEXITED 0 -> Ok !stdout_output
     | Unix.WEXITED code -> 
-        Error (Printf.sprintf "Non-zero exit code %d.\nStderr:\n%s\nInput:\n%s" code stderr_output input_data)
+        Error (Printf.sprintf "Non-zero exit code %d.\nStderr:\n%s\nInput:\n%s" code !stderr_output input_data)
     | _ -> Error "Process terminated abnormally."
   with e ->
+    (* Clean up resources if an unexpected exception occurs *)
     ignore (Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch));
     Error (Printf.sprintf "Exception during execution: %s" (Printexc.to_string e))
 
@@ -73,7 +85,10 @@ let run_batch interp_binary case =
   let all_input = Buffer.contents input_buf in
   let all_expected = Buffer.contents expect_buf in
   let cmd = Printf.sprintf "%s --stdlibpath %s --test %d %s" 
-      interp_binary (Sys.getcwd () ^ "/intlangstdlib/") case.iterations case.filename in
+      (Filename.quote interp_binary) 
+      (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/")) 
+      case.iterations 
+      (Filename.quote case.filename) in
 
   match execute_process cmd all_input with
   | Ok actual ->
@@ -84,7 +99,9 @@ let run_batch interp_binary case =
 (* SEPARATE MODE: Runs a new process for every iteration *)
 let run_separate interp_binary case =
   let cmd = Printf.sprintf "%s --stdlibpath %s %s" 
-      interp_binary (Sys.getcwd () ^ "/intlangstdlib/") case.filename in
+      (Filename.quote interp_binary) 
+      (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/")) 
+      (Filename.quote case.filename) in
   
   let rec loop i =
     if i >= case.iterations then None
@@ -93,7 +110,7 @@ let run_separate interp_binary case =
       match execute_process cmd in_str with
       | Ok actual ->
           if actual = exp_str then loop (i + 1)
-          else Some (Printf.sprintf "Iteration %d mismatch:\n%s\nInput:\n%s" i (generate_diff exp_str actual) in_str)
+          else Some (Printf.sprintf "Iteration %d mismatch:\n%s\nInput:\n%s\nOutput:\n%s\nExpected:\n%s" i (generate_diff exp_str actual) in_str actual exp_str)
       | Error msg -> Some (Printf.sprintf "Iteration %d Execution Failed:\n%s" i msg)
   in
   loop 0

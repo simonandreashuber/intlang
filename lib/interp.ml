@@ -184,7 +184,7 @@ and eval (e : tlexp) (env : env) : value =
             in
             match v_val with
             | VVec arr when idx >= 0 && idx < Array.length arr -> arr.(idx)
-            | VVec arr -> raise ((Errors.InterpError ("index out of bounds" ^ " (index: " ^ string_of_int idx ^ ", vector length: " ^ string_of_int (Array.length arr) ^ ")")))
+            | VVec arr -> raise ((Errors.InterpError ("index out of bounds on:\n" ^ PrintIntlang.sprint_tlexp 0 e ^ "\n (index: " ^ string_of_int idx ^ ", vector length: " ^ string_of_int (Array.length arr) ^ ")")))
             | _ -> raise ((Errors.InterpError ("vecget expects a vector ")))
         ) (eval v env) idx_list
     | VecsetT (v, setval, idx_list, _) -> 

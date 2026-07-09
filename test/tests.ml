@@ -14,6 +14,9 @@ let sim256 (i : int) : string = String.make 1 (char_of_int (Int.logand i 0xFF))
 let prln_int32 (i : int32) : string = Int32.to_string i ^ "\n"
 
 let prln_int32lst xs = String.concat "," (List.map Int32.to_string xs) ^ "\n"
+
+let prln_int32tuplst xs = let (vs, us) = List.split xs in prln_int32lst us ^ prln_int32lst vs
+
 let prln_int32lst_trailing xs = String.concat "," (List.map Int32.to_string xs) ^ ",\n"
 
 let prln_int32array arr = prln_int32lst (Array.to_list arr)
@@ -36,12 +39,17 @@ let rand_int32 seed i =
   x
 
 let rand_int32_ranged seed i min max =
-  Int32.add (Int32.unsigned_rem (rand_int32 seed i) (Int32.sub max min)) min
+  Int32.add (Int32.unsigned_rem (rand_int32 seed i) (Int32.max (Int32.sub max min) 1l)) min
 
 let rand_int32lst_ranged seed i min max maxlen =
   let seed0 = rand_int32 seed i in
   let len = 1 + Int32.to_int (Int32.unsigned_rem (rand_int32 seed0 0) maxlen) in
   List.init len (fun j -> rand_int32_ranged seed0 (j+1) min max)
+
+let rand_int32tuplst_ranged seed i min max maxlen =
+  let seed0 = rand_int32 seed i in
+  let len = 1 + Int32.to_int (Int32.unsigned_rem (rand_int32 seed0 0) maxlen) in
+  List.init len (fun j -> (rand_int32_ranged seed0 (2*j) min max, rand_int32_ranged seed0 (2*j+1) min max))
 
 let rand_int32array_ranged seed i min max len = 
   let seed0 = rand_int32 seed i in
@@ -376,7 +384,7 @@ let lang_tests = [
 
 (*
   ==== Lib Tests ====
-  These test test the intlangstdlib
+  These tests the basics of intlangstdlib: math, vector, queue, sort and search.
 *)
 
 let isqrt_i32 x =
@@ -400,41 +408,6 @@ let inbounds_int32 low high value =
 let cmp_int32_lists lst0 lst1 =
   let elcmp = (fun x y -> Int32.to_int @@ cmp_int32 x y) in
   if List.compare elcmp lst0 lst1 < 0 then -1l else if List.compare elcmp lst0 lst1 > 0 then 1l else 0l
-
-let matmul_flat rows shared cols lhs rhs =
-  let rows = Int32.to_int rows in
-  let shared = Int32.to_int shared in
-  let cols = Int32.to_int cols in
-  Array.init (rows * cols) (fun idx ->
-    let row = idx / cols in
-    let col = idx mod cols in
-    let acc = ref 0l in
-    for k = 0 to shared - 1 do
-      let lhs_idx = row * shared + k in
-      let rhs_idx = k * cols + col in
-      acc := Int32.add !acc (Int32.mul lhs.(lhs_idx) rhs.(rhs_idx))
-    done;
-    !acc)
-
-let matadd_flat lhs rhs =
-  Array.init (Array.length lhs) (fun idx -> Int32.add lhs.(idx) rhs.(idx))
-
-let matsmul_flat lhs scalar =
-  Array.init (Array.length lhs) (fun idx -> Int32.mul lhs.(idx) scalar)
-
-let matsub_flat lhs rhs =
-  Array.init (Array.length lhs) (fun idx -> Int32.sub lhs.(idx) rhs.(idx))
-
-let matid_flat n =
-  let n = Int32.to_int n in
-  Array.init (n * n) (fun idx -> if idx / n = idx mod n then 1l else 0l)
-
-let matsqtrans_flat n lhs =
-  let n = Int32.to_int n in
-  Array.init (n * n) (fun idx ->
-    let row = idx / n in
-    let col = idx mod n in
-    lhs.(col * n + row))
 
 let search_int32lst (lst : int32 list) (target : int32) =
   List.fold_right (fun (idx, x) acc -> if Int32.compare x target = 0 then idx else acc) (List.mapi (fun idx x -> (Int32.of_int idx, x)) lst) (-1l) 
@@ -472,16 +445,22 @@ let lib_tests = [
     generator = (fun i ->
       let vi32 = rand_int32lst_ranged 2026070711l i (-10000l) 10000l 32l in
       let double = List.map (Int32.mul 2l) vi32 in
+      let reverse = List.rev vi32 in
+      let quotient = List.map2 (fun a b -> Int32.div a (if b = 0l then 1l else b)) vi32 reverse in
       let copied = vi32 @ vi32 in
       let addreduce_left = List.fold_left Int32.add 0l vi32 in
+      let addreduce_quotient = List.fold_left2 (fun acc a b -> Int32.add acc (Int32.div b (if a = 0l then 1l else a))) 0l vi32 reverse in
       let addreduce_right = List.fold_right Int32.add vi32 0l in
       let middle = (List.length vi32) / 2 in
       let vi32larger = List.mapi (fun idx value -> if idx = middle then Int32.add value 1l else value) vi32 in
       let input = prln_int32lst vi32 in
       let expected = String.concat "" [
         prln_int32lst double;
+        prln_int32lst reverse;
+        prln_int32lst quotient;
         prln_int32lst copied;
         prln_int32 addreduce_left;
+        prln_int32 addreduce_quotient;
         prln_int32 addreduce_right;
         prln_int32 (cmp_int32_lists vi32 vi32);
         prln_int32 (cmp_int32_lists vi32 vi32larger);
@@ -493,6 +472,101 @@ let lib_tests = [
       (input, expected));
   };
   {
+    testname = "queue_libtest_i32";
+    filename = "cases/queue_libtest_i32.intlang";
+    iterations = 32;
+    generator = (fun i ->
+      let seed0 = rand_int32 444919671l i in
+      let rounds = rand_int32_ranged seed0 0 1l 10l in
+      let input_ref = ref (prln_int32 rounds) in
+      let expected_ref = ref "" in
+      let queue = Queue.create () in
+      for round = 0 to Int32.to_int rounds - 1 do
+        let seed1 = rand_int32 903114354l round in
+        let enqueuelst = rand_int32lst_ranged seed1 0 (-1000l) (1000l) (Int32.of_int (round*20 + 200)) in
+        let dequeue_count = rand_int32_ranged seed1 1 0l (Int32.of_int (round*20 + 200)) in
+        input_ref := !input_ref ^ prln_int32lst enqueuelst ^ prln_int32 dequeue_count;
+        List.iter (fun x -> Queue.push x queue) enqueuelst;
+        expected_ref := !expected_ref ^ (Queue.length queue |> Int32.of_int |> prln_int32);
+        for _ = 0 to Int32.to_int dequeue_count - 1 do
+          expected_ref := !expected_ref ^ (if Queue.is_empty queue then "" else (Int32.to_string (Queue.pop queue)) ^ ",");
+        done;
+        expected_ref := !expected_ref ^ "\n";
+      done;
+      (!input_ref, !expected_ref))
+  };
+  {
+    testname = "sort_libtest_i32";
+    filename = "cases/sort_libtest_i32.intlang";
+    iterations = 32;
+    generator = (fun i ->
+      let input_vec = rand_int32lst_ranged 30659444l i (-30l) 30l 64l in
+      let sorted_vec = List.sort Int32.compare input_vec in
+      let input = prln_int32lst input_vec in
+      let expected = prln_int32lst sorted_vec in
+      (input, expected));
+  };
+  {
+    testname = "search_libtest_i32";
+    filename = "cases/search_libtest_i32.intlang";
+    iterations = 32;
+    generator = (fun i ->
+      let input_vec0 = rand_int32lst_ranged 30659444l i (-30l) 30l 32l in
+      let target = rand_int32_ranged 80773817l i (-30l) (30l) in
+      let input_vec1 = rand_int32lst_ranged 19772196l i (-30l) 30l 32l in
+      let input_vec = input_vec0 @ [target] @ input_vec1 in
+      let sorted_vec = List.sort Int32.compare input_vec in
+      let input = prln_int32 target ^
+                  prln_int32lst input_vec ^ 
+                  prln_int32lst sorted_vec in
+      let expected =  prln_int32 (search_int32lst input_vec target) ^
+                      prln_int32 (search_int32lst sorted_vec target) in
+      (input, expected))
+  }
+]
+
+(*
+  ==== Mat Tests ====
+  These tests test mat.intlang (matrix library)
+*)
+
+let matmul_flat rows shared cols lhs rhs =
+  let rows = Int32.to_int rows in
+  let shared = Int32.to_int shared in
+  let cols = Int32.to_int cols in
+  Array.init (rows * cols) (fun idx ->
+    let row = idx / cols in
+    let col = idx mod cols in
+    let acc = ref 0l in
+    for k = 0 to shared - 1 do
+      let lhs_idx = row * shared + k in
+      let rhs_idx = k * cols + col in
+      acc := Int32.add !acc (Int32.mul lhs.(lhs_idx) rhs.(rhs_idx))
+    done;
+    !acc)
+
+let matadd_flat lhs rhs =
+  Array.init (Array.length lhs) (fun idx -> Int32.add lhs.(idx) rhs.(idx))
+
+let matsmul_flat lhs scalar =
+  Array.init (Array.length lhs) (fun idx -> Int32.mul lhs.(idx) scalar)
+
+let matsub_flat lhs rhs =
+  Array.init (Array.length lhs) (fun idx -> Int32.sub lhs.(idx) rhs.(idx))
+
+let matid_flat n =
+  let n = Int32.to_int n in
+  Array.init (n * n) (fun idx -> if idx / n = idx mod n then 1l else 0l)
+
+let matsqtrans_flat n lhs =
+  let n = Int32.to_int n in
+  Array.init (n * n) (fun idx ->
+    let row = idx / n in
+    let col = idx mod n in
+    lhs.(col * n + row))
+
+let mat_tests = [
+    {
     testname = "mat_libtest_nonsq";
     filename = "cases/mat_libtest_nonsq.intlang";
     iterations = 50;
@@ -543,34 +617,95 @@ let lib_tests = [
         prln_int32array idmat
       ] in
       (input, expected));
-  };
+    };
+]
+
+
+(*
+  ==== Graph Tests ====
+  These tests test the graph.inlang library
+*)
+
+module Int32Vertex = struct
+  type t = int32
+  let compare = Int32.compare
+  let equal = Int32.equal
+  let hash = Hashtbl.hash
+end
+
+module G = Graph.Persistent.Digraph.Concrete(Int32Vertex)
+
+(* Returns: (discover_array, finish_array, parent_array) all containing int32 *)
+let dfs_canonicalord_ocamlvers g size start =
+  if G.is_empty g then ([||], [||], [||])
+  else
+    (*1. Make sure start vertex exists*)
+    let g = G.add_vertex g start in 
+
+    (* 2. Initialize arrays with int32 fallback values (-1l) *)
+    let discover_arr = Array.make size (-1l) in
+    let finish_arr = Array.make size (-1l) in
+    let parent_arr = Array.make size (-1l) in
+    let time = ref 0l in
+
+    (* 3. Core DFS tracking with int32 time updates *)
+    let rec dfs_visit u =
+      let u_idx = Int32.to_int u in
+      discover_arr.(u_idx) <- !time;
+      time := Int32.add !time 1l;
+      
+      G.iter_succ (fun v ->
+        let v_idx = Int32.to_int v in
+        (* If discover time is still -1l, it hasn't been visited *)
+        if discover_arr.(v_idx) = -1l then begin
+          parent_arr.(v_idx) <- u;
+          dfs_visit v
+        end
+      ) g u;
+      
+      finish_arr.(u_idx) <- !time;
+      time := Int32.add !time 1l
+    in
+
+    (* 4. Execute single-shot traversal from the start node *)
+    parent_arr.(Int32.to_int start) <- -1l;
+    dfs_visit start;
+    (discover_arr, finish_arr, parent_arr)
+
+
+let graph_tests = [
   {
-    testname = "sort_libtest_i32";
-    filename = "cases/sort_libtest_i32.intlang";
-    iterations = 32;
+    testname = "graph_libtest";
+    filename = "cases/graph_libtest.intlang";
+    iterations = 64;
     generator = (fun i ->
-      let input_vec = rand_int32lst_ranged 30659444l i (-30l) 30l 64l in
-      let sorted_vec = List.sort Int32.compare input_vec in
-      let input = prln_int32lst input_vec in
-      let expected = prln_int32lst sorted_vec in
+      let seed0 = rand_int32 2026070712l (i+0) in
+      let n = rand_int32_ranged seed0 0 1l 100l in
+      let nm1 = Int32.sub n 1l in
+      let edges_toadd = rand_int32tuplst_ranged seed0 1 0l nm1 500l in
+      let checks0 = rand_int32tuplst_ranged seed0 2 0l nm1 200l in
+      let edges_toremove = rand_int32tuplst_ranged seed0 3 0l nm1 100l in
+      let checks1 = rand_int32tuplst_ranged seed0 4 0l nm1 200l in
+      let g = G.empty in
+      let g = List.fold_left (fun acc (f, t) -> G.add_edge acc f t) g edges_toadd in
+      let checks0_results = List.map (fun (f, t) -> if G.mem_edge g f t then 1l else 0l) checks0 in
+      let g = List.fold_left (fun acc (f, t) -> try G.remove_edge acc f t with Invalid_argument _ -> acc) g edges_toremove in
+      let checks1_results = List.map (fun (f, t) -> if G.mem_edge g f t then 1l else 0l) checks1 in
+      let start = rand_int32_ranged seed0 5 0l (Int32.sub n 1l) in
+      let (discover, finish, parent) = dfs_canonicalord_ocamlvers g (Int32.to_int n) start in
+      let input = prln_int32 n ^
+                  prln_int32tuplst edges_toadd ^
+                  prln_int32tuplst checks0 ^
+                  prln_int32tuplst edges_toremove ^
+                  prln_int32tuplst checks1 ^
+                  prln_int32 start in
+      let expected = prln_int32lst checks0_results ^
+                     prln_int32lst checks1_results ^
+                     prln_int32array discover ^
+                     prln_int32array finish ^
+                     prln_int32array parent in
+
       (input, expected));
-  };
-  {
-    testname = "search_libtest_i32";
-    filename = "cases/search_libtest_i32.intlang";
-    iterations = 32;
-    generator = (fun i ->
-      let input_vec0 = rand_int32lst_ranged 30659444l i (-30l) 30l 32l in
-      let target = rand_int32_ranged 80773817l i (-30l) (30l) in
-      let input_vec1 = rand_int32lst_ranged 19772196l i (-30l) 30l 32l in
-      let input_vec = input_vec0 @ [target] @ input_vec1 in
-      let sorted_vec = List.sort Int32.compare input_vec in
-      let input = prln_int32 target ^
-                  prln_int32lst input_vec ^ 
-                  prln_int32lst sorted_vec in
-      let expected =  prln_int32 (search_int32lst input_vec target) ^
-                      prln_int32 (search_int32lst sorted_vec target) in
-      (input, expected))
   };
 ]
 
@@ -582,4 +717,6 @@ let tests = [
   ("IOLib", iolib_tests);
   ("Lang", lang_tests);
   ("Lib", lib_tests);
+  ("Mat", mat_tests);
+  ("Graph", graph_tests);
 ]

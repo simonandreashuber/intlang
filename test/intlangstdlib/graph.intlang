@@ -77,7 +77,7 @@ let dfs = \ (ord : [i32] -> [i32]) (g : [[i32]]) (start : i32) => [i32]*[i32]*[i
             let nacc = (t+1, ndisct, fint, npar) in
             let neigh_unord = vecget[g, v] in
             let neigh = ord neigh_unord in
-            let nnacc = vector.left_fold (dfsaux v) nacc neigh in
+            let nnacc = vector.left_fold (\acc vloc. if vloc >= 0 then dfsaux v acc vloc else acc end) nacc neigh in
             let (t2, disct2, fint2, par2) = nnacc in
             let nfint = vecset[fint2, t2, v] in
             (t2+1, disct2, nfint, par2)

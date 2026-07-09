@@ -22,6 +22,10 @@ let bubblesort = \cmpf arr.
             arr
         end end
     in
-    bubblesortaux arr 0 0
-
+    if len == 0 then
+        arr
+    else
+        bubblesortaux arr 0 0
+    end
+    
 let bubblesort_i32 = bubblesort math.cmp_i32

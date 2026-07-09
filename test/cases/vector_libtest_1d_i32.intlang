@@ -8,7 +8,10 @@ let main = \() (
     let vi32 = io.csi32str_to_i32vec input in
 
     let double = vector.map (\x. 2*x) vi32 in
+    let reverse = vector.rev vi32 in
+    let quotient = vector.map2 (\a b. a / (if b == 0 then 1 else b end)) vi32 reverse in
     let addreduce_left = vector.left_fold (\x. \y. x+y) 0 vi32 in
+    let addreduce_quotient = vector.left_fold2 (\acc a b. acc + (b / (if a == 0 then 1 else a end))) 0 vi32 reverse in
     let addreduce_right = vector.right_fold (\x. \y. x+y) vi32 0 in
     let copied = vector.concat vi32 vi32 in
 
@@ -22,8 +25,11 @@ let main = \() (
     let gtlencmp = vector.cmp math.cmp_i32 copied vi32 in
     (
     io.writeln_i32vec double;
+    io.writeln_i32vec reverse;
+    io.writeln_i32vec quotient;
     io.writeln_i32vec copied;
     io.writeln_i32 addreduce_left;
+    io.writeln_i32 addreduce_quotient;
     io.writeln_i32 addreduce_right;
     io.writeln_i32 eqcmp;
     io.writeln_i32 ltcmp;

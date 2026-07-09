@@ -1,6 +1,6 @@
 (executable
  (name test_runner)
- (libraries intlang_lib str unix)
+ (libraries intlang_lib str unix threads ocamlgraph)
  (modules test_runner tests)) ;(enabled_if false)
 
 (rule

@@ -9,7 +9,7 @@ let mkQueue = \defval. (0,0, vecmk[defval, 128]) -- default size of 128, can be 
 
 let sizeQueue = \q. 
             let (front, back, v) = q in
-            if front < back then back - front else (veclen[v] - front) + (back - 1) end
+            if front <= back then back - front else veclen[v] - front + back end
 
 let isemptyQueue = \q. sizeQueue q == 0
 
