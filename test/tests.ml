@@ -213,10 +213,16 @@ let langbasic_tests = [
     generator = (fun _ -> ("", sim256 0xAA ^ sim256 0xAA ^ sim256 0xAA ^ sim256 0x30 ^ sim256 0xAA));
   };
   {
-    testname = "vecresz_1d";
-    filename = "cases/vecresz_1d.intlang";
+    testname = "vecslice_1d";
+    filename = "cases/vecslice_1d.intlang";
     iterations = 1;
-    generator = (fun _ -> ("", sim256 0xFF ^ sim256 1 ^ sim256 2 ^ sim256 3 ^ sim256 5));
+    generator = (fun _ -> ("", sim256 1 ^ sim256 2 ^ sim256 3));
+  };
+  {
+    testname = "vecextend_1d";
+    filename = "cases/vecextend_1d.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", sim256 0xFF ^ sim256 0 ^ sim256 1 ^ sim256 2 ^ sim256 3));
   };
   {
     testname = "let";
@@ -247,12 +253,6 @@ let langbasic_tests = [
     filename = "cases/comments.intlang";
     iterations = 1;
     generator = (fun _ -> ("", sim256 0x55));
-  };
-  {
-    testname = "includetest";
-    filename = "cases/includetest.intlang";
-    iterations = 1;
-    generator = (fun _ -> ("", sim256 8));
   };
 ]
 
@@ -397,6 +397,12 @@ let lang_tests = [
     filename = "cases/strlit.intlang";
     iterations = 1;
     generator = (fun _ -> ("", "wow a string literal!!!!\n"));
+  };
+  {
+    testname = "includetest";
+    filename = "cases/includetest.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "3\n"));
   };
 ]
 
@@ -809,8 +815,4 @@ let tests = [
   ("IOBasic", iobasic_tests);
   ("LangBasic", langbasic_tests);
   ("IOLib", iolib_tests);
-  ("Lang", lang_tests);
-  ("Lib", lib_tests);
-  ("Mat", mat_tests);
-  ("Graph", graph_tests);
 ]

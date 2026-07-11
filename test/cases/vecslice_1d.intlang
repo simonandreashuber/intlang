@@ -1,14 +1,10 @@
 let main = \() ( 
     let v = vec [ '\x00', '\x01', '\x02', '\x03', '\x04'] in
-    let v = vecresz[v, '\x00', 1, -1] in
-    let v = vecresz[v, '\x05', 0, 1] in
-    let v = vecresz[v, '\xff', -1, 0] in
+    let v = vecslice[v, 1, 3] in
     (
     writei8 (vecget[v, 0]); 
     writei8 (vecget[v, 1]); 
     writei8 (vecget[v, 2]); 
-    writei8 (vecget[v, 3]); 
-    writei8 (vecget[v, 4]); 
     flush ()
     )
     )

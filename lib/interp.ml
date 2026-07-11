@@ -211,18 +211,31 @@ and eval (e : tlexp) (env : env) : value =
             | _ -> raise (Errors.InterpError "vecset expects an non empty index list")
         in
         vecsetaux (eval v env) idx_list
-    | VecreszT (v, defval, newstart, newend, _) -> (
-        let defval_val = eval defval env in
-        match eval v env, eval newstart env, eval newend env with
-        | VVec arr, VI32 start_off, VI32 end_off -> (
-            let newlen = - (Int32.to_int start_off) + (Array.length arr) + (Int32.to_int end_off) in
-            let new_arr = Array.init newlen 
-                            (fun i -> if i < -(Int32.to_int start_off) || i >= (Array.length arr) - (Int32.to_int start_off) then
-                                          defval_val
-                                      else
-                                          arr.(i+(Int32.to_int start_off))) in
-            VVec new_arr )
-        | _, _, _ -> raise (Errors.InterpError "vecresz expects a vector and valid integer indices")
+    | VecsliceT (v, start, len, _) -> (
+        match eval v env, eval start env, eval len env with
+        | VVec arr, VI32 start, VI32 len when 0 <= (Int32.to_int start) && 
+                                              (Int32.to_int start) < Array.length arr && 
+                                              0 <= (Int32.to_int len) &&
+                                              (Int32.to_int start) + (Int32.to_int len) <= Array.length arr -> ( VVec (Array.init (Int32.to_int len) (fun i -> arr.(i+(Int32.to_int start))) ) )
+        | _, _, _ -> raise (Errors.InterpError "vecslice expects a vector and valid integer indices")
+    )
+    | VecextendT (v, lit, off, _) -> (
+        let lit_val = eval lit env in
+        match eval v env, eval off env with
+        | VVec arr, VI32 off-> (
+            let offint = Int32.to_int off in
+            let newlen = (Array.length arr) + (Int32.to_int @@ Int32.abs off) in
+            let new_arr = 
+                if 0 <= offint then
+                    Array.init newlen (fun i -> 
+                        if (Array.length arr) <= i then lit_val else arr.(i))
+                else 
+                    Array.init newlen (fun i -> 
+                        if offint < -i then lit_val else arr.(i+offint))
+                in
+            VVec new_arr 
+        )
+        | _, _ -> raise (Errors.InterpError "vecextend expects a vector and valid integer offset")
     )
 
 

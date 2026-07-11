@@ -21,7 +21,7 @@ open Errors
 %token INCLUDE              (* include *)
 %token LBRACK RBRACK        (* [] *)
 %token COMMA
-%token VECLEN VECLIT VECMK VECGET VECSET VECRESZ
+%token VECLEN VECLIT VECMK VECGET VECSET VECSLICE VECEXTEND
 %token FUNTYP I32TYP I8TYP UNITTYP
 %token <int>I32             (* int literal *)
 %token <char>I8
@@ -181,16 +181,21 @@ lexp_atom:
                                                                                                                 VecLit (List.map (fun x -> I8Lit x) (List.of_seq (String.to_seq str))) 
                                                                                                         }
     | LPAR; ls = exp_seq_list_min2; RPAR;                                                               { Tuple ls }
-    | VECLIT; LBRACK; lit_list = exp_seq_list_min1; RBRACK                                              { VecLit lit_list }
+    | VECLIT; LBRACK; lit_list = exp_seq_list_min0; RBRACK                                              { VecLit lit_list }
     | VECMK; LBRACK; lit = exp_seq; COMMA; size_list = exp_seq_list_min1; RBRACK                        { Vecmk(lit, size_list) }
     | VECLEN; LBRACK; v = exp_seq; RBRACK                                                               { Veclen v }
-    | VECGET; LBRACK; v = exp_seq; idx_list = exp_seq_list_min0; RBRACK                                 { Vecget(v, idx_list) }
-    | VECSET; LBRACK; v = exp_seq; COMMA; value = exp_seq; idx_list = exp_seq_list_min0; RBRACK         { Vecset(v, value, idx_list) }
-    | VECRESZ; LBRACK; v = exp_seq; COMMA; defval = exp_seq; COMMA; newstart = exp_seq; COMMA; newend = exp_seq; RBRACK   { Vecresz(v, defval, newstart, newend) }
+    | VECGET; LBRACK; v = exp_seq; idx_list = exp_seq_list_starting_comma_min0; RBRACK                                 { Vecget(v, idx_list) }
+    | VECSET; LBRACK; v = exp_seq; COMMA; value = exp_seq; idx_list = exp_seq_list_starting_comma_min0; RBRACK         { Vecset(v, value, idx_list) }
+    | VECSLICE; LBRACK; v = exp_seq; COMMA; start = exp_seq; COMMA; len = exp_seq; RBRACK               { Vecslice(v, start, len) }
+    | VECEXTEND; LBRACK; v = exp_seq; COMMA; lit = exp_seq; COMMA; off = exp_seq; RBRACK                { Vecextend(v, lit, off) }
     | LPAR; l = exp_seq; RPAR                                                                           { l }
 
+exp_seq_list_starting_comma_min0:
+    | COMMA; l = exp_seq; ls = exp_seq_list_starting_comma_min0     { l :: ls }
+    |                                                               { [] }
+
 exp_seq_list_min0:
-    | COMMA; l = exp_seq; ls = exp_seq_list_min0            { l :: ls }
+    | l = exp_seq_list_min1                                 { l }
     |                                                       { [] }
 
 exp_seq_list_min1:

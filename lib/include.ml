@@ -59,7 +59,8 @@ let lex_parse_include (std_lib_path: string) (filepath: string) : ast =
       | Veclen v -> Veclen (vars_add_prefix prefix locbound v)
       | Vecget (v, idx_list) -> Vecget (vars_add_prefix prefix locbound v, List.map (vars_add_prefix prefix locbound) idx_list)
       | Vecset (v, value, idx_list) -> Vecset (vars_add_prefix prefix locbound v, vars_add_prefix prefix locbound value, List.map (vars_add_prefix prefix locbound) idx_list)
-      | Vecresz(v, defval, newstart, newend) -> Vecresz(vars_add_prefix prefix locbound v, vars_add_prefix prefix locbound defval, vars_add_prefix prefix locbound newstart, vars_add_prefix prefix locbound newend)
+      | Vecslice(v, start, len) -> Vecslice(vars_add_prefix prefix locbound v, vars_add_prefix prefix locbound start, vars_add_prefix prefix locbound len)
+      | Vecextend(v, lit, off) -> Vecextend(vars_add_prefix prefix locbound v, vars_add_prefix prefix locbound lit, vars_add_prefix prefix locbound off)
   in
       (*
     example 

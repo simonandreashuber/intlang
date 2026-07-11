@@ -1,0 +1,13 @@
+let main = \() ( 
+    let v = vec [ '\x00', '\x01', '\x02'] in
+    let v = vecextend[v, '\x03', 1] in
+    let v = vecextend[v, '\xFF', -1] in
+    (
+    writei8 (vecget[v, 0]); 
+    writei8 (vecget[v, 1]); 
+    writei8 (vecget[v, 2]); 
+    writei8 (vecget[v, 3]); 
+    writei8 (vecget[v, 4]); 
+    flush ()
+    )
+    )

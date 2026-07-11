@@ -14,10 +14,10 @@ let read_str = \ (len : i32) => [i8].
 -- \() => [i8]. unit lambda annotation might be nice
 let read_ln = \()
     let rec read_ln_aux = \ (acc : [i8]) (i : i32) => [i8].
-        let acc_w_space = if i < veclen[acc] then acc else vecresz[acc, '\x00', 0, veclen[acc]] end in
+        let acc_w_space = if i < veclen[acc] then acc else vecextend[acc, '\x00', veclen[acc]] end in
         let c = readi8 () in
         if c ==i8 '\n' then
-            vecresz[acc_w_space, '\x00', 0, i - (veclen[acc_w_space] - 1) - 1 ] --resize to use the valid part of the buffer
+            vecslice[acc_w_space, 0, i] --resize to use the valid part of the buffer
         else
             read_ln_aux vecset[acc_w_space, c, i] (i+1)
         end
@@ -117,7 +117,7 @@ let i32_to_str_buff = \ (i : i32) -- i32 to convert
 
 let i32_to_str = \i : i32 => [i8].
     let (idx, acc) = i32_to_str_buff i 11 (vecmk['\x00', 12]) in
-    vecresz[acc, '\x00', idx+1, 0]
+    vecslice[acc, idx+1, veclen[acc]-(idx+1)] -- resize to the valid part of the buffer
 
 
 -- COMMA SEPARATED I32
@@ -127,16 +127,16 @@ let csi32str_to_i32vec = \s : [i8] => [i32].
         if r < n then
             let c = vecget[s, r] in
             if c ==i8 ',' then
-                let num_str = vecresz[s, '\x00', l, r-1-(n-1)] in
+                let num_str = vecslice[s, l, r-l] in
                 let num = str_to_i32 num_str in
                 aux (r+1) (r+1) (idx+1) vecset[acc, num, idx]
             else
                 aux l (r+1) idx acc
             end
         else
-            let num_str = vecresz[s, '\x00', l, 0] in
+            let num_str = vecslice[s, l, n-l] in
             let num = str_to_i32 num_str in
-            vecresz[vecset[acc, num, idx], 0, 0 , idx - veclen[acc]+1]
+            vecslice[vecset[acc, num, idx], 0, idx+1]
         end
     in
     aux 0 0 0 vecmk[0, n/2 + 1] -- there are at most veclen[s]/2 numbers in the string (only 0 to 9 for all numbers)
@@ -153,7 +153,7 @@ let i32vec_to_csi32str = \v : [i32] => [i8].
             let idx = idx - 1 in
             aux (i-1) idx acc
         else
-            vecresz[acc, '\x00', idx+2, 0] --also remove the last comma that was added
+            vecslice[acc, idx+2, veclen[acc]-(idx+2)] --also remove the last comma that was added
         end
     in
     if n == 0 then

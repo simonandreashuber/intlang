@@ -31,7 +31,8 @@ let rec reccheck_lexp (e : lexp) : unit =
       | Veclen v -> reccheck_lexp v
       | Vecget (v, idx_list) -> reccheck_lexp v; List.iter reccheck_lexp idx_list
       | Vecset (v, value, idx_list) -> reccheck_lexp v; reccheck_lexp value; List.iter reccheck_lexp idx_list
-      | Vecresz(v, defval, newstart, newend) -> reccheck_lexp v; reccheck_lexp defval; reccheck_lexp newstart; reccheck_lexp newend
+      | Vecslice(v, start, len) -> reccheck_lexp v; reccheck_lexp start; reccheck_lexp len
+      | Vecextend(v, lit, off) -> reccheck_lexp v; reccheck_lexp lit; reccheck_lexp off
 let reccheck  (ast : ast) : unit =
   List.iter (fun stmt ->
     match stmt with

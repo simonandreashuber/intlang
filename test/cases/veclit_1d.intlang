@@ -1,5 +1,5 @@
 let main = \() ( 
-    let vlit = vec [ '\x00', '\x01', '\x02', '\x03', '\x04'] in
+    let vlit = vec[ '\x00', '\x01', '\x02', '\x03', '\x04'] in
     (
     writei8 (vecget[vlit, 0]); 
     writei8 (vecget[vlit, 1]); 

@@ -125,7 +125,8 @@ let specialize_polytletbnd ((name, uuid, _, lhs) : polytletbnd) (smap : specmap)
     | VeclenT (v, oldtyp) -> VeclenT (aux v, sub oldtyp)
     | VecgetT (v, idxls, oldtyp) -> VecgetT (aux v, List.map aux idxls, sub oldtyp)
     | VecsetT (v, setval, idxls, oldtyp) -> VecsetT (aux v, aux setval, List.map aux idxls, sub oldtyp)
-    | VecreszT (v, defval, newstart, newend, oldtyp) -> VecreszT (aux v, aux defval, aux newstart, aux newend, sub oldtyp)
+    | VecsliceT (v, start, len, oldtyp) -> VecsliceT (aux v, aux start, aux len, sub oldtyp)
+    | VecextendT (v, lit, off, oldtyp) -> VecextendT (aux v, aux lit, aux off, sub oldtyp)
   in 
   let sub_lhs = aux lhs in
   let mono_typ = tlexp_get_type sub_lhs in
@@ -179,7 +180,8 @@ let rec genmonovers_tlexp (l : tlexp) : (uuid * monotletbnd) list = (*returns ne
   | VeclenT (v, mt) -> genmonovers_tlexp v
   | VecgetT (v, idxls, mt) -> (genmonovers_tlexp v) @ (List.flatten (List.map genmonovers_tlexp idxls))
   | VecsetT (v, setval, idxls, mt) -> (genmonovers_tlexp v) @ (genmonovers_tlexp setval) @ (List.flatten (List.map genmonovers_tlexp idxls))
-  | VecreszT (v, defval, newstart, newend, mt) -> (genmonovers_tlexp v) @ (genmonovers_tlexp defval) @ (genmonovers_tlexp newstart) @ (genmonovers_tlexp newend)
+  | VecsliceT (v, start, len, mt) -> (genmonovers_tlexp v) @ (genmonovers_tlexp start) @ (genmonovers_tlexp len)
+  | VecextendT (v, lit, off, mt) -> (genmonovers_tlexp v) @ (genmonovers_tlexp lit) @ (genmonovers_tlexp off)
 
 let genmonovers_monotast (mtast : monotast) : (uuid * monotletbnd) list =
   List.fold_right (fun (name, uuid, lhs) newletbndacc ->

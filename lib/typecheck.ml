@@ -234,14 +234,12 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       ((t1, TI8) :: (t2, TI8) :: (cs1 @ cs2), BopI8T (bop, e1t, e2t, ret_typ))
     )
     | VecLit ls -> (
-      if List.length ls = 0 then raise (Errors.TypeError "Cannot infer type of empty vector literal, how did this get past the parser?") 
-      else
-        let cs_ls, ls_t = List.split (List.map (fun lexp_i -> typecheck_lexp env lexp_i) ls) in
-        let cs = List.flatten cs_ls in
-        let t_elem = TVar (fresh_tvar ()) in (*while a new TVar is not strictly needed here, it does lend itself better to ocaml programming imo*)
-        let elem_constraints = List.map (fun i_t -> (tlexp_get_type i_t, t_elem)) ls_t in
-        log_appendln (spf "Veclit %s: t_elem=%s, constr= %s" (sples e) (spt t_elem) (spcs elem_constraints) );
-        (elem_constraints @ cs, VecLitT (ls_t, (TVec t_elem)))
+      let cs_ls, ls_t = List.split (List.map (fun lexp_i -> typecheck_lexp env lexp_i) ls) in
+      let cs = List.flatten cs_ls in
+      let t_elem = TVar (fresh_tvar ()) in
+      let elem_constraints = List.map (fun i_t -> (tlexp_get_type i_t, t_elem)) ls_t in
+      log_appendln (spf "Veclit %s: t_elem=%s, constr= %s" (sples e) (spt t_elem) (spcs elem_constraints) );
+      (elem_constraints @ cs, VecLitT (ls_t, (TVec t_elem)))
     )
     | Vecmk (defval, size_list) -> (
       let cs_defval, defval_t = typecheck_lexp env defval in
@@ -284,19 +282,29 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       log_appendln (spf "Vecset %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr) :: (t_val, t_vec_of) :: cs_idx)) );
       ((t_v, t_vec_constr) :: (t_val, t_vec_of) :: (cs_idx @ cs_idxrec @ cs_val @ cs_v), VecsetT (v_t, val_t, idx_list_t, t_vec_constr))
     )
-    | Vecresz(v, defval, newstart, newend) -> (
+    | Vecslice(v, start, len) -> (
       let cs_v, v_t = typecheck_lexp env v in
       let t_v = tlexp_get_type v_t in
-      let cs_defval, defval_t = typecheck_lexp env defval in
-      let t_defval = tlexp_get_type defval_t in
-      let cs_newstart, newstart_t = typecheck_lexp env newstart in
-      let t_newstart = tlexp_get_type newstart_t in
-      let cs_newend, newend_t = typecheck_lexp env newend in
-      let t_newend = tlexp_get_type newend_t in
+      let cs_start, start_t = typecheck_lexp env start in
+      let t_start = tlexp_get_type start_t in
+      let cs_len, len_t = typecheck_lexp env len in
+      let t_len = tlexp_get_type len_t in
       let t_vec_of = TVar (fresh_tvar ()) in
       let t_vec_constr = TVec (t_vec_of) in
-      log_appendln (spf "Vecresz %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr) :: (t_defval, t_vec_of) :: (t_newstart, TI32) :: (t_newend, TI32) :: [])) );
-      ((t_v, t_vec_constr) :: (t_defval, t_vec_of) :: (t_newstart, TI32) :: (t_newend, TI32) :: (cs_newend @ cs_newstart @ cs_defval @ cs_v), VecreszT (v_t, defval_t, newstart_t, newend_t, t_vec_constr))
+      log_appendln (spf "Vecslice %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr) :: (t_start, TI32) :: (t_len, TI32) :: [])) );
+      ((t_v, t_vec_constr) :: (t_start, TI32) :: (t_len, TI32) :: (cs_len @ cs_start @ cs_v), VecsliceT (v_t, start_t, len_t, t_vec_constr))
+    )
+    | Vecextend(v, lit, off) -> (
+      let cs_v, v_t = typecheck_lexp env v in
+      let t_v = tlexp_get_type v_t in
+      let cs_lit, lit_t = typecheck_lexp env lit in
+      let t_lit = tlexp_get_type lit_t in
+      let cs_off, off_t = typecheck_lexp env off in
+      let t_off = tlexp_get_type off_t in
+      let t_vec_of = TVar (fresh_tvar ()) in
+      let t_vec_constr = TVec (t_vec_of) in
+      log_appendln (spf "Vecextend %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr) :: (t_lit, t_vec_of) :: (t_off, TI32) :: [])) );
+      ((t_v, t_vec_constr) :: (t_lit, t_vec_of) :: (t_off, TI32) :: (cs_off @ cs_lit @ cs_v), VecextendT (v_t, lit_t, off_t, t_vec_constr))
     )
 
 let typecheck_let (id: string) (e: lexp) (env : typenv) : typenv * polytast =
