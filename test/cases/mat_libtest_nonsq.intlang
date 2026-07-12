@@ -8,10 +8,13 @@ let main = \() (
     let a0 = io.readln_i32vec () in
     let a1 = io.readln_i32vec () in
     let b = io.readln_i32vec () in
-    let ab = mat.matmul rows shared cols a0 b in
+    let ab_res = mat.matmul rows shared cols a0 b in
+    let ab = if err.ok ab_res then err.uwrp ab_res else vec[] end in
     let a0x3 = mat.matsmul a0 3 in
-    let a0pa1 = mat.matadd a0 a1 in
-    let a0x2 = mat.matsub a0x3 a0 in
+    let a0pa1_res = mat.matadd a0 a1 in
+    let a0pa1 = if err.ok a0pa1_res then err.uwrp a0pa1_res else vec[] end in
+    let a0x2_res = mat.matsub a0x3 a0 in
+    let a0x2 = if err.ok a0x2_res then err.uwrp a0x2_res else vec[] end in
     (
         io.writeln_i32vec ab;
         io.writeln_i32vec a0x3;

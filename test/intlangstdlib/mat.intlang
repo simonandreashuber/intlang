@@ -1,9 +1,10 @@
 -- lib for row major matrices
-
+include math
 include vector
 
 -- create an identity matrix of size n x n
 let matid = \n. 
+    let n = math.abs n in
     let rec matidaux = \i A.
         let updtA = vecset[A, 1, i*n+i] in
         if i < (n-1) then 
@@ -39,9 +40,9 @@ let matmul = \n l m A B.
                 end end end 
     in
     if (veclen[A] == n*l)*(veclen[B] == l*m) then
-        matmulaux vecmk[0,n*m] 0 0 0
+        err.res (matmulaux vecmk[0,n*m] 0 0 0)
     else 
-        vecmk[0,n*m]
+        err.err vec[]
     end
 
 let matadd = \A B.
@@ -57,15 +58,14 @@ let matadd = \A B.
                 end 
     in
     if (veclen[A] == veclen[B]) then
-        mataddaux vecmk[0,veclen[A]] 0
+        err.res (mataddaux vecmk[0,veclen[A]] 0)
     else 
-        -- note: no exception system makes code worse
-        vecmk[0,veclen[A]]
+        err.err vec[]
     end
 
 let matsmul = \A s. vector.map (\x. x*s) A
 
-let matsub = \A B. matadd A (matsmul B (-1)) --haha mb I should add negative int literals 
+let matsub = \A B. matadd A (matsmul B (-1)) --haha mb I should add negative int literals, haha I did
 
 let sqmattrans = \n A.
     let rec sqmattransaux = \A i j.
@@ -81,7 +81,7 @@ let sqmattrans = \n A.
         end end
     in
     if veclen[A] == n*n then
-        sqmattransaux A 0 0
+        err.res (sqmattransaux A 0 0)
     else 
-        vecmk[0,n*n]
+        err.err vec[]
     end

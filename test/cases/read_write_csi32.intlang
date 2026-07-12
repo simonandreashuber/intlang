@@ -1,7 +1,5 @@
 include io
 
 let main = \()
-    let input = io.read_ln () in
-    let i32vec = io.csi32str_to_i32vec input in
-    let output = io.i32vec_to_csi32str i32vec in
-    (io.write_ln output; flush ())
+    let i32vec = io.readln_i32vec () in
+    (io.writeln_i32vec i32vec; flush ())

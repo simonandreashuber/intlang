@@ -10,6 +10,11 @@
 	- mb dont include _sometoplevelname, kinda as a means to private functions...
 	- add pass after the mono to check that there are no vectors of functions
 
+	- BUG: On include, if in the included file there is some name that is refering to the own file has the file tag in the front this does seem to work
+		   ie. io.write_ln does work in io.intlang as long as io.intlang is only included and not run on its own
+
+	- if left to right logic shortcut??
+
 ## Test Suite Should Have
  - need to add read i32 vector to str lib
  - test all bop and uops, input two i32 then output an int with results from all the uops and bops that exist

@@ -22,7 +22,7 @@ let bubblesort = \cmpf arr.
             arr
         end end
     in
-    if len == 0 then
+    if len <= 1 then
         arr
     else
         bubblesortaux arr 0 0

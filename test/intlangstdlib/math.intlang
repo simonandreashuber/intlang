@@ -15,9 +15,17 @@ let abstracpow = \mulf. \base. \exp.
 -- here could work for exp = 0 but this way its so elegant, I refuse to change it
 let pow = abstracpow (\x. \y. x * y)
 
+let abs = \x. if x < 0 then -x else x end
+
+let min = \a. \b. if a < b then a else b end
+
+let max = \a. \b. if a > b then a else b end
+
+-- sqrt only makes sense for possitive numbers, so the input will be 
+-- treated as unsigned
 let sqrt = \x. 
     let rec sqrtaux = \guess.
-        if guess*guess < x then
+        if guess*guess <=u x then
             sqrtaux (guess+1)
         else
             guess-1
@@ -26,12 +34,34 @@ let sqrt = \x.
     sqrtaux 0
 
 
+-- one could want a gcd for signed numbers but
+-- this would mean more complexity for something not really needed
+-- so the gcd is only defined for unsigned numbers
 let rec gcd = \a. \b. 
             if b == 0 then 
                 a 
             else 
-                gcd b (a % b)
+                gcd b (a %u b)
             end
+
+let prime = \n. 
+    let rec isprimeaux = \i.
+        if i*i <=u n then
+            if n %u i == 0 then
+                0
+            else
+                isprimeaux (i+1)
+            end
+        else
+            1
+        end
+    in
+    if n < 2 then 
+        0 
+    else 
+        isprimeaux 2 
+    end
+
 
 let cmp_i32 = \a. \b. 
     if a < b then 

@@ -1,8 +1,8 @@
 include io
 
 let funtup = \x. \y. (x,y)
-let fix = funtup 1
-let fixint = fix 44
-let fixvec = fix vec[3]
-let fixwtuplet = let (a,b) = fix 4 in fix vecmk[a,1,1]
-let main = \() io.writeln_i32 (let (a,_) = fixwtuplet in a)
+let fix = funtup 44
+let fixint = fix 33 -- (1,44)
+let fixvec = fix vec[3] -- (1,vec[3])
+let fixwtuplet = let (a,b) = fix 4 in fix vecmk[a,1,1] -- (a,b) = (1,4), (1, [[1]])
+let main = \() io.writeln_i32 (let (a,_) = fixwtuplet in a) -- 1

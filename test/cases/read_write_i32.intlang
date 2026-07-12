@@ -1,7 +1,5 @@
 include io
 
 let main = \()
-    let input = io.read_ln () in
-    let int32 = io.str_to_i32 input in
-    let output = io.i32_to_str int32 in
-    (io.write_ln output; flush ())
+    let int32 = io.readln_i32 () in
+    (io.writeln_i32 int32; flush ())

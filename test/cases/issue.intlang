@@ -1,0 +1,19 @@
+include io
+
+let map = \f v.
+    let rec mapaux = \acc i.
+        if i < veclen[v] then
+            mapaux vecset[acc, f vecget[v, i], i] (i+1)
+        else
+            acc
+        end
+    in
+    if veclen[v] == 0 then
+        vec[]
+    else
+        mapaux vecmk[f vecget[v, 0], veclen[v]] 0
+    end
+let main = \() (
+        let double = map (\x. 2*x) vec[1,2,3] in 
+        io.writeln_i32vec double
+        )

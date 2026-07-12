@@ -4,7 +4,8 @@ include mat
 let main = \() (
     let dim = io.readln_i32 () in
     let a = io.readln_i32vec () in
-    let aT = mat.sqmattrans dim a in
+    let aT_res = mat.sqmattrans dim a in
+    let aT = if err.ok aT_res then err.uwrp aT_res else vec[] end in
     let idmat = mat.matid dim in
     (
         io.writeln_i32vec aT;

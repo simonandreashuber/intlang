@@ -29,7 +29,7 @@ let addEdge = \g v u.
                     let m1idx = search.linearsearch_i32 oldneighbors (-1) in
                     let newneighbors = 
                         if m1idx == -1 then
-                            vecresz[oldneighbors, u, 0, 1]
+                            vecextend[oldneighbors, u, 1]
                         else
                             vecset[oldneighbors, u, m1idx]
                         end

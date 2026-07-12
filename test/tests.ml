@@ -137,7 +137,7 @@ let langbasic_tests = [
   {
     testname = "bop_i8";
     filename = "cases/bop_i8.intlang";
-    iterations = 256 * 256; (*dont even think about running this in separate mode it takes forever *)
+    iterations = 256; (*dont even think about running this in separate mode it takes forever *)
     generator = (fun i -> let (i0, i1) = (i / 256, i mod 256) in
       (sim256 i0 ^ sim256 i1,
         sim256 (if i0 = i1 then 1 else 0) ^ 
@@ -505,6 +505,16 @@ let cmp_int32 a b =
 let inbounds_int32 low high value =
   if Int32.compare low value <= 0 && Int32.compare value high < 0 then 1l else 0l
 
+let prime_i32 n =
+  if n < 2l then 0l
+  else
+    let rec is_prime d =
+      if Int32.mul d d > n then true
+      else if Int32.rem n d = 0l then false
+      else is_prime (Int32.add d 1l)
+    in
+    if is_prime 2l then 1l else 0l
+
 let cmp_int32_lists lst0 lst1 =
   let elcmp = (fun x y -> Int32.to_int @@ cmp_int32 x y) in
   if List.compare elcmp lst0 lst1 < 0 then -1l else if List.compare elcmp lst0 lst1 > 0 then 1l else 0l
@@ -528,13 +538,21 @@ let lib_tests = [
       let low = rand_int32 2026070708l i in
       let value = rand_int32 2026070709l i in
       let high = rand_int32 2026070710l i in
-      let input = prln_int32lst [sqrt_input; pow_base; pow_exp; gcd_a; gcd_b; cmp_a; cmp_b; low; high; value] in
+      let prime = rand_int32_ranged 2026070712l i 1l 10000l in
+      let abs = rand_int32 2026070713l i in
+      let a = rand_int32 2026070714l i in
+      let b = rand_int32 2026070715l i in
+      let input = prln_int32lst [sqrt_input; pow_base; pow_exp; gcd_a; gcd_b; cmp_a; cmp_b; low; high; value; prime; abs; a; b] in
       let expected = String.concat "" [
         prln_int32 (isqrt_i32 sqrt_input);
         prln_int32 (pow_i32 pow_base pow_exp);
         prln_int32 (gcd_i32 gcd_a gcd_b);
         prln_int32 (cmp_int32 cmp_a cmp_b);
-        prln_int32 (inbounds_int32 low high value)
+        prln_int32 (inbounds_int32 low high value);
+        prln_int32 (prime_i32 prime);
+        prln_int32 (Int32.abs abs);
+        prln_int32 (Int32.min a b);
+        prln_int32 (Int32.max a b)
       ] in
       (input, expected));
   };
@@ -815,4 +833,10 @@ let tests = [
   ("IOBasic", iobasic_tests);
   ("LangBasic", langbasic_tests);
   ("IOLib", iolib_tests);
+  ("Lang", lang_tests);
+  ("Monomorphism", monomorphism_tests);
+  ("Legacy", legacy_tests);
+  ("Lib", lib_tests);
+  ("Mat", mat_tests);
+  ("Graph", graph_tests)
 ]

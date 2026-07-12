@@ -1,10 +1,11 @@
+include err
 include io
 include vector
 include queue
 
 let main = \() (
     let rounds = io.readln_i32 () in
-    let q = queue.mkQueue 0 in
+    let q = queue.mkQueue () in
     let rec aux = \i q. 
         if i < rounds then
             let q = vector.left_fold (queue.enQueue) q (io.readln_i32vec ()) in
@@ -12,8 +13,9 @@ let main = \() (
                 io.writeln_i32 (queue.sizeQueue q);
                 let toremove = io.readln_i32 () in
                 let rec rep = \j q.
-                    if (j < toremove) & (0 < queue.sizeQueue q) then
-                        let (e, q) = queue.deQueue q in
+                    let deq_res = queue.deQueue q in
+                    if (j < toremove) & (err.ok deq_res) then
+                        let (e, q) = err.uwrp deq_res in
                         (io.write_i32 e; writei8 ',';
                         rep (j+1) q)
                     else

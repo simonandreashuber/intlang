@@ -1,5 +1,7 @@
 -- lib for vectors
 
+include err
+
 let map = \f v.
     let rec mapaux = \acc i.
         if i < veclen[v] then
@@ -8,13 +10,11 @@ let map = \f v.
             acc
         end
     in
-    -- here shows a clear deficiency in the vector system as it is now
-    -- in the case where we get an empty vector we have no way to get its type
-    -- meaning we have two options:
-    --      1. do the access to the first element and risk a runtime error (bad but only malfunctions in an edge case)
-    --      2. return v or even a zero length vector of some fixed type which break the polymorphic power partially (very bad)
-    -- I think there should probably just be a type type and then some vecgettype[v]
-    mapaux vecmk[f vecget[v, 0], veclen[v]] 0
+    if veclen[v] == 0 then
+        vec[]
+    else
+        mapaux vecmk[f vecget[v, 0], veclen[v]] 0
+    end
 
 let map2 = \f v0 v1.
     let rec mapaux = \acc i.
@@ -24,10 +24,13 @@ let map2 = \f v0 v1.
             acc
         end
     in
-    -- for map2 of course v0 and v1 need to be of the same length but why bother
-    -- if there does not even exist exception system, I mean there is not really a nice
-    -- and generally useful default
-    mapaux vecmk[f vecget[v0, 0] vecget[v1, 0], veclen[v0]] 0
+    if veclen[v0] != veclen[v1] then
+        err.err vec[]
+    else if veclen[v0] == 0 then
+        err.res vec[]
+    else
+        err.res (mapaux vecmk[f vecget[v0, 0] vecget[v1, 0], veclen[v0]] 0)
+    end end
 
 let left_fold = \f acc v.
     let rec leftfoldaux = \acc i.
@@ -47,7 +50,11 @@ let left_fold2 = \f acc v0 v1.
             acc
         end
     in
-    leftfoldaux acc 0
+    if veclen[v0] != veclen[v1] then
+        err.err acc
+    else
+        err.res (leftfoldaux acc 0)
+    end
 
 let right_fold = \f v acc.
     let rec rightfoldaux = \acc i.
@@ -83,7 +90,7 @@ let concat = \v1 v2.
     else if veclen[v2] == 0 then
         v1
     else
-        concataux (vecresz[v1, vecget[v2, 0], 0, veclen[v2]]) 0
+        concataux (vecextend[v1, vecget[v2, 0], veclen[v2]]) 0
     end end
 
 let rev = \v.
@@ -93,7 +100,11 @@ let rev = \v.
         else
             vrev
         end in
-    revaux vecmk[vecget[v,0], veclen[v]] 0 (veclen[v]-1)
+    if veclen[v] <= 1 then
+        v
+    else
+        revaux vecmk[vecget[v,0], veclen[v]] 0 (veclen[v]-1)
+    end
 
     
 

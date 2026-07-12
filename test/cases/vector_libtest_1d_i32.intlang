@@ -1,17 +1,19 @@
+include err
 include io
 include math
 include vector
 
 
 let main = \() (
-    let input = io.read_ln () in
-    let vi32 = io.csi32str_to_i32vec input in
+    let vi32 = io.readln_i32vec () in
 
     let double = vector.map (\x. 2*x) vi32 in
     let reverse = vector.rev vi32 in
-    let quotient = vector.map2 (\a b. a / (if b == 0 then 1 else b end)) vi32 reverse in
+    let quotient_res = vector.map2 (\a b. a / (if b == 0 then 1 else b end)) vi32 reverse in
+    let quotient = if err.ok quotient_res then err.uwrp quotient_res else vi32 end in
     let addreduce_left = vector.left_fold (\x. \y. x+y) 0 vi32 in
-    let addreduce_quotient = vector.left_fold2 (\acc a b. acc + (b / (if a == 0 then 1 else a end))) 0 vi32 reverse in
+    let addreduce_quotient_res = vector.left_fold2 (\acc a b. acc + (b / (if a == 0 then 1 else a end))) 0 vi32 reverse in
+    let addreduce_quotient = if err.ok addreduce_quotient_res then err.uwrp addreduce_quotient_res else 0 end in
     let addreduce_right = vector.right_fold (\x. \y. x+y) vi32 0 in
     let copied = vector.concat vi32 vi32 in
 

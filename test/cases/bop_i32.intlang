@@ -1,9 +1,9 @@
 include io
 
 let main = \() (
-    let wout = \ i : i32 => unit. io.write_ln (io.i32_to_str i) in
-    let i0 = io.str_to_i32 (io.read_ln ()) in
-    let i1 = io.str_to_i32 (io.read_ln ()) in
+    let wout = io.writeln_i32 in
+    let i0 = io.readln_i32 () in
+    let i1 = io.readln_i32 () in
     let i1_nonzero = if i1 == 0 then 1 else i1 end in
     let i1_shift = i1 %u 32 in
     (
