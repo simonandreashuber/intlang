@@ -75,6 +75,8 @@ let main () =
       Printf.printf "%sMONOTAST:\n%s" headerline (PrintIntlang.sprint_monotast monotast); flush stdout;
     end;
 
+    Veccheck.veccheck_monotast monotast;
+
     (* Execute the interpreter *)
     if !test_flag_passed then
       for _ = 1 to !repeat_count do
