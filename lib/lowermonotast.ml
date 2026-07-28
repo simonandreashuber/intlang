@@ -176,37 +176,50 @@ let env_put (env : UuidMap.t) (uuid : uuid) (mirval : mirval) : UuidMap.t =
 let env_get (env : UuidMap.t) (uuid : uuid) : mirval option =
   UuidMap.find_opt !uuid env
 
-let eta_expansion (b : Mir.builder) (unsat_func_ssaid : ssaid) : ssaid =
-  let unsat_mirtyp = match find_mirtyp b unsat_func_ssaid with 
-                     | Some unsat_mirtyp -> unsat_mirtyp
-                     | None -> raise (Errors.LowerMonoTASTError "eta_expansion ssaid provided that is not defined")
-                    in
-  let unsat_funcid, unsat_cnt = match unsat_mirtyp with
-                                | TMIRFun (funcid, cnt) -> (funcid, cnt)
-                                | _ -> raise (Errors.LowerMonoTASTError "eta_expansion ssaid provided that is not a function type")
-  in
-  let unsat_func = match find_func_by_id b unsat_funcid with
-                   | Some func -> func
-                   | None -> raise (Errors.LowerMonoTASTError "eta_expansion ssaid provided that is not defined")
-                  in
+let eta_expansion (b : Mir.builder) (unsat_ssaid : ssaid) : ssaid =
+  (*idea if dublication observed in real code: creat a cache with eta func signatures for reuse*)
+  
+  let unsat_arg_ssaid = fresh_ssaid b in
+  let unsat_mirtyp = find_mirtyp b unsat_ssaid in
   let unsat_func_arg = (fresh_ssaid b, unsat_mirtyp) in
-  let prep_args args cnt = List.map (fun (_, argtyp) -> (fresh_ssaid b, argtyp))
-                  (List.filteri (fun i arg -> i >= cnt ) args) 
+  let fresh_ssaid_for_args args = List.map (fun (_, argtyp) -> (fresh_ssaid b, argtyp)) args in
+  (*extract all args and return type of the fully saturated version, the inner list indicates the points where calls are needed*)
+  let rec extract_sat_args (acc : ((ssaid * typmir) list) list) (ftyp : mirtyp) : (((ssaid * typmir) list) list) * typmir =
+    match ftyp with
+    | TMIRFun (args, rettyp) -> extract_ret_args ((fresh_ssaid_for_args args) :: acc) rettyp
+    | _ -> (List.rev acc, ftyp)
   in
-  let unsat_args = prep_args unsat_func.args unsat_cnt in
-  let rec extract_ret_args (acc : ((ssaid * typmir) list) list) (rettyp : typmir) : ((ssaid * typmir) list) list =
-    match rettyp with
-    | TMIRFun (funcid, cnt) -> 
-        let func = match find_func_by_id b funcid with
-                   | Some f -> f
-                   | None -> raise (Errors.LowerMonoTASTError "eta_expansion: function id not found")
-        in
-        let ret_func_args = prep_args func.args cnt in
-        extract_ret_args (ret_func_args :: acc) func.rettyp
-    | _ -> List.rev acc
-  in
-  let ret_args = extract_ret_args [] unsat_func.rettyp in
-  let new_func = create_func b None unsat_func.rettyp (unsat_func
+  let sat_args_lstlst, sat_rettyp = extract_ret_args [] unsat_mirtyp in
+
+  let cp = funcbb_checkpoint b in
+
+  let eta_func = create_func b (Some ("eta_expansion_for_ssaid_" ^ string_of_int ssaid)) sat_rettyp ((unsat_arg_ssaid, unsat_mirtyp) :: (List.flatten sat_args_lstlst)) in
+  switch_to_func b func;
+  let bbentry = create_bb b "entry" in
+  switch_to_bb b bbentry;
+  let res_ssaid = List.fold_left ( fun closure_ssaid args_lst ->
+      let closure_mirtyp = find_mirtyp b closure_ssaid in
+      match closure_mirtyp with
+      | TMIRFun (_, ret_mirtyp) -> (
+        let pack_ssaid = fresh_ssaid b in
+        emit_op b ( Pack (pack_ssaid, TMIR ([], ret_mirtyp), closure_ssaid, List.map (fst) args_lst ) );
+        let res_ssaid = fresh_ssaid b in
+        emit_op b ( CallClosure (res_ssaid, ret_mirtyp, pack_ssaid) );
+        res_ssaid
+      )
+      | _ -> raise (Errors.LowerMonoTASTError "Eta expansion some precomputaion list of list problem")
+    ) unsat_arg_ssaid sat_args_lstlst in
+  emit_term b res_ssaid;
+
+  funcbb_restore b cp;
+  
+  let eta_rawfunc_ssaid = fresh_ssaid b in
+  let eta_rawfunc_mirtyp = func_get_mirtyp eta_func.funcid in
+  emit_op b ( Func (eta_rawfunc_ssaid, eta_rawfunc_mirtyp, eta_func.funcid) );
+  let eta_func_ssaid = fresh_ssaid b in
+  emit_op b ( Pack (eta_func_ssaid, trunc_n_mirfunctyp 1 eta_rawfunc_mirtyp, eta_rawfunc_ssaid, [unsat_ssaid]) );
+  eta_func_ssaid
+
   
 let func_to_closure (b : Mir.builder) (env : UuidMap.t) (func : func) (cap_uuids : uuid list) : ssaid =
     let func_ssaid = fresh_ssaid b in
@@ -530,6 +543,8 @@ and lower_func (b : Mir.builder) (env : UuidMap.t) (name_opt : string option) (r
 
       let func = create_func b name_opt ret_mir_typ (mir_args_lamlift @ mir_args_lam) in
       switch_to_func b func;
+      let bbentry = create_bb b "entry" in
+      switch_to_bb b bbentry;      switch_to_func b func;
       let bbentry = create_bb b "entry" in
       switch_to_bb b bbentry;
 

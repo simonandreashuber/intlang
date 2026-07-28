@@ -152,6 +152,8 @@ let get_program (b : builder) : program =
 (* Function & Basic Block Cursors                                            *)
 (* ========================================================================= *)
 
+(*at times I would find it convinient to be able to bild in a sort of cached funtion iteratively adding arguments
+  and then in the end finalize it, but also works without*)
 let create_func (b : builder) (name_opt : string option) (rettyp : typmir) (args : (ssaid * typmir) list) : func =
   let fid = b.next_funcid in
   b.next_funcid <- b.next_funcid + 1;
@@ -231,7 +233,7 @@ let func_aryness (b : builder) (fid : funcid) : int option =
   | None -> None
   | Some fn -> Some (List.length fn.args)
 
-let func_get_mirtyp (b : builder) (fid : funcid) : typmir option =
+let func_get_mirtyp (b : builder) (fid : funcid) : typmir =
   match find_func_by_id b fid with
   | None -> raise (Errors.LowerMonoTASTError (Printf.sprintf "Function with id %d not found" fid))
   | Some fn -> TMIRFun (List.map snd fn.args, fn.rettyp)
