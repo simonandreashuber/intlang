@@ -1,3 +1,5 @@
+open Errors
+
 type ssaid = int
 type bbid = int
 type funcid = int
@@ -7,7 +9,7 @@ type typmir =
   | TMIRUnit
   | TMIRI32
   | TMIRI8
-  | TMIRFun of funcid * int (*int is how many arguments are already packed *)
+  | TMIRFun of (typmir list) * typmir
   | TMIRTup of typmir list
   | TMIRVec of int * vecinnertype (*int is dimension *)
 
@@ -33,31 +35,32 @@ type bopi8arg =
     | Addi8 | Subi8
     | Andi8 | Ori8 | Xori8
 
-type op =
-    | Func of ssaid * typmir * funcid                           (* %res = func %funcid *)
-    | Pack of ssaid * typmir * (ssaid list)                    (* %newfun = pack %oldfun %packval0 %packval1 ... *)
-    | Call of ssaid * typmir * ssaid                           (* %res = call %fun *)
-    | Uopi32 of ssaid * typmir * uopi32arg * ssaid             (* %res = uopi32 arg %a *)
-    | Bopi32 of ssaid * typmir * bopi32arg * ssaid * ssaid     (* %res = bopi32 arg %a %b *)
-    | Uopi8 of ssaid * typmir * uopi8arg * ssaid               (* %res = uopi8 arg %a *)    
-    | Bopi8 of ssaid * typmir * bopi8arg * ssaid * ssaid       (* %res = bopi8 arg %a %b *)
-    | Immi32 of ssaid * typmir * Int32.t                       (* %res = immi32 1234 *)
-    | Immi8 of ssaid * typmir * char                           (* %res = immi8 123 *)
-    | ImmUnit of ssaid * typmir                                (* %res = immunit *)
-    | Tupinit of ssaid * typmir * (ssaid list)                 (* %res = tupinit %elm0 %elm1 ... *)
-    | Tupget of ssaid * typmir * ssaid * int                   (* %res = tupget %tup idx *)
-    | Vecinit of ssaid * typmir * ssaid * (ssaid list)         (* %res = vecinit %defval %dim0sz1 ... *)
-    | Veclit of ssaid * typmir * (ssaid list)                  (* %res = veclit %elm0 %elm1 ... *)
-    | Vecread of ssaid * typmir * ssaid * (ssaid list)         (* %res = vecread %vec %idx0 ... *)
-    | Vecwrite of ssaid * typmir * ssaid * (ssaid list)        (* %res = vecwrite %vec %val %idx0 ... *)
-    | Vecslice of ssaid * typmir * ssaid * ssaid * ssaid       (* %res = vecslice %vec %start %len *)
-    | Vecextend of ssaid * typmir * ssaid * ssaid              (* %res = vecextend %vec %directedoffset *)
+type op =                                                      (* Textual Representation                              Performance Implications            *)
+    | Func of ssaid * typmir * funcid                          (* %res = func %funcid                                 ALLOCATES CLOSURE MEMORY            *)
+    | Pack of ssaid * typmir * ssaid * (ssaid list)            (* %newfun = pack %oldfun %packval0 %packval1 ...      COPIES CLOSURE MEMORY BY DEFAULT    *)
+    | CallClosure of ssaid * typmir * ssaid                    (* %res = callclosure %fun                             CALLS FUNCTION VIA CLOSURE WRAPPER  *)
+    | CallDirect of ssaid * typmir * funcid * (ssaid list)     (* %res = calldirect %funcid %arg0 %arg1 ...                                               *)
+    | Immi32 of ssaid * typmir * Int32.t                       (* %res = immi32 1234                                                                      *)
+    | Immi8 of ssaid * typmir * char                           (* %res = immi8 123                                                                        *)
+    | ImmUnit of ssaid * typmir                                (* %res = immunit                                                                          *)
+    | Uopi32 of ssaid * typmir * uopi32arg * ssaid             (* %res = uopi32 arg %a                                                                    *)
+    | Uopi8 of ssaid * typmir * uopi8arg * ssaid               (* %res = uopi8 arg %a                                                                     *)    
+    | Bopi32 of ssaid * typmir * bopi32arg * ssaid * ssaid     (* %res = bopi32 arg %a %b                                                                 *)
+    | Bopi8 of ssaid * typmir * bopi8arg * ssaid * ssaid       (* %res = bopi8 arg %a %b                                                                  *)
+    | Tupinit of ssaid * typmir * (ssaid list)                 (* %res = tupinit %elm0 %elm1 ...                      ALLOCATES TUPLE MEMORY              *)
+    | Tupget of ssaid * typmir * ssaid * int                   (* %res = tupget %tup idx                                                                  *)
+    | Veclit of ssaid * typmir * (ssaid list)                  (* %res = veclit %elm0 %elm1 ...                       ALLOCATES VECTOR MEMORY             *)
+    | Vecinit of ssaid * typmir * ssaid * (ssaid list)         (* %res = vecinit %defval %dim0sz1 ...                 ALLOCATES VECTOR MEMORY             *)
+    | Vecread of ssaid * typmir * ssaid * (ssaid list)         (* %res = vecread %vec %idx0 ...                                                           *)
+    | Vecwrite of ssaid * typmir * ssaid * (ssaid list)        (* %res = vecwrite %vec %val %idx0 ...                 COPIES VECTOR MEMORY BY DEFAULT     *)
+    | Vecslice of ssaid * typmir * ssaid * ssaid * ssaid       (* %res = vecslice %vec %start %len                                                        *)
+    | Vecextend of ssaid * typmir * ssaid * ssaid * ssaid              (* %res = vecextend %vec %lit %off                     COPIES VECTOR MEMORY                *)
 
 let get_typmir (op : op) : typmir =
   match op with
   | Func (_, typ, _) -> typ
   | Pack (_, typ, _) -> typ
-  | Call (_, typ, _) -> typ
+  | CallDirect (_, typ, _, _) -> typ
   | Uopi32 (_, typ, _, _) -> typ
   | Bopi32 (_, typ, _, _, _) -> typ
   | Uopi8 (_, typ, _, _) -> typ
@@ -78,7 +81,7 @@ let get_ssaid (op : op) : ssaid =
   match op with
   | Func (ssaid, _, _) -> ssaid
   | Pack (ssaid, _, _) -> ssaid
-  | Call (ssaid, _, _) -> ssaid
+  | CallDirect (ssaid, _, _, _) -> ssaid
   | Uopi32 (ssaid, _, _, _) -> ssaid
   | Bopi32 (ssaid, _, _, _, _) -> ssaid
   | Uopi8 (ssaid, _, _, _) -> ssaid
@@ -200,7 +203,7 @@ let fresh_ssaid (b : builder) : ssaid =
   b.next_ssaid <- b.next_ssaid + 1;
   id
 
-let find_mirtyp (b : builder) (ssaid : ssaid) : typmir option =
+let find_mirtyp_opt (b : builder) (ssaid : ssaid) : typmir option =
   match b.current_func with
   | None -> None
   | Some fn ->
@@ -215,6 +218,11 @@ let find_mirtyp (b : builder) (ssaid : ssaid) : typmir option =
       in
       find_in_bbs fn.bbs
 
+let find_mirtyp (b : builder) (ssaid : ssaid) : typmir =
+  match find_mirtyp_opt b ssaid with
+  | Some typ -> typ
+  | None -> raise (Errors.LowerMonoTASTError (Printf.sprintf "SSA ID %d not found in current function" ssaid))
+
 let find_func_by_id (b : builder) (fid : funcid) : func option =
   List.find_opt (fun fn -> fn.funcid = fid) b.program
 
@@ -223,10 +231,10 @@ let func_aryness (b : builder) (fid : funcid) : int option =
   | None -> None
   | Some fn -> Some (List.length fn.args)
 
-let func_retmirtyp (b : builder) (fid : funcid) : typmir option =
+let func_get_mirtyp (b : builder) (fid : funcid) : typmir option =
   match find_func_by_id b fid with
-  | None -> None
-  | Some fn -> Some fn.rettyp
+  | None -> raise (Errors.LowerMonoTASTError (Printf.sprintf "Function with id %d not found" fid))
+  | Some fn -> TMIRFun (List.map snd fn.args, fn.rettyp)
 
 
 type cursor_checkpoint = func option * bb option
