@@ -2,6 +2,13 @@ open Ast
 open Mir
 open Errors
 
+module UuidSet = Set.Make(Int)
+module UuidMap = Map.Make(Int)
+
+(* ========================================================================= *)
+(* Uop and Bop Conversion                                                    *)
+(* ========================================================================= *)
+
 let convert_uopi32 (op : Ast.uopi32) : Mir.uopi32arg =
   match op with
   | Ast.Negi32 -> Mir.Negi32
@@ -58,23 +65,26 @@ let convert_bopi8 (op : Ast.bopi8) : Mir.bopi8arg =
   | Ast.Ori8 -> Mir.Ori8
   | Ast.Xori8 -> Mir.Xori8
 
-let trunc_n_mirfunctyp (n : int) (typ : typmir) : typmir =
-  match typ with
-  | TMIRFun (args, ret) -> TMIRFun (List.filteri (fun j _ -> j >= n) args, ret)
-  | _ -> raise (Errors.LowerMonoTASTError "Expected function type in trunc_n_mirfunctyp")
+(* ========================================================================= *)
+(* Mir Type Helpers                                                          *)
+(* ========================================================================= *)
 
-let trunc_n_mirfunctyp = trunc_n_mirfunctyp 1
+let func_get_mirtyp (b : builder) (fn : func) : typmir =
+  TMIRClos (List.map snd fn.args, fn.rettyp)
+
+let truncfunc_n_mirtyp (n : int) (typ : typmir) : typmir =
+  match typ with
+  | TMIRClos (args, ret) -> TMIRClos (List.filteri (fun j _ -> j >= n) args, ret)
+  | _ -> raise (Errors.LowerMonoTASTError "Expected function type in truncfunc_n_mirtyp")
 
 let rec ast_type_to_mir_type (typ_ast : Ast.typ) : Mir.mir =
-
   (* create fully saturated version *)
   let rec funcaux argacc arg_typ ret_typ =
     let arg_typmir = ast_type_to_mir_type arg_typ in
     match repr ret_typ with
     | TFun (arg_typ_inner, ret_typ_inner) ->  (funcaux (arg_typmir :: argacc) arg_typ_inner ret_typ_inner)
-    | _ -> TMIRFun (List.rev (arg_typmir :: argacc), ast_type_to_mir_type ret_typ)
+    | _ -> TMIRClos (List.rev (arg_typmir :: argacc), ast_type_to_mir_type ret_typ)
   in
-
   (* find the compressed version for the restricted vectors *)
   let rec vecaux typ_inner depth =
     match repr typ_inner with
@@ -83,7 +93,6 @@ let rec ast_type_to_mir_type (typ_ast : Ast.typ) : Mir.mir =
     | TI8 -> TMIRVec (depth, TMIRVECI8)
     | _ -> raise (Errors.LowerMonoTASTError "Vector that is not of i32 or i8, veccheck seems to fail")
   in
-
   match repr typ_ast with
   | TUnit -> TMIRUnit
   | TI32 -> TMIRI32
@@ -93,8 +102,10 @@ let rec ast_type_to_mir_type (typ_ast : Ast.typ) : Mir.mir =
   | TVec typ_inner -> vecaux typ_inner 1
   | Tvar _ -> raise (Errors.LowerMonoTASTError "Polymorphic Type in MonoTAST, Monomorphizer seems to fail")
 
-module UuidSet = Set.Make(struct type t = int let compare = compare end)
-module UuidMap = Map.Make(struct type t = int let compare = compare end)
+
+(* ========================================================================= *)
+(* Ast Captured Variables Helpers                                            *)
+(* ========================================================================= *)
 
 let find_capt_vars (bound : UuidSet.t) (l : tlexp) : (string * uuid * Ast.typ) list =
   let rec walk (bound : UuidSet.t) (acc : UuidMap.t) (expr : tlexp) =
@@ -166,15 +177,25 @@ let find_capt_vars (bound : UuidSet.t) (l : tlexp) : (string * uuid * Ast.typ) l
   let captured_map = walk bound UuidMap.empty l in
   UuidMap.fold (fun u (n, typ) lst -> (n, Some u, typ) :: lst) captured_map []
 
+(* ========================================================================= *)
+(* Lowering Env                                                              *)
+(* ========================================================================= *)
+
 type mirval = 
   | MIRSsaid of ssaid
   | MIRFuncid of funcid
+
+type env = mirval UuidMap.t
 
 let env_put (env : UuidMap.t) (uuid : uuid) (mirval : mirval) : UuidMap.t =
   UuidMap.add !uuid mirval env
 
 let env_get (env : UuidMap.t) (uuid : uuid) : mirval option =
   UuidMap.find_opt !uuid env
+
+(* ========================================================================= *)
+(* Eta Expansion                                                             *)
+(* ========================================================================= *)
 
 let eta_expansion (b : Mir.builder) (unsat_ssaid : ssaid) : ssaid =
   (*idea if dublication observed in real code: creat a cache with eta func signatures for reuse*)
@@ -186,7 +207,7 @@ let eta_expansion (b : Mir.builder) (unsat_ssaid : ssaid) : ssaid =
   (*extract all args and return type of the fully saturated version, the inner list indicates the points where calls are needed*)
   let rec extract_sat_args (acc : ((ssaid * typmir) list) list) (ftyp : mirtyp) : (((ssaid * typmir) list) list) * typmir =
     match ftyp with
-    | TMIRFun (args, rettyp) -> extract_ret_args ((fresh_ssaid_for_args args) :: acc) rettyp
+    | TMIRClos (args, rettyp) -> extract_ret_args ((fresh_ssaid_for_args args) :: acc) rettyp
     | _ -> (List.rev acc, ftyp)
   in
   let sat_args_lstlst, sat_rettyp = extract_ret_args [] unsat_mirtyp in
@@ -200,7 +221,7 @@ let eta_expansion (b : Mir.builder) (unsat_ssaid : ssaid) : ssaid =
   let res_ssaid = List.fold_left ( fun closure_ssaid args_lst ->
       let closure_mirtyp = find_mirtyp b closure_ssaid in
       match closure_mirtyp with
-      | TMIRFun (_, ret_mirtyp) -> (
+      | TMIRClos (_, ret_mirtyp) -> (
         let pack_ssaid = fresh_ssaid b in
         emit_op b ( Pack (pack_ssaid, TMIR ([], ret_mirtyp), closure_ssaid, List.map (fst) args_lst ) );
         let res_ssaid = fresh_ssaid b in
@@ -217,10 +238,15 @@ let eta_expansion (b : Mir.builder) (unsat_ssaid : ssaid) : ssaid =
   let eta_rawfunc_mirtyp = func_get_mirtyp eta_func.funcid in
   emit_op b ( Func (eta_rawfunc_ssaid, eta_rawfunc_mirtyp, eta_func.funcid) );
   let eta_func_ssaid = fresh_ssaid b in
-  emit_op b ( Pack (eta_func_ssaid, trunc_n_mirfunctyp 1 eta_rawfunc_mirtyp, eta_rawfunc_ssaid, [unsat_ssaid]) );
+  emit_op b ( Pack (eta_func_ssaid, truncfunc_n_mirtyp 1 eta_rawfunc_mirtyp, eta_rawfunc_ssaid, [unsat_ssaid]) );
   eta_func_ssaid
 
+(* ========================================================================= *)
+(* Lowering                                                                  *)
+(* ========================================================================= *)
   
+(* Takes a Function and a list of captured UUIDs
+   Creates a closure with all the captured variables packed*)
 let func_to_closure (b : Mir.builder) (env : UuidMap.t) (func : func) (cap_uuids : uuid list) : ssaid =
     let func_ssaid = fresh_ssaid b in
     let func_mirtyp = func_get_mirtyp b func.funcid in
@@ -229,8 +255,8 @@ let func_to_closure (b : Mir.builder) (env : UuidMap.t) (func : func) (cap_uuids
       func_ssaid
     else (
       let closure_ssaid = fresh_ssaid b in
-      let closure_mirtyp = trunc_n_mirfunctyp (List.length cap_uuids) func_mirtyp in
-      let pack_ssaids = List.map (fun uuid -> match UuidMap.find_opt !uuid env with
+      let closure_mirtyp = truncfunc_n_mirtyp (List.length cap_uuids) func_mirtyp in
+      let pack_ssaids = List.map (fun uuid -> match UuidMap.find_opt uuid env with
         | Some (MIRSsaid ssaid) -> ssaid
         | Some (MIRFuncid _) -> raise (Errors.LowerMonoTASTError "passing function with no captured vars as a captured var, this should not happen as this function does not need to be caputured")
         | None -> raise (Errors.LowerMonoTASTError "captured variables ssaid not found in environment, or mb some weird thing with unit")
@@ -241,7 +267,9 @@ let func_to_closure (b : Mir.builder) (env : UuidMap.t) (func : func) (cap_uuids
 
 
 
-(* Lowers a non delayed expression, returns the ssaid with the expression result *)
+(* Lowers ast expression, 
+   Assumes that the cursor is already in the correct place to emit the lowered code,
+   Returns the ssaid with the expression result *)
 let rec lower_body (b : Mir.builder) (env : UuidMap.t) (l : tlexp) : ssaid =
   match l with
   | VarT (_, uuid, _) -> (
@@ -271,7 +299,7 @@ let rec lower_body (b : Mir.builder) (env : UuidMap.t) (l : tlexp) : ssaid =
     let arg_mirtyp = find_mirtyp b arg_ssaid in
     let sat_arg_ssaid = 
       match arg_mirtyp with
-      | TMIRFun (_, TMIRFun _) -> 
+      | TMIRClos (_, TMIRClos _) -> 
           (*Functions that return functions are not fully saturated, but all functions
             are lowered such that arguments are expected to have function is fully saturated form.
             Hence I put a wrapper around the unsatureted functions or in other words an eta expansion.*)
@@ -279,15 +307,15 @@ let rec lower_body (b : Mir.builder) (env : UuidMap.t) (l : tlexp) : ssaid =
       | _ -> arg_ssaid
     in
     let pack_ssaid = fresh_ssaid b in
-    let pack_mirtyp = trunc_n_mirfunctyp 1 func_mirtyp in
+    let pack_mirtyp = truncfunc_n_mirtyp 1 func_mirtyp in
     emit_op b (Pack (pack_ssaid, pack_mirtyp, [sat_arg_ssaid]));
     match pack_mirtyp with
-    | TMIRFun ( [], ret_mirtyp) -> (
+    | TMIRClos ( [], ret_mirtyp) -> (
         let res_ssaid = fresh_ssaid b in
         emit_op b (CallClosure (res_ssaid, ret_mirtyp, pack_ssaid));
         res_ssaid
       )
-    | TMIRFun ( _, _) -> pack_ssaid
+    | TMIRClos ( _, _) -> pack_ssaid
     | _ -> raise (Errors.LowerMonoTASTError "Expected function type after packing in AppT lowering")
   )
   | SeqT (e1, e2, _) -> (
@@ -380,7 +408,7 @@ let rec lower_body (b : Mir.builder) (env : UuidMap.t) (l : tlexp) : ssaid =
           let elm_ssaid = lower_body b env elm in
           let elm_mirtyp = find_mirtyp b elm_ssaid in
           match elm_mirtyp with
-          | TMIRFun (_, TMIRFun _) -> 
+          | TMIRClos (_, TMIRClos _) -> 
               (*Functions that return functions are not fully saturated, to avoid ever having a tuple 
                 with an unsaturated function I just do an eta expansion at creation if needed*)
               eta_expansion b elm_ssaid
@@ -523,11 +551,11 @@ and lower_func (b : Mir.builder) (env : UuidMap.t) (name_opt : string option) (r
                                                   match mirval with
                                                   | MIRSaid _ -> acc
                                                   | MIRFuncid _ -> UuidSet.add u acc) env capture_banned_uuids in
-      let ast_args_lamlift = find_capt_vars capture_banned_uuids l in      
+      let ast_args_lamlift = find_capt_vars capture_banned_uuids l in
 
       let ast_args_lam = List.rev arg_acc in
       
-      let ast_args_to_mir_args env arg_uuids = List.rev @@ List.fold_left 
+      let ast_args_to_mir_args env arg_uuids = List.rev @@ List.fold_left
               (fun (acc_mir_args, acc_env) (name, uuid_opt, typ) ->  
                 let ssaid = fresh_ssaid b in
                 let acc_env' = match uuid_opt with
@@ -544,9 +572,8 @@ and lower_func (b : Mir.builder) (env : UuidMap.t) (name_opt : string option) (r
       let func = create_func b name_opt ret_mir_typ (mir_args_lamlift @ mir_args_lam) in
       switch_to_func b func;
       let bbentry = create_bb b "entry" in
-      switch_to_bb b bbentry;      switch_to_func b func;
-      let bbentry = create_bb b "entry" in
       switch_to_bb b bbentry;
+
 
       let env'' = 
         match rec_u with
@@ -558,7 +585,7 @@ and lower_func (b : Mir.builder) (env : UuidMap.t) (name_opt : string option) (r
           let func_ssaid = fresh_ssaid b in
           emit_op b (Func (func_ssaid, func_mirtyp, func.funcid));
           let closure_ssaid = fresh_ssaid b in
-          let closure_mirtyp = trunc_n_mirfunctyp (List.length mir_args_lamlift) func_mirtyp in
+          let closure_mirtyp = truncfunc_n_mirtyp (List.length mir_args_lamlift) func_mirtyp in
           emit_op b (Pack (closure_ssaid, closure_mirtyp, func_ssaid, List.map (fun (ssaid, _) -> ssaid) mir_args_lamlift));
           env_put env' u (MIRSsaid closure_ssaid)
         )
