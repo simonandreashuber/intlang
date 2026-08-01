@@ -94,7 +94,7 @@ type uopi8 =
 type lexp =                                             (*expression*)
     | Var of string                                     (*x*)
     | Lam of string * typ option * typ option * lexp    (*\ x : inTyp => outTyp .y*)
-    | LamUnit of lexp                                   (*\() e*)
+    | LamUnit of lexp                                   (*\() e*) (*better would be syntactic to: Lam ("unitlit", Some TUnit, None, l)*)
     | App of lexp * lexp                                (*x y*)
     | Seq of lexp * lexp                                (*x; y*)
     | If of lexp * lexp * lexp                          (*if c then t else e*)
