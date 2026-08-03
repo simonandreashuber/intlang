@@ -297,6 +297,16 @@ let find_func (b : builder) (fid : funcid) : func =
   | Some fn -> fn
   | None -> raise (Errors.MirError (Printf.sprintf "Function with id %d not found" fid))
 
+let find_bb_opt (b : builder) (fid : funcid) (bbid : bbid) : bb option =
+  match find_func_opt b fid with
+  | None -> None
+  | Some fn -> List.find_opt (fun bb -> bb.bbid = bbid) fn.bbs
+
+let find_bb (b : builder) (fid : funcid) (bbid : bbid) : bb =
+  match find_bb_opt b fid bbid with
+  | Some bb -> bb
+  | None -> raise (Errors.MirError (Printf.sprintf "Basic block with id %d not found in function %d" bbid fid))
+
 let find_global_opt (b : builder) (gid : globalid) : global option =
   GlobalMap.find_opt gid b.program.globals
 

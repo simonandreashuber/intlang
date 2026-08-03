@@ -759,14 +759,14 @@ let lower_builtins (b : Mir.builder) (builtins : Ast.typenv) : mirval UuidMap.t 
     | _ -> raise (Errors.LowerMonoTASTError "Builtin function has unexpected type schema")
   ) UuidMap.empty builtins
 
-let lower_monotast (monotast : Ast.monotast) : Mir.program = 
+let lower_monotast (monotast : Ast.monotast) : Mir.builder = 
     let b = create_builder () in
   try
     let builtins_env = lower_builtins b Ast.builtins in
     let decls, toplvl_env = declare b builtins_env monotast in
     let global_env = env_merge builtins_env toplvl_env in
     lower_decls b decls global_env;
-    get_program b
+    b
   with e ->
     let msg = Printexc.to_string e in
     let backtrace = Printexc.get_backtrace () in
