@@ -3,11 +3,11 @@ open Mir
 (* Stores the raw definition payload of a closure SSA ID *)
 type raw_def =
   | DefFunc of funcid
-  | DefPack of ssaid * ssaid list (* oldclos, new_args *)
+  | DefPack of ssaconsume * ssaconsume list (* oldclos, new_args *)
 
 type closure_info = {
   base_func : funcid;
-  captured_args : ssaid list;
+  captured_args : ssaconsume list;
 }
 
 let calldirect_opt_func (fn : func) : unit =
@@ -16,11 +16,11 @@ let calldirect_opt_func (fn : func) : unit =
   (* -------------------------------------------------------------------- *)
   (* Pass 1: Record all closure definitions across ALL basic blocks       *)
   (* -------------------------------------------------------------------- *)
-  List.iter (fun bb ->
+  BBMap.iter (fun _ bb ->
     List.iter (function
-      | Func (dst, _typ, fid) ->
+      | Func (dst, fid) ->
           Hashtbl.add defs dst (DefFunc fid)
-      | Pack (dst, _typ, oldclos, newargs) ->
+      | Pack (dst, oldclos, newargs) ->
           Hashtbl.add defs dst (DefPack (oldclos, newargs))
       | _ -> ()
     ) bb.ops
@@ -35,7 +35,7 @@ let calldirect_opt_func (fn : func) : unit =
         Some { base_func = fid; captured_args = [] }
 
     | Some (DefPack (oldclos, newargs)) ->
-        (match resolve oldclos with
+        (match resolve oldclos.ssaid with
          | Some info ->
              Some { 
                base_func = info.base_func; 
@@ -51,14 +51,14 @@ let calldirect_opt_func (fn : func) : unit =
   (* -------------------------------------------------------------------- *)
   (* Pass 2: Devirtualize callclosure instructions                       *)
   (* -------------------------------------------------------------------- *)
-  List.iter (fun bb ->
+  BBMap.iter (fun _ bb ->
     let chron_ops = List.rev bb.ops in
     let new_ops_rev = List.fold_left (fun acc op ->
       match op with
-      | CallClosure (dst, typ, clos) ->
-          (match resolve clos with
+      | CallClosure (dst, clos) ->
+          (match resolve clos.ssaid with
            | Some info ->
-               CallDirect (dst, typ, info.base_func, info.captured_args) :: acc
+               CallDirect (dst, info.base_func, info.captured_args) :: acc
            | None -> op :: acc)
       | _ -> op :: acc
     ) [] chron_ops in

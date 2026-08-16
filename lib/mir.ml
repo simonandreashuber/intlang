@@ -4,11 +4,11 @@ open Errors
 (* MIR Def                                                                   *)
 (* ========================================================================= *)
 
+(* Not so sure how meaningful this is but I like it for the other typedefs *)
 type ssaid = int
 type bbid = int
 type funcid = int
 type globalid = int
-
 
 type mirtyp =
   | TMIRUnit                              (* unit type used to make the mir more uniform gets "compiled away" in the backend *)
@@ -20,6 +20,12 @@ type mirtyp =
 
 and vecinnertype = | TMIRVECI32 | TMIRVECI8
 
+(* 
+  Borrowed: no gc obligation, no consumption allowed
+  Owned: gc obligation, consumption allowed
+  NoMem: mirtyp is TMIRUnit or TMIRI32 or TMIRI8, this ssa value does not represent a memory object
+*)
+type ownership = | Borrowed | Owned | NoMem
 
 type uopi32arg = 
     | Negi32 | Noti32
@@ -40,62 +46,84 @@ type bopi8arg =
     | Addi8 | Subi8
     | Andi8 | Ori8 | Xori8
 
-type op =                                                      (* Textual Representation                              Performance Implications            *)
-    | Func of ssaid * mirtyp * funcid                          (* %res = func @funcid                                 ALLOCATES CLOSURE MEMORY            *)
-    | Pack of ssaid * mirtyp * ssaid * (ssaid list)            (* %res = pack %oldclos %arg0 %arg1 ...                COPIES CLOSURE MEMORY BY DEFAULT    *)
-    | CallClosure of ssaid * mirtyp * ssaid                    (* %res = callclosure %clos                            CALLS FUNCTION VIA CLOSURE WRAPPER  *)
-    | CallDirect of ssaid * mirtyp * funcid * (ssaid list)     (* %res = calldirect @funcid %arg0 %arg1 ...                                               *)
-    | StoreGlobal of ssaid * mirtyp * globalid * ssaid         (* %res = storeglobal @gid %val                                                            *)
-    | LoadGlobal of ssaid * mirtyp * globalid                  (* %res = loadglobal @gid                                                                  *)
-    | Immi32 of ssaid * mirtyp * Int32.t                       (* %res = immi32 1234                                                                      *)
-    | Immi8 of ssaid * mirtyp * char                           (* %res = immi8 123                                                                        *)
-    | ImmUnit of ssaid * mirtyp                                (* %res = immunit                                                                          *)
-    | Uopi32 of ssaid * mirtyp * uopi32arg * ssaid             (* %res = uopi32 arg %a                                                                    *)
-    | Uopi8 of ssaid * mirtyp * uopi8arg * ssaid               (* %res = uopi8 arg %a                                                                     *)    
-    | Bopi32 of ssaid * mirtyp * bopi32arg * ssaid * ssaid     (* %res = bopi32 arg %a %b                                                                 *)
-    | Bopi8 of ssaid * mirtyp * bopi8arg * ssaid * ssaid       (* %res = bopi8 arg %a %b                                                                  *)
-    | Tupinit of ssaid * mirtyp * (ssaid list)                 (* %res = tupinit %elm0 %elm1 ...                      ALLOCATES TUPLE MEMORY              *)
-    | Tupget of ssaid * mirtyp * ssaid * int                   (* %res = tupget %tup idx                                                                  *)
-    | Veclit of ssaid * mirtyp * (ssaid list)                  (* %res = veclit %elm0 %elm1 ...                       ALLOCATES VECTOR MEMORY             *)
-    | Vecinit of ssaid * mirtyp * ssaid * (ssaid list)         (* %res = vecinit %defval %dim0sz1 ...                 ALLOCATES VECTOR MEMORY             *)
-    | Veclen of ssaid * mirtyp * ssaid                         (* %res = veclen %vec                                                                      *)
-    | Vecread of ssaid * mirtyp * ssaid * (ssaid list)         (* %res = vecread %vec %idx0 ...                                                           *)
-    | Vecwrite of ssaid * mirtyp * ssaid  * ssaid * (ssaid list)        (* %res = vecwrite %vec %val %idx0 ...                 COPIES VECTOR MEMORY BY DEFAULT     *)
-    | Vecslice of ssaid * mirtyp * ssaid * ssaid * ssaid       (* %res = vecslice %vec %start %len                                                        *)
-    | Vecextend of ssaid * mirtyp * ssaid * ssaid * ssaid      (* %res = vecextend %vec %lit %off                     COPIES VECTOR MEMORY                *)
+(* Use of a ssa value where the ssa value can be consumed
+   If such a use is not consumed, some less optimal behavior will occur
+   most of the time a copy is made *)
+type ssaconsume = {
+  ssaid: ssaid;
+  mutable consume: bool;
+}
 
-type branch = bbid * (ssaid list)  (* target bbid, args *)
+let ssac = fun ssaid -> { ssaid; consume = false }
+
+type op =                                                           (* Textual Representation                                                                           *)
+    | Func of ssaid * funcid                                        (* %res         = func @funcid                                                                      *)
+    | Pack of ssaid *  ssaconsume * (ssaconsume list)               (* %res         = pack %oldclos %arg0 %arg1 ...                                                     *)
+    | CallClosure of ssaid * ssaconsume                             (* %res         = callclosure %clos                                                                 *)
+    | CallDirect of ssaid * funcid * (ssaconsume list)              (* %res         = calldirect @funcid %arg0 %arg1 ...                                                *)
+    | GarbageCollect of ssaid list                                  (*                garbagecollect %mem0 %mem1 ...                                                    *)
+    | StoreGlobal of globalid * ssaconsume                          (*                storeglobal @gid %val                                                             *)
+    | LoadGlobal of ssaid * globalid                                (* %res         = loadglobal @gid                                                                   *)
+    | Immi32 of ssaid * Int32.t                                     (* %res         = immi32 1234                                                                       *)
+    | Immi8 of ssaid * char                                         (* %res         = immi8 123                                                                         *)
+    | ImmUnit of ssaid                                              (* %res         = immunit                                                                           *)
+    | Uopi32 of ssaid * uopi32arg * ssaid                           (* %res         = uopi32 arg %a                                                                     *)
+    | Uopi8 of ssaid * uopi8arg * ssaid                             (* %res         = uopi8 arg %a                                                                      *)
+    | Bopi32 of ssaid * bopi32arg * ssaid * ssaid                   (* %res         = bopi32 arg %a %b                                                                  *)
+    | Bopi8 of ssaid * bopi8arg * ssaid * ssaid                     (* %res         = bopi8 arg %a %b                                                                   *)
+    | Tupinit of ssaid * (ssaconsume list)                          (* %res         = tupinit %elm0 %elm1 ...                                                           *)
+    | Tupextract of (ssaid list) * ssaconsume                       (* (%elm0, ...) = tupextract %tup                                                                   *)
+    | Tupview of (ssaid list) * ssaid                               (* (%elm0, ...) = tupview %tup                                                                 *)
+    | Veclit of ssaid * (ssaconsume list)                           (* %res         = veclit %elm0 %elm1 ...                                                            *)
+    | Vecinit of ssaid * ssaid * (ssaid list)                       (* %res         = vecinit %defval %dim0sz1 ...                                                      *)
+    | Veclen of ssaid * ssaid                                       (* %res         = veclen %vec                                                                       *)
+    | Vecread of ssaid * ssaid * (ssaid list)                       (* %res         = vecread %vec %idx0 ...                                                            *)
+    | Vecwrite of ssaid * ssaconsume  * ssaid * (ssaid list)        (* %res         = vecwrite %vec %val %idx0 ...                                                      *)
+    | Vecinsert of ssaid * ssaconsume * ssaconsume * (ssaid list)   (* %res         = vecinsert %vec %vecins %idx0 ...                                                  *)
+    | Vecslice of ssaid * ssaid * ssaid * ssaid                     (* %res         = vecslice %vec %start %len                                                         *)
+    | Vecextend of ssaid * ssaid * ssaid * ssaid                    (* %res         = vecextend %vec %lit %off                                                          *)
+
+type branch = {
+  bbid: bbid;
+  args: (ssaconsume list);
+}
+
+let brac = fun bbid args -> { bbid; args }
 
 type term =
     | Br of branch
     | Cbr of ssaid * branch * branch
-    | Ret of ssaid
+    | Ret of ssaconsume
 
 type bb = {
-    bbid: int;
-    name: string;
-    args: (ssaid * mirtyp) list;
-    mutable ops: op list; (* rev order !!!*)
-    mutable term: term option;
+    bbid: int;                    (* unique identifier of basic block *)
+    name: string;                 (* only debug info *)
+    mutable args: ssaid list;     (* mutable for TCO *)
+    mutable ops: op list;         (* rev order, to make building faster*)
+    mutable term: term option;    
 }
+module BBMap = Map.Make(Int)
 
 type func = {
-    funcid: funcid;
-    name: string;
-    args: (ssaid * (string option) * mirtyp) list;
-    rettyp: mirtyp;
-    extern_name: string option;
-    mutable next_ssaid: ssaid;
-    mutable next_bbid: bbid;
-    mutable bbs: bb list;
+    funcid: funcid;                                       (* unique identifier of func *)
+    name: string;                                         (* only debug info *)
+    mutable args: ( ssaid * (string option) ) list;       (* string only debug info, mutable for TCO *)
+    rettyp: mirtyp;                                       
+    extern_name: string option;                           (* if Some externalname then bbs is ignored and a extern function gets linked *)
+    mutable next_ssaid: ssaid;                            (* lowest unused ssaid, should always be in sync with the length of ssatyps and memown *)
+    mutable next_bbid: bbid;                              (* lowest unused bbid *)
+    mutable entry_bb: bbid option;                        (* entry basic block id *)
+    mutable bbs: bb BBMap.t;                              
+    ssatyps: mirtyp Dynarray.t;                           (* stores mirtypes of all ssa values *)
+    memown: ownership Dynarray.t;                         (* stores ownership information of all ssa values *)
 }
+module FuncMap = Map.Make(Int)
+
 
 type global = {
     globalid: globalid;
     typ: mirtyp;
 }
-
-module FuncMap = Map.Make(Int)
 module GlobalMap = Map.Make(Int)
 
 type program = {
@@ -105,60 +133,6 @@ type program = {
   mutable main_funcid    : funcid option;
   mutable uninit_globals_funcid : funcid option;
 }
-
-(* ========================================================================= *)
-(* MIR Helpers                                                               *)
-(* ========================================================================= *)
-
-let get_mirtyp (op : op) : mirtyp =
-  match op with
-  | Func (_, typ, _) -> typ
-  | Pack (_, typ, _, _) -> typ
-  | CallClosure (_, typ, _) -> typ
-  | CallDirect (_, typ, _, _) -> typ
-  | StoreGlobal (_, typ, _, _) -> typ
-  | LoadGlobal (_, typ, _) -> typ
-  | Uopi32 (_, typ, _, _) -> typ
-  | Bopi32 (_, typ, _, _, _) -> typ
-  | Uopi8 (_, typ, _, _) -> typ
-  | Bopi8 (_, typ, _, _, _) -> typ
-  | Immi32 (_, typ, _) -> typ
-  | Immi8 (_, typ, _) -> typ
-  | ImmUnit (_, typ) -> typ
-  | Tupinit (_, typ, _) -> typ
-  | Tupget (_, typ, _, _) -> typ
-  | Vecinit (_, typ, _, _) -> typ
-  | Veclit (_, typ, _) -> typ
-  | Veclen (_, typ, _) -> typ
-  | Vecread (_, typ, _, _) -> typ
-  | Vecwrite (_, typ, _, _, _) -> typ
-  | Vecslice (_, typ, _, _, _) -> typ
-  | Vecextend (_, typ, _, _, _) -> typ
-
-let get_ssaid (op : op) : ssaid =
-  match op with
-  | Func (ssaid, _, _) -> ssaid
-  | Pack (ssaid, _, _, _) -> ssaid
-  | CallClosure (ssaid, _, _) -> ssaid
-  | CallDirect (ssaid, _, _, _) -> ssaid
-  | StoreGlobal (ssaid, _, _, _) -> ssaid
-  | LoadGlobal (ssaid, _, _) -> ssaid
-  | Uopi32 (ssaid, _, _, _) -> ssaid
-  | Bopi32 (ssaid, _, _, _, _) -> ssaid
-  | Uopi8 (ssaid, _, _, _) -> ssaid
-  | Bopi8 (ssaid, _, _, _, _) -> ssaid
-  | Immi32 (ssaid, _, _) -> ssaid
-  | Immi8 (ssaid, _, _) -> ssaid
-  | ImmUnit (ssaid, _) -> ssaid
-  | Tupinit (ssaid, _, _) -> ssaid
-  | Tupget (ssaid, _, _, _) -> ssaid
-  | Vecinit (ssaid, _, _, _) -> ssaid
-  | Veclit (ssaid, _, _) -> ssaid
-  | Veclen (ssaid, _, _) -> ssaid
-  | Vecread (ssaid, _, _, _) -> ssaid
-  | Vecwrite (ssaid, _, _, _, _) -> ssaid
-  | Vecslice (ssaid, _, _, _, _) -> ssaid
-  | Vecextend (ssaid, _, _, _, _) -> ssaid
 
 (* ========================================================================= *)
 (* Builder State Context                                                     *)
@@ -189,105 +163,48 @@ let get_program (b : builder) : program =
   b.program
 
 (* ========================================================================= *)
-(* Cursor Checkpoints                                                        *)
+(* Moving the Cursor                                                         *)
 (* ========================================================================= *)
 
-let cp_get (b : builder) : cursor =
+let cp_set (b : builder) : cursor =
   b.cursor
 
 let cp_ret (b : builder) (cp : cursor) : unit =
   b.cursor <- cp
 
-(* ========================================================================= *)
-(* Function & Basic Block Cursors                                            *)
-(* ========================================================================= *)
-
-let create_func (b : builder) 
-                (name : string)
-                (args : (ssaid * (string option) * mirtyp) list)
-                (rettyp : mirtyp)
-                (extern_name : string option)
-                : func =
-  let fid = b.next_funcid in
-  b.next_funcid <- b.next_funcid + 1;
-  let max_ssaid = List.fold_left (fun acc (arg_ssaid, _, _) -> max acc arg_ssaid) 0 args in
-  let fn = {funcid = fid;
-            name = name;
-            args = args;
-            rettyp = rettyp;
-            extern_name = extern_name;
-            next_ssaid = max_ssaid + 1;
-            next_bbid = 0;
-            bbs = [] } in
-  let p = b.program in
-  p.funcs <- FuncMap.add fid fn p.funcs;
-  fn
-
 let switch_func (b : builder) (target_fn : func) : unit =
   b.cursor <- (Some target_fn, None)
-
-let create_bb (b : builder) 
-              (name : string) 
-              (args : (ssaid * mirtyp) list) : bb =
-  match b.cursor with
-  | (None, _) -> failwith "Builder Error: Cannot create basic block without an active function!"
-  | (Some fn, _) ->
-      let id = fn.next_bbid in
-      fn.next_bbid <- fn.next_bbid + 1;
-      let new_bb = { bbid = id; 
-                     name; 
-                     args; 
-                     ops = []; 
-                     term = None } in
-      fn.bbs <- fn.bbs @ [new_bb];
-      new_bb
 
 let switch_bb (b : builder) (target_bb : bb) : unit =
   (*does not check if the bb is in the function !!!!*)
   match b.cursor with
   | (None, _) -> failwith "Builder Error: Cannot switch basic block without an active function!"
-  | (Some fn, _) -> b.cursor <- (Some fn, Some target_bb)
-  
-
-let create_global (b : builder) (typ : mirtyp) : global =
-  let globalid = b.next_globalid in
-  b.next_globalid <- b.next_globalid + 1;
-  let global = { globalid; typ } in
-  b.program.globals <- GlobalMap.add globalid global b.program.globals;
-  global
+  | (Some fn, _) when fn.next_bbid > target_bb.bbid -> b.cursor <- (Some fn, Some target_bb)
+  | _ -> failwith "Builder Error: Cannot switch to non-existent basic block!"
 
 (* ========================================================================= *)
-(* Emitting Instructions & Terminators                                       *)
+(* MIR Helpers (Finding Things)                                              *)
 (* ========================================================================= *)
 
-let emit_op (b : builder) (op : op) : unit =
+let get_mirtyp_func (func : func) (ssaid : ssaid) : mirtyp =
+  if ssaid < 0 || ssaid >= func.next_ssaid then
+    raise (Errors.MirError (Printf.sprintf "SSA ID %d is out of bounds for function %s" ssaid func.name));
+  Dynarray.get func.ssatyps ssaid
+
+let get_ownership_func (func : func) (ssaid : ssaid) : ownership =
+  if ssaid < 0 || ssaid >= func.next_ssaid then
+    raise (Errors.MirError (Printf.sprintf "SSA ID %d is out of bounds for function %s" ssaid func.name));
+  Dynarray.get func.memown ssaid
+
+let get_mirtyp (b : builder) (ssaid : ssaid) : mirtyp =
   match b.cursor with
-  | (_, None) -> failwith "Builder Error: Cannot emit op without an active basic block!"
-  | (_, Some bb) -> bb.ops <- op :: bb.ops
+  | (None, _) -> raise (Errors.MirError "No active function in builder")
+  | (Some func, _) -> get_mirtyp_func func ssaid
 
-let emit_term (b : builder) (term : term) : unit =
+let get_ownership (b : builder) (ssaid : ssaid) : ownership =
   match b.cursor with
-  | (_, None) -> failwith "Builder Error: Cannot emit terminator without an active basic block!"
-  | (_, Some bb) ->
-      match bb.term with
-      | Some _ -> failwith (Printf.sprintf "Builder Error: Basic block '%s' already has a terminator!" bb.name)
-      | None -> bb.term <- Some term
-
-(* ========================================================================= *)
-(* Generating SSA IDs                                                        *)
-(* ========================================================================= *)
-
-let fresh_ssaid (b : builder) : ssaid =
-  match b.cursor with
-  | (None, _) -> failwith "Builder Error: Cannot generate SSA ID without an active function!"
-  | (Some fn, _) ->
-      let id = fn.next_ssaid in
-      fn.next_ssaid <- fn.next_ssaid + 1;
-      id
-
-(* ========================================================================= *)
-(* Finding Things                                                            *)
-(* ========================================================================= *)
+  | (None, _) -> raise (Errors.MirError "No active function in builder")
+  | (Some func, _) -> get_ownership_func func ssaid
 
 let find_func_opt (b : builder) (fid : funcid) : func option =
   FuncMap.find_opt fid b.program.funcs
@@ -300,7 +217,7 @@ let find_func (b : builder) (fid : funcid) : func =
 let find_bb_opt (b : builder) (fid : funcid) (bbid : bbid) : bb option =
   match find_func_opt b fid with
   | None -> None
-  | Some fn -> List.find_opt (fun bb -> bb.bbid = bbid) fn.bbs
+  | Some fn -> BBMap.find_opt bbid fn.bbs
 
 let find_bb (b : builder) (fid : funcid) (bbid : bbid) : bb =
   match find_bb_opt b fid bbid with
@@ -316,30 +233,415 @@ let find_global (b : builder) (gid : globalid) : global =
   | None -> raise (Errors.MirError (Printf.sprintf "Global with id %d not found" gid))
 
 
-let find_ssa_mirtyp_opt (b : builder) (ssaid : ssaid) : mirtyp option =
-  (*idea for speedup: in emit_op, create_func and create_bb build an ssaid -> op cache to use here*)
-  match b.cursor with
-  | (None, _) -> None
-  | (Some fn, _) ->
-    match List.find_opt (fun (arg_ssaid, _, _) -> arg_ssaid = ssaid) fn.args with
-    | Some (_, _, mirtyp) -> Some mirtyp
-    | None -> (
-      let rec find_in_bbs (bbs : bb list) : mirtyp option =
-        match bbs with
-        | [] -> None
-        | bb :: rest ->
-            let found_args = List.find_opt (fun (arg_ssaid, _) -> arg_ssaid = ssaid) bb.args in
-            let found_ops = List.find_opt (fun op -> get_ssaid op = ssaid) bb.ops in
-            match found_args, found_ops with
-            | Some (_, typ), _ -> Some typ
-            | _, Some op -> Some (get_mirtyp op)
-            | None, None -> find_in_bbs rest
-      in
-      find_in_bbs fn.bbs
-    )
+(* ========================================================================= *)
+(* MIR Type Inference                                                        *)
+(* ========================================================================= *)
 
-let find_ssa_mirtyp (b : builder) (ssaid : ssaid) : mirtyp =
-  match find_ssa_mirtyp_opt b ssaid with
-  | Some typ -> typ
-  | None -> raise (Errors.MirError (Printf.sprintf "SSA ID %d not found in current function" ssaid))
+let func_get_clos_mirtyp (b : builder) (fn : func) : mirtyp =
+  TMIRClos (List.map (fun (ssaid, _) -> get_mirtyp b ssaid) fn.args, fn.rettyp)
+
+(* 
+  given some op, where all used ssaids funcids and globalids are known
+  infer the type of the ssaids defined by the op, additionaly checks
+  if the op is used right ie. are i32s used for indexs and so on
+  In this senses this is the core of a small typechecker for the mir
+*)
+let infer_mirtyp_from_op (b : builder) (op : op) : (ssaid * mirtyp) list =
+  match op with
+  | Func (ssaid, funcid) -> [(ssaid, func_get_clos_mirtyp b (find_func b funcid))]
+  | Pack (ssaid, clos , args) -> (
+      match get_mirtyp b clos.ssaid with
+      | TMIRClos (typs_avail, ret) ->
+          let typs_clos = List.take (List.length args) typs_avail in
+          let typs_args = List.map (fun arg -> get_mirtyp b arg.ssaid) args in
+          if List.for_all2 (fun t1 t2 -> t1 = t2) typs_clos typs_args then
+            [(ssaid, TMIRClos ( List.drop (List.length args) typs_avail, ret))]
+          else
+            raise (Errors.MirError "Argument types do not match closure type in Pack operation")
+      | _ -> raise (Errors.MirError "Expected a closure type for the old closure in Pack operation")
+  )
+  | CallClosure (ssaid, clos) -> (
+      match get_mirtyp b clos.ssaid with
+      | TMIRClos ([], ret) -> [(ssaid, ret)]
+      | _ -> raise (Errors.MirError "Expected a closure with no remaining arguments for CallClosure operation")
+  )
+  | CallDirect (ssaid, funcid, args) -> (
+      let fn = find_func b funcid in
+      let typs_args = List.map (fun arg -> get_mirtyp b arg.ssaid) args in
+      let typs_fn_args = List.map (fun (arg_ssaid,_  ) -> get_mirtyp b arg_ssaid) fn.args in
+      if List.for_all2 (fun t1 t2 -> t1 = t2) typs_args typs_fn_args then
+        [(ssaid, fn.rettyp)]
+      else
+        raise (Errors.MirError "Argument types do not match function type in CallDirect operation")
+  )
+  | GarbageCollect gclst -> (
+      if
+      List.for_all (fun gcssaid -> 
+        match get_mirtyp b gcssaid with
+        | TMIRUnit | TMIRI32 | TMIRI8 -> false
+        | _ -> true
+        ) gclst; 
+      then
+        []
+      else
+        raise (Errors.MirError "GarbageCollect operation requires all arguments to be memory objects")
+  )
+  | StoreGlobal (gid, loc) -> (
+        let global = find_global b gid in
+        if get_mirtyp b loc.ssaid = global.typ then
+          []
+        else
+          raise (Errors.MirError "Value type does not match global type in StoreGlobal operation")
+  )
+  | LoadGlobal (ssaid, gid) -> 
+      let global = find_global b gid in
+      [(ssaid, global.typ)]
+  | Immi32 (ssaid, _) -> [(ssaid, TMIRI32)]
+  | Immi8 (ssaid, _) -> [(ssaid, TMIRI8)]
+  | ImmUnit (ssaid) -> [(ssaid, TMIRUnit)]
+  | Uopi32 (ssaid, _, i) -> (
+    match get_mirtyp b i with
+    | TMIRI32 -> [(ssaid, TMIRI32)]
+    | _ -> raise (Errors.MirError "Expected a 32-bit integer type for the operand in Uopi32 operation")
+  )
+  | Uopi8 (ssaid, _, c) -> (
+    match get_mirtyp b c with
+    | TMIRI8 -> [(ssaid, TMIRI8)]
+    | _ -> raise (Errors.MirError "Expected an 8-bit integer type for the operand in Uopi8 operation")
+  )
+  | Bopi32 (ssaid, _, l, r) -> (
+    match get_mirtyp b l, get_mirtyp b r with
+    | TMIRI32, TMIRI32 -> [(ssaid, TMIRI32)]
+    | _ -> raise (Errors.MirError "Expected 32-bit integer types for both operands in Bopi32 operation")
+  )
+  | Bopi8 (ssaid, op, l, r) -> (
+    match get_mirtyp b l, get_mirtyp b r with
+    | TMIRI8, TMIRI8 -> (
+        match op with
+        | Eqi8 | Neqi8 | Lti8 | Gti8 | LtEqi8 | GtEqi8 -> [(ssaid, TMIRI32)]
+        | _ -> [(ssaid, TMIRI8)]
+    )
+    | _ -> raise (Errors.MirError "Expected 8-bit integer types for both operands in Bopi8 operation")
+  )
+  | Tupinit (ssaid, elems) -> (
+      let elem_typs = List.map (fun elem -> get_mirtyp b elem.ssaid) elems in
+      [(ssaid, TMIRTup elem_typs)]
+  )
+  | Tupextract (elms, tup) -> (
+    match get_mirtyp b tup.ssaid with
+    | TMIRTup elem_typs when List.length elms = List.length elem_typs -> List.map2 (fun ssaid typ -> (ssaid, typ)) elms elem_typs
+    | TMIRTup _ -> raise (Errors.MirError "Number of elements to extract does not match the tuple type in Tupextract operation")
+    | _ -> raise (Errors.MirError "Expected a tuple type for the tuple operand in Tupextract operation")
+  )
+  | Tupview (elms, tup) -> (
+    match get_mirtyp b tup with
+    | TMIRTup elem_typs when List.length elms = List.length elem_typs -> List.map2 (fun ssaid typ -> (ssaid, typ)) elms elem_typs
+    | TMIRTup _ -> raise (Errors.MirError "Number of elements to extract does not match the tuple type in Tupview operation")
+    | _ -> raise (Errors.MirError "Expected a tuple type for the tuple operand in Tupview operation")
+  )
+  | Veclit (ssaid, lits) -> (
+    match lits with
+    | h :: tl -> (
+      let inner_type = get_mirtyp b h.ssaid in
+      if List.for_all (fun lit -> get_mirtyp b lit.ssaid = inner_type) tl then
+        let vec_typ = match inner_type with
+          | TMIRI32 -> TMIRVec (1, TMIRVECI32)
+          | TMIRI8 -> TMIRVec (1, TMIRVECI8)
+          | TMIRVec (dim, datatyp) -> TMIRVec (dim + 1, datatyp)
+          | _ -> raise (Errors.MirError "Veclit operation requires all literal elements to be of type vector, i32 or i8")
+        in
+        [(ssaid, vec_typ)]
+      else
+        raise (Errors.MirError "Veclit operation requires all literal elements to be of the same type")
+    )
+    | [] -> raise (Errors.MirError "Veclit operation requires at least one literal element")
+  )
+  | Vecinit (ssaid, lit, szlst) -> (
+    if List.for_all (fun sz -> get_mirtyp b sz = TMIRI32) szlst then
+      let dim = List.length szlst in
+      let vec_typ = match get_mirtyp b lit with
+        | TMIRI32 -> TMIRVec (dim, TMIRVECI32)
+        | TMIRI8 -> TMIRVec (dim, TMIRVECI8)
+        | TMIRVec (diminner, datatyp) -> TMIRVec (dim + diminner, datatyp)
+        | _ -> raise (Errors.MirError "Vecinit operation requires the default value to be of type i32 or i8")
+      in
+      [(ssaid, vec_typ)]
+    else
+      raise (Errors.MirError "Vecinit operation requires all size arguments to be of type i32")
+  )
+  | Veclen (ssaid, vec) -> (
+    match get_mirtyp b vec with
+    | TMIRVec _ -> [(ssaid, TMIRI32)]
+    | _ -> raise (Errors.MirError "Veclen operation requires the vector argument to be of type vector")
+  )
+  | Vecread (ssaid, vec, idxlst) -> (
+    if List.for_all (fun sz -> get_mirtyp b sz = TMIRI32) idxlst then
+      let idx_depth = List.length idxlst in
+      let vec_typ = 
+        match get_mirtyp b vec with
+        | TMIRVec (dim, datatyp) when idx_depth = dim -> (match datatyp with | TMIRVECI32 -> TMIRI32 | TMIRVECI8 -> TMIRI8)
+        | TMIRVec (dim, datatyp) when idx_depth < dim -> (TMIRVec (dim - idx_depth, datatyp))
+        | TMIRVec _ -> raise (Errors.MirError "Vecread operation index depth exceeds vector dimension")
+        | _ -> raise (Errors.MirError "Vecread operation requires the vector argument to be of type vector")
+      in
+      [(ssaid, vec_typ)]
+    else
+      raise (Errors.MirError "Vecread operation requires all index arguments to be of type i32")
+  )
+  | Vecwrite (ssaid, vec, ic, idxlst) -> (
+    if List.for_all (fun sz -> get_mirtyp b sz = TMIRI32) idxlst then
+      let idx_depth = List.length idxlst in
+      let vec_typ = 
+        match get_mirtyp b vec.ssaid with
+        | TMIRVec (dim, datatyp) when idx_depth = dim -> (
+          let ic_expected_typ = match datatyp with | TMIRVECI32 -> TMIRI32 | TMIRVECI8 -> TMIRI8 in
+          if get_mirtyp b ic = ic_expected_typ then
+            TMIRVec (dim, datatyp)
+          else
+            raise (Errors.MirError "Vecwrite operation value type does not match vector inner type")
+        )
+        | TMIRVec _ -> raise (Errors.MirError "Vecwrite operation index depth does not match vector dimension")
+        | _ -> raise (Errors.MirError "Vecwrite operation requires the vector argument to be of type vector")
+      in
+      [(ssaid, vec_typ)]
+    else
+      raise (Errors.MirError "Vecwrite operation requires all index arguments to be of type i32")
+  )
+  | Vecinsert (ssaid, vec, vecins, idxlst) -> (
+    if List.for_all (fun sz -> get_mirtyp b sz = TMIRI32) idxlst then
+      let idx_depth = List.length idxlst in
+      let vec_typ = (
+        match get_mirtyp b vec.ssaid, get_mirtyp b vecins.ssaid with
+        | TMIRVec (dim_vec, datatyp_vec) , TMIRVec (dim_ins, datatyp_ins) 
+            when idx_depth + dim_ins = dim_vec && datatyp_vec = datatyp_ins -> 
+            TMIRVec (dim_vec, datatyp_vec)
+        | TMIRVec _ , TMIRVec _ -> raise (Errors.MirError "Vecinsert operation inner values dont match or idx depth + vecins dimension does not match vector dimension")
+        | _, _ -> raise (Errors.MirError "Vecinsert operation requires vec and vecins arguments to be of type vector")
+      )
+      in
+      [(ssaid, vec_typ)]
+    else
+      raise (Errors.MirError "Vecinsert operation requires all index arguments to be of type i32")
+  )
+  | Vecslice (ssaid, vec, start, len) -> (
+      match get_mirtyp b vec, get_mirtyp b start, get_mirtyp b len with
+      | TMIRVec (dim, datatyp), TMIRI32, TMIRI32 -> [ (ssaid, TMIRVec (dim, datatyp)) ]
+      | _, _, _ -> raise (Errors.MirError "Vecslice operation requires the vec argument to be of type vector and start and len arguments to be of type i32")    
+  )
+  | Vecextend (ssaid, vec, lit, extsz) -> (
+      match get_mirtyp b vec, get_mirtyp b extsz with
+      | TMIRVec (dim, datatyp), TMIRI32 -> (
+        let lit_typ = get_mirtyp b lit in
+        if dim = 1 then
+          match datatyp, lit_typ with
+          | TMIRVECI32, TMIRI32 
+          | TMIRVECI8, TMIRI8 -> [(ssaid, TMIRVec (dim, datatyp))]
+          | _ -> raise (Errors.MirError "Vecextend operation requires the lit argument to match the inner type of the vec argument")
+        else
+          match lit_typ with
+          | TMIRVec (dim_lit, datatyp_lit) when dim_lit + 1 = dim && datatyp_lit = datatyp -> [(ssaid, TMIRVec (dim, datatyp))]
+          | _ -> raise (Errors.MirError "Vecextend operation requires the lit argument to be a vector of the same inner type as the vec argument and of dimension one less than the vec argument")
+      )
+      | _ -> raise (Errors.MirError "Vecextend operation requires the vec argument to be of type vector and extsz arguments to be of type i32")    
+  )
+
+(*
+  given some op, where all used ssaids funcids and globalids are known
+  infer the ownership of the ssaids defined by the op
+*)
+let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
+  match op with
+  | Func (ssaid, _) -> [(ssaid, Owned)]
+  | Pack (ssaid, _, _) -> [(ssaid, Owned)]
+  | CallClosure (ssaid, _) -> [(ssaid, Owned)]
+  | CallDirect (ssaid, _, _) -> [(ssaid, Owned)]
+  | GarbageCollect _ -> []
+  | StoreGlobal _ -> []
+  | LoadGlobal (ssaid, _) -> [(ssaid, Borrowed)]
+  | Immi32 (ssaid, _) -> [(ssaid, NoMem)]
+  | Immi8 (ssaid, _) -> [(ssaid, NoMem)]
+  | ImmUnit ssaid -> [(ssaid, NoMem)]
+  | Uopi32 (ssaid, _, _) -> [(ssaid, NoMem)]
+  | Uopi8 (ssaid, _, _) -> [(ssaid, NoMem)]
+  | Bopi32 (ssaid, _, _, _) -> [(ssaid, NoMem)]
+  | Bopi8 (ssaid, _, _, _) -> [(ssaid, NoMem)]
+  | Tupinit (ssaid, _) -> [(ssaid, Owned)]
+  (* Tup extract and view triggers a redundant call on the type inference function but I feel to not enforce an order in which
+     infer_ownership_from_op and infer_mirtyp_from_op are called is worth it*)
+  | Tupextract (elms , _) -> (
+    List.map (fun (ssaid, mirtyp) ->
+              match mirtyp with
+              | TMIRUnit | TMIRI32 | TMIRI8 -> (ssaid, NoMem)
+              | _ -> (ssaid, Borrowed)
+              ) (infer_mirtyp_from_op b op)
+  )
+  | Tupview (elms, _) -> (
+    List.map (fun (ssaid, mirtyp) ->
+              match mirtyp with
+              | TMIRUnit | TMIRI32 | TMIRI8 -> (ssaid, NoMem)
+              | _ -> (ssaid, Owned)
+              ) (infer_mirtyp_from_op b op)
+  )
+  | Veclit (ssaid, _) -> [(ssaid, Owned)]
+  | Vecinit (ssaid, _, _) -> [(ssaid, Owned)]
+  | Veclen (ssaid, _) -> [(ssaid, NoMem)]
+  | Vecread (ssaid, _, _) -> [(ssaid, Borrowed)]
+  | Vecwrite (ssaid, _, _, _) -> [(ssaid, Owned)]
+  | Vecinsert (ssaid, _, _, _) -> [(ssaid, Owned)]
+  | Vecslice (ssaid, _, _, _) -> [(ssaid, Borrowed)]
+  | Vecextend (ssaid, _, _, _) -> [(ssaid, Owned)]
+
+
+let check_branch (b : builder) (branch : branch) : unit =
+  match b.cursor with
+  | (Some fn, _) -> (
+      match BBMap.find_opt branch.bbid fn.bbs with
+      | None -> raise (Errors.MirError "Branch target basic block not found in current function")
+      | Some target_bb -> (
+          if List.length branch.args <> List.length target_bb.args then
+            raise (Errors.MirError "Branch argument count does not match target basic block argument count")
+          else
+            List.iter2 (fun arg_ssa target_arg_ssa -> 
+              if get_mirtyp b arg_ssa.ssaid <> get_mirtyp b target_arg_ssa then
+                raise (Errors.MirError "Branch argument type does not match target basic block argument type")
+            ) branch.args target_bb.args
+      )
+  )
+  | _ -> raise (Errors.MirError "No active function in builder")
+
+let check_term (b : builder) (term : term) : unit =
+  match term with
+  | Br branch -> check_branch b branch
+  | Cbr (cond_ssaid, true_branch, false_branch) -> (
+      if get_mirtyp b cond_ssaid <> TMIRI32 then
+        raise (Errors.MirError "Condition SSA ID for conditional branch must be of type i32");
+      check_branch b true_branch;
+      check_branch b false_branch
+  )
+  | Ret ret_ssa -> (
+      match b.cursor with
+      | (Some fn, _) -> (
+          if get_mirtyp b ret_ssa.ssaid <> fn.rettyp then
+            raise (Errors.MirError "Return SSA ID type does not match function return type"))
+      | _ -> raise (Errors.MirError "No active function in builder")
+  )
+
+(* ========================================================================= *)
+(* Create Functions & Basic Blocks & Globals                                 *)
+(* ========================================================================= *)
+
+let create_func (b : builder) 
+                (name : string)
+                (args_w_mirtyp : (ssaid * (string option) * mirtyp) list)
+                (rettyp : mirtyp)
+                (extern_name : string option)
+                : func =
+  let fid = b.next_funcid in
+  b.next_funcid <- b.next_funcid + 1;
+  let args = List.map (fun (arg_ssaid, arg_name, _) -> (arg_ssaid, arg_name)) args_w_mirtyp in
+  let max_ssaid = List.fold_left (fun acc (arg_ssaid, _, _) -> max acc arg_ssaid) 0 args_w_mirtyp in
+  let mirtyps = Dynarray.make (max_ssaid + 1) TMIRUnit in
+  let memowns = Dynarray.make (max_ssaid + 1) NoMem in
+  List.iter (fun (arg_ssaid, _, mirtyp) -> 
+                Dynarray.set mirtyps arg_ssaid mirtyp;
+                match mirtyp with
+                | TMIRUnit | TMIRI32 | TMIRI8 -> ()
+                | _ -> Dynarray.set memowns arg_ssaid Borrowed
+            ) args_w_mirtyp;
+  let fn = {funcid = fid;
+            name = name;
+            args = args;
+            rettyp = rettyp;
+            extern_name = extern_name;
+            next_ssaid = max_ssaid + 1;
+            next_bbid = 0;
+            entry_bb = None;
+            bbs = BBMap.empty;
+            ssatyps = mirtyps;
+            memown = memowns;
+            } in
+  let p = b.program in
+  p.funcs <- FuncMap.add fid fn p.funcs;
+  fn
+
+let create_bb (b : builder) 
+              (name : string) 
+              (args : (ssaid * mirtyp) list) : bb =
+  match b.cursor with
+  | (None, _) -> failwith "Builder Error: Cannot create basic block without an active function!"
+  | (Some fn, _) ->
+      let id = fn.next_bbid in
+      fn.next_bbid <- fn.next_bbid + 1;
+      List.iter (fun (arg_ssaid, mirtyp) -> 
+        Dynarray.set fn.ssatyps arg_ssaid mirtyp;
+        match mirtyp with
+        | TMIRUnit | TMIRI32 | TMIRI8 -> Dynarray.set fn.memown arg_ssaid NoMem
+        | _ -> Dynarray.set fn.memown arg_ssaid Owned (*hmmm have to think about this*)
+      ) args;
+      let new_bb = { bbid = id; 
+                     name; 
+                     args = List.map fst args; 
+                     ops = []; 
+                     term = None } in
+      fn.bbs <- BBMap.add id new_bb fn.bbs;
+      new_bb
+
+let set_entry_bb (b : builder) (bbid : bbid) : unit =
+  match b.cursor with
+  | (None, _) -> failwith "Builder Error: Cannot set entry basic block without an active function!"
+  | (Some fn, _) -> (
+    match BBMap.find_opt bbid fn.bbs with
+    | None -> failwith (Printf.sprintf "Builder Error: Basic block with id %d not found in function %s" bbid fn.name)
+    | Some _ -> fn.entry_bb <- Some bbid
+  )
+
+let create_global (b : builder) (typ : mirtyp) : global =
+  let globalid = b.next_globalid in
+  b.next_globalid <- b.next_globalid + 1;
+  let global = { globalid; typ } in
+  b.program.globals <- GlobalMap.add globalid global b.program.globals;
+  global
+
+(* ========================================================================= *)
+(* Emitting Instructions & Terminators                                       *)
+(* ========================================================================= *)
+
+let emit_op (b : builder) (op : op) : unit =
+  match b.cursor with
+  | (Some fn, Some bb) -> (
+    let mirtyp_defs = infer_mirtyp_from_op b op in
+    let ownership_defs = infer_ownership_from_op b op in
+    List.iter (fun (ssaid, typ) -> Dynarray.set fn.ssatyps ssaid typ) mirtyp_defs;
+    List.iter (fun (ssaid, own) -> Dynarray.set fn.memown ssaid own) ownership_defs;
+    bb.ops <- op :: bb.ops
+  )
+  | (None, _) -> failwith "Builder Error: Cannot emit op without an active function!"
+  | (_, None) -> failwith "Builder Error: Cannot emit op without an active basic block!"
+
+
+let emit_term (b : builder) (term : term) : unit =
+  match b.cursor with
+  | (_, None) -> failwith "Builder Error: Cannot emit terminator without an active basic block!"
+  | (_, Some bb) ->
+      match bb.term with
+      | Some _ -> failwith (Printf.sprintf "Builder Error: Basic block '%s' already has a terminator!" bb.name)
+      | None -> check_term b term; bb.term <- Some term
+
+(* ========================================================================= *)
+(* Generating SSA IDs                                                        *)
+(* ========================================================================= *)
+
+let fresh_ssaid (b : builder) : ssaid =
+  match b.cursor with
+  | (None, _) -> failwith "Builder Error: Cannot generate SSA ID without an active function!"
+  | (Some fn, _) ->
+      let id = fn.next_ssaid in
+      fn.next_ssaid <- fn.next_ssaid + 1;
+      Dynarray.add_last fn.ssatyps TMIRUnit;
+      Dynarray.add_last fn.memown NoMem;
+      if fn.next_ssaid <> Dynarray.length fn.ssatyps || fn.next_ssaid <> Dynarray.length fn.memown then
+        raise (Errors.MirError "Internal Error: SSA ID counter is out of sync with type and ownership arrays");
+      id
+
+
 
