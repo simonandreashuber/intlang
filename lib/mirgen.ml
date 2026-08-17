@@ -1,8 +1,9 @@
-open Ast
-open Mir
 open Errors
+open Ast
 open PrintIntlang
+open Mir
 open Printmir
+open Buildmir
 
 module UuidSet = Set.Make(Int)
 module UuidMap = Map.Make(Int)
@@ -208,7 +209,7 @@ let sprint_env (env : mirval UuidMap.t) : string =
 (* Declaring Functions and Globals                                           *)
 (* ========================================================================= *)
 
-let declare_func (b : Mir.builder) 
+let declare_func (b : builder) 
                  (env : mirval UuidMap.t) 
                  (name : string) 
                  (capture_banned_uuids_lst : uuid list) 
@@ -270,7 +271,7 @@ type decl =
   | FuncDecl of func * tlexp * env        (* Mir Function where to lower the tlexp with some environment additions (for arguments)*)
   | GlobalDecl of global * tlexp          (* Global where the result of the lowering of the tlexp should be stored, the lowering should live in @init_globals*)
 
-let declare (b : Mir.builder) (builtins_env : mirval UuidMap.t) (monotast : Ast.monotast) : decl list * env =
+let declare (b : builder) (builtins_env : mirval UuidMap.t) (monotast : Ast.monotast) : decl list * env =
   let toplevel_uuids = List.map (fun (_, uuid, _) -> uuid) monotast in
   let decls, toplvl_env_lst =
   List.split @@
@@ -299,7 +300,7 @@ let declare (b : Mir.builder) (builtins_env : mirval UuidMap.t) (monotast : Ast.
 (* Lowering Bodies                                                           *)
 (* ========================================================================= *)
 
-let eta_expansion (b : Mir.builder) (unsat_ssaid : ssaid) : ssaid =
+let eta_expansion (b : builder) (unsat_ssaid : ssaid) : ssaid =
   (*idea if dublication observed in real code: create a cache with eta func signatures for reuse*)
   
   (*extract all args and return type of the fully saturated version, 
@@ -356,7 +357,7 @@ let eta_expansion (b : Mir.builder) (unsat_ssaid : ssaid) : ssaid =
   
 (* Takes a Function and a list of captured UUIDs
    Creates a closure with all the captured variables packed*)
-let func_to_closure (b : Mir.builder) (env : mirval UuidMap.t) (func : func) (cap_uuids : uuid list) : ssaid =
+let func_to_closure (b : builder) (env : mirval UuidMap.t) (func : func) (cap_uuids : uuid list) : ssaid =
     let func_ssaid = fresh_ssaid b in
     emit_op b (Func (func_ssaid, func.funcid));
     if cap_uuids = [] then
@@ -378,7 +379,7 @@ let func_to_closure (b : Mir.builder) (env : mirval UuidMap.t) (func : func) (ca
 (* Lowers ast expression, 
    Assumes that the cursor is already in the correct place to emit the lowered code,
    Returns the ssaid with the expression result *)
-let rec lower_body (b : Mir.builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
+let rec lower_body (b : builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
   match l with
   | VarT (_, uuid, _) -> (
     match env_get env !uuid with
@@ -637,7 +638,7 @@ let rec lower_body (b : Mir.builder) (env : mirval UuidMap.t) (l : tlexp) : ssai
   )
 
     
-and lower_loc_func (b : Mir.builder) 
+and lower_loc_func (b : builder) 
                    (env : mirval UuidMap.t) 
                    (name : string) 
                    (rec_u : uuid option) 
@@ -680,7 +681,7 @@ and lower_loc_func (b : Mir.builder)
   (func, lamlift_uuids)
 
 
-let lower_decls (b : Mir.builder) (decls : decl list) (toplvl_env : mirval UuidMap.t) : unit =
+let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t) : unit =
 
   (*setup @init_globals*)
   let init_globals_func = create_func b "init_globals" [] TMIRUnit None in
@@ -715,7 +716,7 @@ let lower_decls (b : Mir.builder) (decls : decl list) (toplvl_env : mirval UuidM
   emit_op b (ImmUnit unit_ssaid);
   emit_term b (Ret (ssac unit_ssaid))
   
-let lower_builtins (b : Mir.builder) (builtins : Ast.typenv) : mirval UuidMap.t =
+let lower_builtins (b : builder) (builtins : Ast.typenv) : mirval UuidMap.t =
   List.fold_left (fun env_acc (name , (schema , uuid)) ->
     match schema with
     | Ast.Forall ([], TFun (arg_typ, ret_typ)) -> (
@@ -727,7 +728,7 @@ let lower_builtins (b : Mir.builder) (builtins : Ast.typenv) : mirval UuidMap.t 
     | _ -> raise (Errors.LowerMonoTASTError "Builtin function has unexpected type schema")
   ) UuidMap.empty builtins
 
-let lower_monotast (monotast : Ast.monotast) : Mir.builder = 
+let lower_monotast (monotast : Ast.monotast) : builder = 
     let b = create_builder () in
   try
     let builtins_env = lower_builtins b Ast.builtins in

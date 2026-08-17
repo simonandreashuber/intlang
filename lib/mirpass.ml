@@ -1,4 +1,5 @@
 open Mir
+open Buildmir
 
 open Calldirectopt
 

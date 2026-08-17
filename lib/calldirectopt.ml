@@ -1,4 +1,5 @@
 open Mir
+open Buildmir
 
 (* Stores the raw definition payload of a closure SSA ID *)
 type raw_def =
