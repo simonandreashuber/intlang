@@ -104,7 +104,7 @@ let func_get_clos_mirtyp (b : builder) (fn : func) : mirtyp =
   if the op is used right ie. are i32s used for indexs and so on
   In this senses this is the core of a small typechecker for the mir
 *)
-let infer_mirtyp_from_op (b : builder) (op : op) : (ssaid * mirtyp) list =
+let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) : (ssaid * mirtyp) list =
   match op with
   | Func (ssaid, funcid) -> [(ssaid, func_get_clos_mirtyp b (find_func b funcid))]
   | Pack (ssaid, clos , args) -> (
@@ -115,7 +115,11 @@ let infer_mirtyp_from_op (b : builder) (op : op) : (ssaid * mirtyp) list =
           if List.for_all2 (fun t1 t2 -> t1 = t2) typs_clos typs_args then
             [(ssaid, TMIRClos ( List.drop (List.length args) typs_avail, ret))]
           else
-            raise (Errors.MirError (Printf.sprintf "Argument types do not match closure type in Pack operation"))
+            raise (Errors.MirError (Printf.sprintf "Argument types do not match closure type in Pack operation\n op: %s\n ClosTyp: %s\n ArgsTyps: %s\n"
+              (Printmir.string_of_op op)
+              (Printmir.string_of_typ (get_mirtyp b clos.ssaid))
+              (String.concat ", " (List.map (Printmir.string_of_typ) typs_args))
+            ))
       | _ -> raise (Errors.MirError "Expected a closure type for the old closure in Pack operation")
   )
   | CallClosure (ssaid, clos) -> (
@@ -208,11 +212,17 @@ let infer_mirtyp_from_op (b : builder) (op : op) : (ssaid * mirtyp) list =
           | TMIRVec (dim, datatyp) -> TMIRVec (dim + 1, datatyp)
           | _ -> raise (Errors.MirError "Veclit operation requires all literal elements to be of type vector, i32 or i8")
         in
-        [(ssaid, vec_typ)]
+        (if (Some vec_typ) = mirtyp_hint 
+        then [(ssaid, vec_typ)]
+        else raise (Errors.MirError "Veclit operation mirtype hint and infered type dont match")  )
       else
         raise (Errors.MirError "Veclit operation requires all literal elements to be of the same type")
     )
-    | [] -> raise (Errors.MirError "Veclit operation requires at least one literal element")
+    | [] -> (
+        match mirtyp_hint with
+        | Some hint -> [(ssaid, hint)]
+        | None -> raise (Errors.MirError "Veclit operation requires at least one literal element")
+    )
   )
   | Vecinit (ssaid, lit, szlst) -> (
     if List.for_all (fun sz -> get_mirtyp b sz = TMIRI32) szlst then
@@ -331,14 +341,14 @@ let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
               match mirtyp with
               | TMIRUnit | TMIRI32 | TMIRI8 -> (ssaid, NoMem)
               | _ -> (ssaid, Borrowed)
-              ) (infer_mirtyp_from_op b op)
+              ) (infer_mirtyp_from_op b op None)
   )
   | Tupview (elms, _) -> (
     List.map (fun (ssaid, mirtyp) ->
               match mirtyp with
               | TMIRUnit | TMIRI32 | TMIRI8 -> (ssaid, NoMem)
               | _ -> (ssaid, Owned)
-              ) (infer_mirtyp_from_op b op)
+              ) (infer_mirtyp_from_op b op None)
   )
   | Veclit (ssaid, _) -> [(ssaid, Owned)]
   | Vecinit (ssaid, _, _) -> [(ssaid, Owned)]
@@ -464,10 +474,10 @@ let create_global (b : builder) (typ : mirtyp) : global =
 (* Emitting Instructions & Terminators                                       *)
 (* ========================================================================= *)
 
-let emit_op (b : builder) (op : op) : unit =
+let emit_op_hint (b : builder) (op : op) (mirtyp_hint : mirtyp option) : unit =
   match b.cursor with
   | (Some fn, Some bb) -> (
-    let mirtyp_defs = infer_mirtyp_from_op b op in
+    let mirtyp_defs = infer_mirtyp_from_op b op mirtyp_hint in
     let ownership_defs = infer_ownership_from_op b op in
     List.iter (fun (ssaid, typ) -> Dynarray.set fn.ssatyps ssaid typ) mirtyp_defs;
     List.iter (fun (ssaid, own) -> Dynarray.set fn.memown ssaid own) ownership_defs;
@@ -475,6 +485,9 @@ let emit_op (b : builder) (op : op) : unit =
   )
   | (None, _) -> failwith "Builder Error: Cannot emit op without an active function!"
   | (_, None) -> failwith "Builder Error: Cannot emit op without an active basic block!"
+
+let emit_op (b : builder) (op : op) : unit =
+  emit_op_hint b op None
 
 
 let emit_term (b : builder) (term : term) : unit =

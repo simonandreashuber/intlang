@@ -329,6 +329,7 @@ let eta_expansion (b : builder) (unsat_ssaid : ssaid) : ssaid =
                             in
   switch_func b eta_func;
   let bbentry = create_bb b "entry" [] in
+  set_entry_bb b bbentry.bbid;
   switch_bb b bbentry;
 
   (*fill body of eta expansion function*)
@@ -584,7 +585,7 @@ let rec lower_body (b : builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
   | VecLitT (elst, asttyp) -> (
       let ssaid_lst = List.map (fun e -> ssac @@ lower_body b env e) elst in
       let vec_ssaid = fresh_ssaid b in
-      emit_op b (Veclit (vec_ssaid, ssaid_lst));
+      emit_op_hint b (Veclit (vec_ssaid, ssaid_lst)) (Some (asttyp_to_mirtyp asttyp));
       vec_ssaid
     )
   | VecmkT (defval, sizes, asttyp) -> (
@@ -651,6 +652,7 @@ and lower_loc_func (b : builder)
   let func, lamlift_uuids, env_func, l_body = declare_func b env name (match rec_u with Some u -> [u] | None -> []) l in
   switch_func b func;
   let bbentry = create_bb b "entry" [] in
+  set_entry_bb b bbentry.bbid;
   switch_bb b bbentry;
 
   (*add local env from func decl to the outer env*)
@@ -664,7 +666,7 @@ and lower_loc_func (b : builder)
     )
     | Some u -> (
       (*captured vars so we need to recreate the closure*)
-      let closure_ssaid = func_to_closure b env func lamlift_uuids in
+      let closure_ssaid = func_to_closure b env' func lamlift_uuids in
       env_put env' u (MIRSsaid closure_ssaid)
     )
     | None -> (
@@ -687,6 +689,7 @@ let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t
   let init_globals_func = create_func b "init_globals" [] TMIRUnit None in
   switch_func b init_globals_func;
   let bbentry = create_bb b "entry" [] in
+  set_entry_bb b bbentry.bbid;
   switch_bb b bbentry;
   b.program.init_globals_funcid <- Some init_globals_func.funcid;
 
@@ -697,6 +700,7 @@ let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t
     | FuncDecl (func, l_body, env_func) -> (
         switch_func b func;
         let bbentry = create_bb b "entry" [] in
+        set_entry_bb b bbentry.bbid;
         switch_bb b bbentry;
         let env = env_merge toplvl_env env_func in
         let res_ssaid = lower_body b env l_body in

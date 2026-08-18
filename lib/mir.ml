@@ -97,7 +97,7 @@ type term =
 
 type bb = {
     bbid: int;                    (* unique identifier of basic block *)
-    name: string;                 (* only debug info *)
+    mutable name: string;         (* only debug info *)
     mutable args: ssaid list;     (* mutable for TCO *)
     mutable ops: op list;         (* rev order, to make building faster*)
     mutable term: term option;    

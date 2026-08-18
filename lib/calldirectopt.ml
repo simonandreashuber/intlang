@@ -69,5 +69,7 @@ let calldirect_opt_func (fn : func) : unit =
 
 let calldirect_opt (b : builder) : unit =
   FuncMap.iter (fun _fid fn -> 
-    calldirect_opt_func fn
+    match fn.extern_name with
+    | Some _ -> ()
+    | None -> calldirect_opt_func fn
   ) b.program.funcs
