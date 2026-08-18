@@ -514,5 +514,120 @@ let fresh_ssaid (b : builder) : ssaid =
         raise (Errors.MirError "Internal Error: SSA ID counter is out of sync with type and ownership arrays");
       id
 
+(* ========================================================================= *)
+(* Other Helpers                                                             *)
+(* ========================================================================= *)
 
+let substitute_ops_uses submap ops =
 
+  let sub_id id = 
+    match List.assoc_opt id submap with
+    | Some new_id -> new_id
+    | None -> id 
+  in
+  let sub_id_list ids = List.map sub_id ids in
+
+  let sub_sc sc = 
+    { ssaid = sub_id sc.ssaid; consume = sc.consume } 
+  in
+  let sub_sc_list scs = List.map sub_sc scs in
+
+  List.map (fun op ->
+    match op with
+    | Func _ 
+    | LoadGlobal _ 
+    | Immi32 _ 
+    | Immi8 _ 
+    | ImmUnit _ -> op
+    
+    | Pack (dst, oldclos, args) -> 
+        Pack (dst, sub_sc oldclos, sub_sc_list args)
+    
+    | CallClosure (dst, clos) -> 
+        CallClosure (dst, sub_sc clos)
+    
+    | CallDirect (dst, fid, args) -> 
+        CallDirect (dst, fid, sub_sc_list args)
+    
+    | GarbageCollect mems -> 
+        GarbageCollect (sub_id_list mems)  (* Only uses! *)
+    
+    | StoreGlobal (gid, v) -> 
+        StoreGlobal (gid, sub_sc v)
+    
+    | Uopi32 (dst, uop, a) -> 
+        Uopi32 (dst, uop, sub_id a)
+    
+    | Uopi8 (dst, uop, a) -> 
+        Uopi8 (dst, uop, sub_id a)
+    
+    | Bopi32 (dst, bop, a, b) -> 
+        Bopi32 (dst, bop, sub_id a, sub_id b)
+    
+    | Bopi8 (dst, bop, a, b) -> 
+        Bopi8 (dst, bop, sub_id a, sub_id b)
+    
+    | Tupinit (dst, elms) -> 
+        Tupinit (dst, sub_sc_list elms)
+    
+    | Tupextract (elms, tup) -> 
+        Tupextract (elms, sub_sc tup)
+    
+    | Tupview (elms, tup) -> 
+        Tupview (elms, sub_id tup)
+    
+    | Veclit (dst, elms) -> 
+        Veclit (dst, sub_sc_list elms)
+    
+    | Vecinit (dst, defval, dims) -> 
+        Vecinit (dst, sub_id defval, sub_id_list dims)
+    
+    | Veclen (dst, vec) -> 
+        Veclen (dst, sub_id vec)
+    
+    | Vecread (dst, vec, idxs) -> 
+        Vecread (dst, sub_id vec, sub_id_list idxs)
+    
+    | Vecwrite (dst, vec, v, idxs) -> 
+        Vecwrite (dst, sub_sc vec, sub_id v, sub_id_list idxs)
+    
+    | Vecinsert (dst, vec, vecins, idxs) -> 
+        Vecinsert (dst, sub_sc vec, sub_sc vecins, sub_id_list idxs)
+    
+    | Vecslice (dst, vec, start, len) -> 
+        Vecslice (dst, sub_id vec, sub_id start, sub_id len)
+    
+    | Vecextend (dst, vec, lit, off) -> 
+        Vecextend (dst, sub_id vec, sub_id lit, sub_id off)
+  ) ops
+
+let substitute_term_uses submap term =
+  (* Helper to substitute a single ssaid *)
+  let sub_id id = 
+    match List.assoc_opt id submap with
+    | Some new_id -> new_id
+    | None -> id 
+  in
+  
+  (* Helper for ssaconsume records *)
+  let sub_sc sc = 
+    { ssaid = sub_id sc.ssaid; consume = sc.consume } 
+  in
+  
+  (* Helper for ssaconsume lists *)
+  let sub_sc_list scs = List.map sub_sc scs in
+
+  (* Helper to substitute arguments within a branch *)
+  let sub_branch (br : branch) = 
+    { bbid = br.bbid; args = sub_sc_list br.args } 
+  in
+
+  match term with
+  | Br br -> 
+      Br (sub_branch br)
+      
+  | Cbr (cond, br_true, br_false) -> 
+      Cbr (sub_id cond, sub_branch br_true, sub_branch br_false)
+      
+  | Ret sc -> 
+      Ret (sub_sc sc)

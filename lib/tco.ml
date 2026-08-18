@@ -145,6 +145,7 @@ let tco_opt_func (b : builder) (fn : func) : unit =
 
   (* create the new entry bb that propagates the arguments *)
   let new_entry_bb = create_bb b "tco_new_entry" [] in  
+  set_entry_bb b new_entry_bb.bbid;
   switch_bb b new_entry_bb;
   emit_term b (Br (brac old_entry_bb.bbid (List.map (fun (_, arg_ssaid) -> ssac arg_ssaid) sub)));
 
