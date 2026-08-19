@@ -36,6 +36,11 @@ let rec string_of_typ = function
   | TMIRTup typs -> "(" ^ String.concat ", " (List.map string_of_typ typs) ^ ")"
   | TMIRVec (dim, inner) -> Printf.sprintf "vec<%d, %s>" dim (string_of_vecinnertype inner)
 
+let string_of_ownership = function
+  | Borrowed -> "Borrowed"
+  | Owned    -> "Owned"
+  | NoMem    -> "NoMem"
+
 let string_of_ssaids (args : ssaid list) : string =
   String.concat " " (List.map string_of_ssa args)
 
@@ -168,6 +173,57 @@ let string_of_bb (bb : bb) : string =
   in
   String.concat "\n" ([header] @ ops_strs @ term_str)
 
+let string_of_ssa_info_table ssatyps memown =
+  let len1 = Dynarray.length ssatyps in
+  let len2 = Dynarray.length memown in
+  let len = min len1 len2 in
+
+  let acc = ref "" in
+
+  if len1 <> len2 then
+    failwith (Printf.sprintf "string_of_ssa_info_table: ssatyps and memown have different lengths: %d vs %d" len1 len2);
+
+  acc := !acc ^ Printf.sprintf "+-------+--------------------------------+-----------+\n";
+  acc := !acc ^ Printf.sprintf "| SSAID | MIR Type                       | Ownership |\n";
+  acc := !acc ^ Printf.sprintf "+-------+--------------------------------+-----------+\n";
+
+  for i = 0 to len - 1 do
+    let typ_str = string_of_typ (Dynarray.get ssatyps i) in
+    let own_str = string_of_ownership (Dynarray.get memown i) in
+    
+    (* %%%-4d formats as "%123 ", %-30s pads string to 30 chars right *)
+    acc := !acc ^ Printf.sprintf "| %%%-4d | %-30s | %-9s |\n" i typ_str own_str
+  done;
+  
+  acc := !acc ^ Printf.sprintf "+-------+--------------------------------+-----------+\n";
+  !acc
+
+let compute_rpo entry_bbid bb_map =
+  let visited = Hashtbl.create (BBMap.cardinal bb_map) in
+  let rpo = ref [] in
+
+  let rec dfs bbid =
+    if not (Hashtbl.mem visited bbid) then begin
+      Hashtbl.add visited bbid ();
+      match BBMap.find_opt bbid bb_map with
+      | Some bb ->
+          (* 1. Extract successors *)
+          let succs = match bb.term with
+            | Some (Br br) -> [br.bbid]
+            | Some (Cbr (_, br_t, br_f)) -> [br_f.bbid; br_t.bbid]
+            | Some (Ret _) | None -> []
+          in
+          (* 2. Visit children (Post-Order step) *)
+          List.iter dfs succs;
+          (* 3. Prepend to list (implicitly Reverses the Post-Order) *)
+          rpo := bb :: !rpo
+      | None -> ()
+    end
+  in
+
+  dfs entry_bbid;
+  !rpo
+
 let string_of_func (f : func) : string =
   let args_str =
     String.concat ", "
@@ -182,12 +238,18 @@ let string_of_func (f : func) : string =
   match f.extern_name with
   | Some ext_name -> Printf.sprintf "\t<extern: %s>" ext_name
   | None ->
-    f.bbs
-    |> BBMap.bindings
-    |> List.map (fun (_, bb) -> string_of_bb bb)
-    |> String.concat "\n\n"
+    match f.entry_bb with
+    | Some entry_bbid ->
+        let rpo_bbs = compute_rpo entry_bbid f.bbs in
+        String.concat "\n\n" (List.map string_of_bb rpo_bbs)
+    | None -> "<no entry basic block>" ^ (
+        f.bbs
+        |> BBMap.bindings
+        |> List.map (fun (_, bb) -> string_of_bb bb)
+        |> String.concat "\n\n")
   in
-  header ^ "\n" ^ body_str ^ "\n}"
+  let ssa_info_str = string_of_ssa_info_table f.ssatyps f.memown in
+  header ^ "\n" ^ body_str ^ "\n}\n" ^ ssa_info_str
 
 let string_of_program (prog : program) : string =
   (* 1. Print special entry point metadata *)
