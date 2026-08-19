@@ -3,6 +3,7 @@ open Buildmir
 
 open Calldirectopt
 open Tco
+open Dceopt
 open Compactcfgopt
 
 (*
@@ -12,4 +13,5 @@ open Compactcfgopt
 let run_passes (b : builder) : unit =
   Calldirectopt.calldirect_opt b;
   Tco.tco_opt b;
+  Dceopt.dce_opt b;
   Compactcfgopt.compactcfg_opt b

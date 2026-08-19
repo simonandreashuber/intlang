@@ -518,19 +518,25 @@ let fresh_ssaid (b : builder) : ssaid =
 (* Other Helpers                                                             *)
 (* ========================================================================= *)
 
-let substitute_ops_uses submap ops =
-
-  let sub_id id = 
+  let sub_id submap id = 
     match List.assoc_opt id submap with
     | Some new_id -> new_id
     | None -> id 
-  in
-  let sub_id_list ids = List.map sub_id ids in
+  
+  let sub_id_list submap ids = List.map (sub_id submap) ids 
 
-  let sub_sc sc = 
-    { ssaid = sub_id sc.ssaid; consume = sc.consume } 
-  in
-  let sub_sc_list scs = List.map sub_sc scs in
+  let sub_sc submap sc = 
+    { ssaid = sub_id submap sc.ssaid; consume = sc.consume } 
+  
+  let sub_sc_list submap scs = List.map (sub_sc submap) scs 
+
+let sub_ops_uses submap ops =
+
+  (*make helpers less redundant*)
+  let sub_id = sub_id submap in
+  let sub_id_list = sub_id_list submap in
+  let sub_sc = sub_sc submap in
+  let sub_sc_list = sub_sc_list submap in
 
   List.map (fun op ->
     match op with
@@ -601,33 +607,12 @@ let substitute_ops_uses submap ops =
         Vecextend (dst, sub_id vec, sub_id lit, sub_id off)
   ) ops
 
-let substitute_term_uses submap term =
-  (* Helper to substitute a single ssaid *)
-  let sub_id id = 
-    match List.assoc_opt id submap with
-    | Some new_id -> new_id
-    | None -> id 
-  in
-  
-  (* Helper for ssaconsume records *)
-  let sub_sc sc = 
-    { ssaid = sub_id sc.ssaid; consume = sc.consume } 
-  in
-  
-  (* Helper for ssaconsume lists *)
-  let sub_sc_list scs = List.map sub_sc scs in
+  let sub_branch submap (br : branch) = 
+    { bbid = br.bbid; args = sub_sc_list submap br.args } 
 
-  (* Helper to substitute arguments within a branch *)
-  let sub_branch (br : branch) = 
-    { bbid = br.bbid; args = sub_sc_list br.args } 
-  in
-
+let sub_term submap term =
   match term with
-  | Br br -> 
-      Br (sub_branch br)
-      
+  | Br br -> Br (sub_branch submap br)
   | Cbr (cond, br_true, br_false) -> 
-      Cbr (sub_id cond, sub_branch br_true, sub_branch br_false)
-      
-  | Ret sc -> 
-      Ret (sub_sc sc)
+      Cbr (sub_id submap cond, sub_branch submap br_true, sub_branch submap br_false)
+  | Ret sc -> Ret (sub_sc submap sc)
