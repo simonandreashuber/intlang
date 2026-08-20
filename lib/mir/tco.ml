@@ -34,6 +34,9 @@ type tc_info = {
 }
 
 let tco_opt_func (b : builder) (fn : func) : unit =
+
+  fn.analysis <- None;  (* Clear any existing analysis *)
+
   let tcbbs : (bbid, tc_bbtyp) Hashtbl.t = Hashtbl.create 32 in
   let fid = fn.funcid in
 

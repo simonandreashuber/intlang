@@ -427,6 +427,7 @@ let create_func (b : builder)
             bbs = BBMap.empty;
             ssatyps = mirtyps;
             memown = memowns;
+            analysis = None;
             } in
   let p = b.program in
   p.funcs <- FuncMap.add fid fn p.funcs;

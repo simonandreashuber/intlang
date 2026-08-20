@@ -3,7 +3,11 @@
 (library
  (name intlang_lib)
  (libraries llvm)
- (modules ast errors printIntlang lexer parser include reccheck typecheck monomorph veccheck interp mir printmir buildmir mirgen mirpass calldirectopt tco dceopt compactcfgopt)) ;codegen
+ (modules ast errors printIntlang lexer parser include reccheck typecheck monomorph veccheck interp 
+          mir printmir buildmir mirgen 
+          mirpass calldirectopt tco dceopt compactcfgopt
+          analysis live borrow dom
+          )) ;codegen
 
 (menhir
  (modules parser))

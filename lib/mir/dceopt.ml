@@ -50,6 +50,9 @@ let rec filter_mask mask lst =
   | _ -> invalid_arg "mask length mismatch"
 
 let dce_opt_func (fn : func) =
+
+  fn.analysis <- None;  (* Clear any existing analysis *)
+
   let def_to_uses = Hashtbl.create 256 in
   let worklist = Queue.create () in
   let live_ssas = ref SsaSet.empty in

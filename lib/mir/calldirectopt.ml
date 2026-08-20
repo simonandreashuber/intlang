@@ -12,6 +12,9 @@ type closure_info = {
 }
 
 let calldirect_opt_func (fn : func) : unit =
+
+  fn.analysis <- None;  (* Clear any existing analysis *)
+
   let defs : (ssaid, raw_def) Hashtbl.t = Hashtbl.create 32 in
 
   (* -------------------------------------------------------------------- *)

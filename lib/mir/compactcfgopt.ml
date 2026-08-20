@@ -3,6 +3,8 @@ open Buildmir
 
 let compactcfg_opt_func (fn : func) : unit =
 
+  fn.analysis <- None;  (* Clear any existing analysis *)
+
   (* DynArray for predecessor information and helpers*)
   let preds_dynarr = Dynarray.make fn.next_bbid [] in
 

@@ -104,6 +104,31 @@ type bb = {
 }
 module BBMap = Map.Make(Int)
 
+module SsaSet = Set.Make(Int)
+
+type live_info = {
+  live_in  : SsaSet.t array;
+  live_out : SsaSet.t array;
+}
+
+type borrow_graph = {
+  (* Given ssaid, find all DIRECT borrowers *)
+  lender_to_borrowers : (int, SsaSet.t) Hashtbl.t;
+  (* Given ssaid, find all DIRECT lenders *)
+  borrower_to_lenders : (int, SsaSet.t) Hashtbl.t;
+}
+
+type dom_info = {
+  (* idom[bbid] = immediate parent in dominator tree *)
+  idom : int option array;
+}
+
+type analysis = {
+  live        : live_info;
+  borrow      : borrow_graph;
+  dom         : dom_info;
+}
+
 type func = {
     funcid: funcid;                                       (* unique identifier of func *)
     name: string;                                         (* only debug info *)
@@ -116,9 +141,10 @@ type func = {
     mutable bbs: bb BBMap.t;                              
     ssatyps: mirtyp Dynarray.t;                           (* stores mirtypes of all ssa values *)
     memown: ownership Dynarray.t;                         (* stores ownership information of all ssa values *)
+    mutable analysis: analysis option;
 }
-module FuncMap = Map.Make(Int)
 
+module FuncMap = Map.Make(Int)
 
 type global = {
     globalid: globalid;
