@@ -1,3 +1,5 @@
+(include_subdirs unqualified)
+
 (library
  (name intlang_lib)
  (libraries llvm)
