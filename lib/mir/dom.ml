@@ -63,9 +63,31 @@ let compute_dom (fn : func) =
   (* Entry block has no strict dominator *)
   idom.(entry_id) <- None;
 
-  fn.dom <- Some { idom = idom }
+  (* --- STEP 5: Build Dominator Tree --- *)
+  let dom_tree = Array.make fn.next_bbid [] in
+  Array.iteri (fun b_id opt_idom ->
+    match opt_idom with
+    | Some parent_id -> dom_tree.(parent_id) <- b_id :: dom_tree.(parent_id)
+    | None -> ()
+  ) idom;
+
+  fn.dom <- Some { idom = idom; dom_tree = dom_tree }
 
 
 let get_dom_info fn =
   if fn.dom = None then compute_dom fn;
   Option.get fn.dom
+
+
+let does_strictly_dominate fn dominator dominated =
+  let dom_info = get_dom_info fn in
+  let rec check_dom b =
+    if b = dominator then true
+    else match dom_info.idom.(b) with
+      | Some parent -> check_dom parent
+      | None when fn.entry_bb = Some b -> false
+      | _ -> failwith "does_strictly_dominate: reached a block with no idom that is not the entry"
+  in
+  if dominator = dominated 
+  then false 
+  else check_dom dominated

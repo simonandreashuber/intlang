@@ -129,6 +129,9 @@ type rpo_info = {
 type live_info = {
   live_in  : SsaSet.t array;
   live_out : SsaSet.t array;
+  (* op_index counts form bottom to top, so lower op_index mean later in the block *)
+  def: (bbid * int) array; (* def[ssaid] = (bbid, op_index) definition of ssaid, if any *)
+  last_use : ((bbid * int) list ) array; (* last_use[ssaid] = (bbid, op_index) of last use of ssaid*)
 }
 
 type borrow_info = {
@@ -141,6 +144,8 @@ type borrow_info = {
 type dom_info = {
   (* idom[bbid] = immediate parent in dominator tree *)
   idom : bbid option array;
+  (* dom tree *)
+  dom_tree : bbid list array;
 }
 
 (* ========================================================================= *)

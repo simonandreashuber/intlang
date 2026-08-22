@@ -1,5 +1,6 @@
 open Mir
 
+open Rpo
 
 let compute_live (f : func) =
   let n = f.next_bbid in
@@ -68,12 +69,15 @@ let compute_live (f : func) =
 
   (* --- STEP 2: Fast Fixed-Point Loop using Precomputed Sets --- *)
   let changed = ref true in
-  let blocks_rev = BBMap.bindings f.bbs |> List.rev in
+  let rpo = Rpo.get_rpo_info f in
+  let po_bbid = List.rev rpo.rpo_lst in
 
   while !changed do
     changed := false;
 
-    List.iter (fun (bbid, bb) ->
+    List.iter (fun bbid ->
+
+      let bb = BBMap.find bbid f.bbs in
       let old_live_in = live_in.(bbid) in
 
       (* live_out = Union of live_in of all successors *)
@@ -93,12 +97,67 @@ let compute_live (f : func) =
 
       if not (SsaSet.equal old_live_in new_live_in) then
         changed := true;
-    ) blocks_rev;
+    ) po_bbid;
   done;
 
-  f.live <- Some { live_in; live_out }
+  (* --- STEP 3: Compute Last Use Information --- *)
+  let def = Array.make f.next_ssaid (-1, -1) in
+  let last_use = Array.make f.next_ssaid [] in
+
+  BBMap.iter (fun bbid bb ->
+    let used_later = ref live_out.(bbid) in
+    let add_def ssaid op_index = def.(ssaid) <- (bbid, op_index) in
+    let add_use ssaid op_index =
+      if not (SsaSet.mem ssaid !used_later) then
+        (last_use.(ssaid) <- (bbid, op_index) :: last_use.(ssaid);
+        used_later := SsaSet.add ssaid !used_later)
+    in
+    let add_defs ssaids op_index = List.iter (fun ssaid -> add_def ssaid op_index) ssaids in
+    let add_uses ssaids op_index = List.iter (fun ssaid -> add_use ssaid op_index) ssaids in
+    let add_sc_uses scs op_index = List.iter (fun sc -> add_use sc.ssaid op_index) scs in
+
+    List.iteri (fun op_index op ->
+      match op with
+      | Func (res, _) -> add_def res op_index
+      | Pack (res, sc, scs) -> add_def res op_index; 
+                               add_use sc.ssaid op_index; 
+                               add_sc_uses scs op_index
+      | CallClosure (res, sc) -> add_def res op_index; 
+                                 add_use sc.ssaid op_index
+      | CallDirect (res, _, scs) -> add_def res op_index;
+                                    add_sc_uses scs op_index
+      | GarbageCollect mems -> add_uses mems op_index
+      | StoreGlobal (_, sc) -> add_use sc.ssaid op_index
+      | LoadGlobal (res, _) -> add_def res op_index
+      | Immi32 (res, _) | Immi8 (res, _) | ImmUnit res -> add_def res op_index
+      | Uopi32 (res, _, a) | Uopi8 (res, _, a) -> add_def res op_index; add_use a op_index
+      | Bopi32 (res, _, a, b) | Bopi8 (res, _, a, b) -> add_def res op_index; add_uses [a; b] op_index
+      | Tupinit (res, scs) -> add_def res op_index; add_sc_uses scs op_index
+      | Tupextract (res_list, sc) -> add_defs res_list op_index; add_use sc.ssaid op_index
+      | Tupview (res_list, tup) -> add_defs res_list op_index; add_use tup op_index
+      | Veclit (res, scs) -> add_def res op_index; add_sc_uses scs op_index
+      | Vecinit (res, defval, dims) -> add_def res op_index; add_use defval op_index; add_uses dims op_index
+      | Veclen (res, vec) -> add_def res op_index; add_use vec op_index
+      | Vecread (res, vec, idxs) -> add_def res op_index; add_use vec op_index; add_uses idxs op_index
+      | Vecwrite (res, val_sc, vec, idxs) -> add_def res op_index;
+                                              add_use vec op_index;
+                                              add_use val_sc.ssaid op_index;
+                                              add_uses idxs op_index
+      | Vecinsert (res, vec_sc, vecins_sc, idxs) -> add_def res op_index;
+                                                  add_use vec_sc.ssaid op_index;
+                                                  add_use vecins_sc.ssaid op_index;
+                                                  add_uses idxs op_index
+      | Vecslice (res, vec, start, len) -> add_def res op_index; add_use vec op_index; add_use start op_index; add_use len op_index
+      | Vecextend (res, vec, lit, off) -> add_def res op_index; add_use vec op_index; add_use lit op_index; add_use off op_index
+    )  bb.ops
+  ) f.bbs;
+
+
+  f.live <- Some { live_in; live_out; def; last_use }
 
 
 let get_live_info fn =
   if fn.live = None then compute_live fn;
   Option.get fn.live
+
+
