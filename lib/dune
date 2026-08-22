@@ -6,7 +6,7 @@
  (modules ast errors printIntlang lexer parser include reccheck typecheck monomorph veccheck interp 
           mir printmir buildmir mirgen 
           mirpass calldirectopt tco dceopt compactcfgopt
-          analysis live borrow dom
+          preds rpo live borrow dom
           )) ;codegen
 
 (menhir

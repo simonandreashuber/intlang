@@ -35,7 +35,7 @@ type tc_info = {
 
 let tco_opt_func (b : builder) (fn : func) : unit =
 
-  fn.analysis <- None;  (* Clear any existing analysis *)
+  Mir.invalidate_all_analysis fn;
 
   let tcbbs : (bbid, tc_bbtyp) Hashtbl.t = Hashtbl.create 32 in
   let fid = fn.funcid in
@@ -141,7 +141,8 @@ let tco_opt_func (b : builder) (fn : func) : unit =
   let old_entry_bb = find_bb b fn.funcid (Option.get fn.entry_bb) in
   old_entry_bb.args <- 
     List.map (fun (orig_ssaid, _) -> 
-      Dynarray.set fn.memown orig_ssaid Owned; (*default bb arg behavior is owned*)
+      if Dynarray.get fn.memown orig_ssaid = Borrowed then
+        Dynarray.set fn.memown orig_ssaid Owned; (*default bb arg behavior is owned*)
       orig_ssaid
       ) sub;
   old_entry_bb.name <- "tco_loop_header";

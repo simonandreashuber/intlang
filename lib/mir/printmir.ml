@@ -1,4 +1,9 @@
 open Mir
+open Rpo
+open Preds
+open Live
+open Borrow
+open Dom
 
 (* ========================================================================= *)
 (* String Helpers for Identifier and Primitive Types                         *)
@@ -198,31 +203,55 @@ let string_of_ssa_info_table ssatyps memown =
   acc := !acc ^ Printf.sprintf "+-------+--------------------------------+-----------+\n";
   !acc
 
-let compute_rpo entry_bbid bb_map =
-  let visited = Hashtbl.create (BBMap.cardinal bb_map) in
-  let rpo = ref [] in
+(* Helpers *)
+let string_of_int_list lst =
+  "[" ^ String.concat "; " (List.map string_of_int lst) ^ "]"
 
-  let rec dfs bbid =
-    if not (Hashtbl.mem visited bbid) then begin
-      Hashtbl.add visited bbid ();
-      match BBMap.find_opt bbid bb_map with
-      | Some bb ->
-          (* 1. Extract successors *)
-          let succs = match bb.term with
-            | Some (Br br) -> [br.bbid]
-            | Some (Cbr (_, br_t, br_f)) -> [br_f.bbid; br_t.bbid]
-            | Some (Ret _) | None -> []
-          in
-          (* 2. Visit children (Post-Order step) *)
-          List.iter dfs succs;
-          (* 3. Prepend to list (implicitly Reverses the Post-Order) *)
-          rpo := bb :: !rpo
-      | None -> ()
-    end
-  in
+let string_of_ssaset s =
+  "{" ^ String.concat ", " (List.map string_of_int (SsaSet.elements s)) ^ "}"
 
-  dfs entry_bbid;
-  !rpo
+(* 1. Preds *)
+let string_of_preds_info (p : preds_info) =
+  let s = ref "--- Preds Info ---\nBBID | Predecessors\n-------------------\n" in
+  Array.iteri (fun bbid preds ->
+    s := !s ^ Printf.sprintf "%4d | %s\n" bbid (string_of_int_list preds)
+  ) p.preds;
+  !s
+
+(* 2. RPO *)
+let string_of_rpo_info (r : rpo_info) =
+  Printf.sprintf "RPO List: %s\n" (String.concat ", " (List.map string_of_int r.rpo_lst))
+
+(* 3. Live *)
+let string_of_live_info (l : live_info) =
+  let s = ref "--- Live Info ---\nBBID | Live In                           | Live Out\n---------------------------------------------------------------------------\n" in
+  let len = min (Array.length l.live_in) (Array.length l.live_out) in
+  for bbid = 0 to (len - 1) do
+    s := !s ^ Printf.sprintf "%4d | %-33s | %s\n" 
+      bbid 
+      (string_of_ssaset l.live_in.(bbid)) 
+      (string_of_ssaset l.live_out.(bbid))
+  done;
+  !s
+
+(* 4. Borrow *)
+let string_of_borrow_info (b : borrow_info) =
+  let s = ref "--- Borrow Info ---\nLender SSAID | Borrowers\n------------------------\n" in
+  Array.iteri (fun lender borrowers ->
+    match borrowers with
+    | [] -> ()
+    | _ -> s := !s ^ Printf.sprintf "%12d | %s\n" lender (string_of_int_list borrowers)
+  ) b.lender_to_borrowers;
+  !s
+
+(* 5. Dom *)
+let string_of_dom_info (d : dom_info) =
+  let s = ref "--- Dom Info ---\nBBID | IDom\n-----------\n" in
+  Array.iteri (fun bbid idom ->
+    let idom_str = match idom with Some i -> string_of_int i | None -> "None" in
+    s := !s ^ Printf.sprintf "%4d | %s\n" bbid idom_str
+  ) d.idom;
+  !s
 
 let string_of_func (f : func) : string =
   let args_str =
@@ -240,7 +269,8 @@ let string_of_func (f : func) : string =
   | None ->
     match f.entry_bb with
     | Some entry_bbid ->
-        let rpo_bbs = compute_rpo entry_bbid f.bbs in
+        let rpo_info = Rpo.get_rpo_info f in
+        let rpo_bbs = List.map (fun bbid -> BBMap.find bbid f.bbs) rpo_info.rpo_lst in
         String.concat "\n\n" (List.map string_of_bb rpo_bbs)
     | None -> "<no entry basic block>" ^ (
         f.bbs
@@ -248,8 +278,17 @@ let string_of_func (f : func) : string =
         |> List.map (fun (_, bb) -> string_of_bb bb)
         |> String.concat "\n\n")
   in
-  let ssa_info_str = string_of_ssa_info_table f.ssatyps f.memown in
-  header ^ "\n" ^ body_str ^ "\n}\n" ^ ssa_info_str
+  let analysis_str = 
+    if f.extern_name <> None then ""
+    else
+    string_of_ssa_info_table f.ssatyps f.memown ^
+    string_of_preds_info (get_preds_info f) ^
+    string_of_rpo_info (get_rpo_info f) ^
+    string_of_live_info (get_live_info f) ^
+    string_of_borrow_info (get_borrow_info f) ^
+    string_of_dom_info (get_dom_info f)
+  in
+  header ^ "\n" ^ body_str ^ "\n}\n" ^ analysis_str
 
 let string_of_program (prog : program) : string =
   (* 1. Print special entry point metadata *)

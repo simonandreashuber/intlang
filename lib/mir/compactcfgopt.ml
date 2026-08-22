@@ -1,40 +1,19 @@
 open Mir
 open Buildmir
 
+open Preds
+
 let compactcfg_opt_func (fn : func) : unit =
 
-  fn.analysis <- None;  (* Clear any existing analysis *)
+  let predsarr = (Preds.get_preds_info fn).preds in
 
-  (* DynArray for predecessor information and helpers*)
-  let preds_dynarr = Dynarray.make fn.next_bbid [] in
-
-  let get_preds bbid = Dynarray.get preds_dynarr bbid in
-
-  let add_pred pred_bbid succ_bbid =
-    let old_pred = Dynarray.get preds_dynarr succ_bbid in 
-    Dynarray.set preds_dynarr succ_bbid (pred_bbid :: old_pred)
-  in
-
-  let rem_pred pred_bbid succ_bbid =
-    let old_pred = Dynarray.get preds_dynarr succ_bbid in 
-    let new_pred = List.filter (fun x -> x <> pred_bbid) old_pred in
-    Dynarray.set preds_dynarr succ_bbid new_pred
-  in
-
-  (* Accumulate Predecessor Info *)
-  BBMap.iter (fun _ bb ->
-    match bb.term with
-    | Some (Br br) -> (
-        add_pred bb.bbid br.bbid
-    )
-    | Some (Cbr (_, ibr, ebr)) -> (
-        add_pred bb.bbid ibr.bbid;
-        add_pred bb.bbid ebr.bbid
-    )
-    | Some _ -> ()
-    | None -> failwith ("compactcfgopt: bb " ^ string_of_int bb.bbid ^ " has no term")
-  ) fn.bbs;
+  let get_preds = Preds.get_preds predsarr in
+  let add_pred = Preds.add_pred predsarr in
+  let rem_pred = Preds.rem_pred predsarr in
   
+  (* the actual array for the predecessors is "save" as local var predsarr so Setting to None is ok*)
+  Mir.invalidate_all_analysis fn;
+
   (* worlist *)
   let wl = Queue.create () in
   BBMap.iter (fun bbid _ -> Queue.push bbid wl) fn.bbs;
@@ -111,7 +90,10 @@ let compactcfg_opt_func (fn : func) : unit =
       | _ -> () (* no compact opportunity*)
     )
     | _ -> () (* already removed bb or entry bb*);
-    done
+    done;
+
+    (* The predecessor info is updated and valid so no reason to not keep it *)
+    fn.preds <- Some { preds = predsarr }
 
 let compactcfg_opt (b : builder) : unit =
   FuncMap.iter (fun _fid fn -> 

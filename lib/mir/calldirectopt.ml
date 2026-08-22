@@ -13,7 +13,7 @@ type closure_info = {
 
 let calldirect_opt_func (fn : func) : unit =
 
-  fn.analysis <- None;  (* Clear any existing analysis *)
+  Mir.invalidate_all_analysis fn;
 
   let defs : (ssaid, raw_def) Hashtbl.t = Hashtbl.create 32 in
 

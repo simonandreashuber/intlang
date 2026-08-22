@@ -1,14 +1,13 @@
 open Errors
 
-(* ========================================================================= *)
-(* MIR Def                                                                   *)
-(* ========================================================================= *)
-
-(* Not so sure how meaningful this is but I like it for the other typedefs *)
 type ssaid = int
 type bbid = int
 type funcid = int
 type globalid = int
+
+(* ========================================================================= *)
+(* MIR Types                                                                 *)
+(* ========================================================================= *)
 
 type mirtyp =
   | TMIRUnit                              (* unit type used to make the mir more uniform gets "compiled away" in the backend *)
@@ -26,6 +25,10 @@ and vecinnertype = | TMIRVECI32 | TMIRVECI8
   NoMem: mirtyp is TMIRUnit or TMIRI32 or TMIRI8, this ssa value does not represent a memory object
 *)
 type ownership = | Borrowed | Owned | NoMem
+
+(* ========================================================================= *)
+(* MIR Operations and Terminators                                            *)
+(* ========================================================================= *)
 
 type uopi32arg = 
     | Negi32 | Noti32
@@ -95,6 +98,10 @@ type term =
     | Cbr of ssaid * branch * branch
     | Ret of ssaconsume
 
+(* ========================================================================= *)
+(* MIR Control Flow Graph                                                    *)
+(* ========================================================================= *)
+
 type bb = {
     bbid: int;                    (* unique identifier of basic block *)
     mutable name: string;         (* only debug info *)
@@ -104,30 +111,41 @@ type bb = {
 }
 module BBMap = Map.Make(Int)
 
+(* ========================================================================= *)
+(* MIR Analysis                                                              *)
+(* ========================================================================= *)
+
 module SsaSet = Set.Make(Int)
+
+type preds_info = {
+  preds: bbid list array; (* preds[bbid] = list of predecessor bbids *)
+}
+
+type rpo_info = {
+  rpo_lst: bbid list;      (* reverse post order of basic blocks *)
+  rpo_idx: int array;    (* rpo_index[bbid] = index of bbid in rpo *)
+}
 
 type live_info = {
   live_in  : SsaSet.t array;
   live_out : SsaSet.t array;
 }
 
-type borrow_graph = {
+type borrow_info = {
   (* Given ssaid, find all DIRECT borrowers *)
-  lender_to_borrowers : (int, SsaSet.t) Hashtbl.t;
+  lender_to_borrowers : ssaid list array;
   (* Given ssaid, find all DIRECT lenders *)
-  borrower_to_lenders : (int, SsaSet.t) Hashtbl.t;
+  borrower_to_lenders : ssaid list array;
 }
 
 type dom_info = {
   (* idom[bbid] = immediate parent in dominator tree *)
-  idom : int option array;
+  idom : bbid option array;
 }
 
-type analysis = {
-  live        : live_info;
-  borrow      : borrow_graph;
-  dom         : dom_info;
-}
+(* ========================================================================= *)
+(* MIR Function                                                              *)
+(* ========================================================================= *)
 
 type func = {
     funcid: funcid;                                       (* unique identifier of func *)
@@ -141,16 +159,29 @@ type func = {
     mutable bbs: bb BBMap.t;                              
     ssatyps: mirtyp Dynarray.t;                           (* stores mirtypes of all ssa values *)
     memown: ownership Dynarray.t;                         (* stores ownership information of all ssa values *)
-    mutable analysis: analysis option;
+    (* Analysis information *)
+    mutable preds       : preds_info option;
+    mutable rpo         : rpo_info option; 
+    mutable live        : live_info option;
+    mutable borrow      : borrow_info option;
+    mutable dom         : dom_info option;
 }
 
 module FuncMap = Map.Make(Int)
+
+(* ========================================================================= *)
+(* MIR Globals                                                               *)
+(* ========================================================================= *)
 
 type global = {
     globalid: globalid;
     typ: mirtyp;
 }
 module GlobalMap = Map.Make(Int)
+
+(* ========================================================================= *)
+(* MIR Program                                                               *)
+(* ========================================================================= *)
 
 type program = {
   mutable globals : global GlobalMap.t;
@@ -173,3 +204,17 @@ let get_ownership_func (func : func) (ssaid : ssaid) : ownership =
   if ssaid < 0 || ssaid >= func.next_ssaid then
     raise (Errors.MirError (Printf.sprintf "SSA ID %d is out of bounds for function %s" ssaid func.name));
   Dynarray.get func.memown ssaid
+
+let invalidate_all_analysis (func : func) : unit =
+  func.preds <- None;
+  func.rpo <- None;
+  func.live <- None;
+  func.borrow <- None;
+  func.dom <- None
+
+let is_memtyp (typ : mirtyp) : bool =
+  match typ with
+  | TMIRUnit -> false
+  | TMIRI32 -> false
+  | TMIRI8 -> false
+  | _ -> true

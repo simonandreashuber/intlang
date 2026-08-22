@@ -1,6 +1,71 @@
 open Mir 
-open Printmir
 
-let dom_analysis (fn : func) : Mir.dom_info =
-  let dom = {idom = Array.make 0 None} in
-  dom
+open Preds
+open Rpo
+
+let compute_dom (fn : func) =
+  
+  let rpo_list = (Rpo.get_rpo_info fn).rpo_lst in
+  let rpo_idx = (Rpo.get_rpo_info fn).rpo_idx in
+  
+  let get_preds = Preds.get_preds (Preds.get_preds_info fn).preds in
+
+  (* --- Cooper-Harvey-Kennedy Algorithm Setup --- *)
+  let idom = Array.make fn.next_bbid None in
+
+  let entry_id = Option.get fn.entry_bb in
+  idom.(entry_id) <- fn.entry_bb;
+
+  (* Intersect function: walks up the dominator tree until two paths meet *)
+  let intersect b1 b2 =
+    let f1 = ref b1 in
+    let f2 = ref b2 in
+    while !f1 <> !f2 do
+      while rpo_idx.(!f1) > rpo_idx.(!f2) do
+        match idom.(!f1) with
+        | Some parent -> f1 := parent
+        | None -> failwith "dom_analysis: malformed idom during intersect"
+      done;
+      while rpo_idx.(!f2) > rpo_idx.(!f1) do
+        match idom.(!f2) with
+        | Some parent -> f2 := parent
+        | None -> failwith "dom_analysis: malformed idom during intersect"
+      done;
+    done;
+    !f1
+  in
+
+  (* --- STEP 4: Fixed-Point Iteration over RPO --- *)
+  let rpo_nodes_except_entry = List.filter (fun b -> b <> entry_id) rpo_list in
+  let changed = ref true in
+
+  while !changed do
+    changed := false;
+    List.iter (fun b ->
+      let b_preds = get_preds b in
+      (* Filter predecessors that already have an idom assigned *)
+      let processed_preds = List.filter (fun p -> idom.(p) <> None) b_preds in
+
+      match processed_preds with
+      | [] -> ()
+      | first_p :: rest_p ->
+          let new_idom = List.fold_left (fun acc p ->
+            intersect p acc
+          ) first_p rest_p in
+
+          if idom.(b) <> Some new_idom then begin
+            idom.(b) <- Some new_idom;
+            changed := true
+          end
+    ) rpo_nodes_except_entry;
+  done;
+
+  (* Entry block has no strict dominator *)
+  idom.(entry_id) <- None;
+
+  fn.dom <- Some { idom = idom }
+
+
+let get_dom_info fn =
+  if fn.dom = None then compute_dom fn;
+  Option.get fn.dom
