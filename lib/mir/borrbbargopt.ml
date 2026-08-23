@@ -1,6 +1,7 @@
 open Mir
 open Buildmir
 
+open Preds
 open Live
 open Borrow
 open Dom
@@ -58,8 +59,39 @@ let borrbbarg_opt_func fn =
 
   Mir.invalidate_all_analysis fn;
 
-  let live_info = Live.get_live_info fn in
+  (* Precompute all ssaids that can be returned
+     (direct or indirect via bb arg passing).
+     These ssaids will then not be promoted to borrowed later *)
 
+  let pred_info = get_preds_info fn in
+
+  let canret = ref [] in
+
+  let rec find_canret mask succbbid bbid =
+    let bb = BBMap.find bbid fn.bbs in
+    let appmask = List.iter2 (fun is_canret brarg -> if is_canret then canret := brarg.ssaid :: !canret) mask in
+    (match bb.term with
+    | Some (Ret retsc) -> canret := retsc.ssaid :: !canret
+    | Some (Br br)-> appmask br.args
+    | Some (Cbr (_, ibr, ebr)) -> 
+        if ibr.bbid = succbbid then appmask ibr.args; 
+        if ebr.bbid = succbbid then appmask ebr.args
+    | None -> failwith "borrbbargop: try find canret but found bb with not term");
+    let mask = List.map (fun argssaid -> List.mem argssaid !canret) bb.args in
+    List.iter (fun predbbid ->
+      if Dom.does_strictly_dominate fn predbbid bbid then find_canret mask bbid predbbid
+    ) pred_info.preds.(bbid)
+  in
+
+  (match BBMap.fold (fun bbid bb acc -> (*could do this with dom as well but this is ok I think*)
+    match bb.term with | Some (Ret retval) -> bbid :: acc | _ -> acc ) fn.bbs [] with
+  | [retbbid] -> find_canret [] (-1) retbbid
+  | _ -> failwith (Printf.sprintf "borrbbarg_opt_func: funcid %d has no or multiple ret bbs" fn.funcid));
+
+
+  (* Check for each bb arg if its legal and desirable 
+     to promote it to borrowed *)
+  let live_info = Live.get_live_info fn in
   BBMap.iter ( fun _ bb ->
     List.iter (fun arg ->
         if is_memtyp (get_mirtyp_func fn arg) &&
@@ -68,7 +100,8 @@ let borrbbarg_opt_func fn =
           if
           List.for_all (fun owner_ssaid ->
             let (owner_bbid,_) = live_info.def.(owner_ssaid) in
-            Dom.does_strictly_dominate fn owner_bbid bb.bbid
+            (Dom.does_strictly_dominate fn owner_bbid bb.bbid) &&
+            (not @@ List.mem arg !canret)
           ) pot_owners
           then (
             set_ownership_func fn arg Borrowed

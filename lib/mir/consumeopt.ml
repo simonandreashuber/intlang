@@ -80,12 +80,13 @@ let consume_opt_func (b : builder) funcid =
 
     (match bb.term with
     | Some (Br br) -> try_consume_lst (ul) br.args
-    | Some (Cbr (_, ibr, ebr)) -> 
+    | Some (Cbr (cond , ibr, ebr)) -> 
         let iflivein = ref live_info.live_in.(ibr.bbid) in
         let elselivein = ref live_info.live_in.(ebr.bbid) in
         try_consume_br iflivein ibr; 
         try_consume_br elselivein ebr;
-        ul := SsaSet.union !ul (SsaSet.union !iflivein !elselivein) (*make sure the uses in the cbr are known for the ops*)
+        ul := SsaSet.union !ul (SsaSet.union !iflivein !elselivein); (*make sure the uses in the cbr are known for the ops*)
+        add_use ul cond
     | Some (Ret retval) -> try_consume ul retval
     | _ -> failwith (Printf.sprintf "consume_opt_func: bb %d has no term" bbid)
     );
