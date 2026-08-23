@@ -71,7 +71,7 @@ let borrbbarg_opt_func fn =
             Dom.does_strictly_dominate fn owner_bbid bb.bbid
           ) pot_owners
           then (
-            Dynarray.set fn.memown arg Borrowed
+            set_ownership_func fn arg Borrowed
           )
         )
     ) bb.args

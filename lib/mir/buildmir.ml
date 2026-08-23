@@ -13,6 +13,7 @@ type builder = {
   mutable next_funcid : int;
   mutable next_globalid : int;
   mutable cursor : cursor;
+  mutable func_vers : (funcid list) FuncMap.t; (* for each lowered function this map stores all the copied versions *)
 }
 
 let create_builder () : builder = {
@@ -25,7 +26,8 @@ let create_builder () : builder = {
   next_funcid = 0;
   next_globalid = 0;
   cursor = (None, None);
-  }
+  func_vers = FuncMap.empty;
+}
 
 let get_program (b : builder) : program =
   b.program
@@ -127,8 +129,8 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
       | TMIRClos ([], ret) -> [(ssaid, ret)]
       | _ -> raise (Errors.MirError "Expected a closure with no remaining arguments for CallClosure operation")
   )
-  | CallDirect (ssaid, funcid, args) -> (
-      let fn = find_func b funcid in
+  | CallDirect (ssaid, funcid_ref, args) -> (
+      let fn = find_func b !funcid_ref in
       let typs_args = List.map (fun arg -> get_mirtyp b arg.ssaid) args in
       let typs_fn_args = List.map (fun (arg_ssaid,_  ) -> get_mirtyp b arg_ssaid) fn.args in
       if List.for_all2 (fun t1 t2 -> t1 = t2) typs_args typs_fn_args then
@@ -353,7 +355,16 @@ let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
   | Veclit (ssaid, _) -> [(ssaid, Owned)]
   | Vecinit (ssaid, _, _) -> [(ssaid, Owned)]
   | Veclen (ssaid, _) -> [(ssaid, NoMem)]
-  | Vecread (ssaid, _, _) -> [(ssaid, Borrowed)]
+  | Vecread (ssaid, _, _) -> (
+      match (infer_mirtyp_from_op b op None) with
+      | [(ssaid, mirtyp)] -> (
+        if is_memtyp mirtyp then
+          [(ssaid, Borrowed)]
+        else
+          [(ssaid, NoMem)]
+      )
+      | _ -> raise (Errors.MirError "Vecread operation should infer exactly one type for the result SSA ID")
+  )
   | Vecwrite (ssaid, _, _, _) -> [(ssaid, Owned)]
   | Vecinsert (ssaid, _, _, _) -> [(ssaid, Owned)]
   | Vecslice (ssaid, _, _, _) -> [(ssaid, Borrowed)]
@@ -435,6 +446,7 @@ let create_func (b : builder)
             } in
   let p = b.program in
   p.funcs <- FuncMap.add fid fn p.funcs;
+  b.func_vers <- FuncMap.add fid [] b.func_vers;
   fn
 
 let create_bb (b : builder) 
@@ -446,10 +458,9 @@ let create_bb (b : builder)
       let id = fn.next_bbid in
       fn.next_bbid <- fn.next_bbid + 1;
       List.iter (fun (arg_ssaid, mirtyp) -> 
-        Dynarray.set fn.ssatyps arg_ssaid mirtyp;
         match mirtyp with
-        | TMIRUnit | TMIRI32 | TMIRI8 -> Dynarray.set fn.memown arg_ssaid NoMem
-        | _ -> Dynarray.set fn.memown arg_ssaid Owned (*hmmm have to think about this*)
+        | TMIRUnit | TMIRI32 | TMIRI8 -> set_mirtyp_ownership_func fn arg_ssaid mirtyp NoMem
+        | _ -> set_mirtyp_ownership_func fn arg_ssaid mirtyp Owned (*hmmm have to think about this*)
       ) args;
       let new_bb = { bbid = id; 
                      name; 
@@ -476,6 +487,77 @@ let create_global (b : builder) (typ : mirtyp) : global =
   global
 
 (* ========================================================================= *)
+(* Copy Things                                                               *)
+(* ========================================================================= *)
+
+let copy_ssaconsume (sc : ssaconsume) = 
+  { ssaid = sc.ssaid; consume = sc.consume }
+
+let rec copy_op (o : op) : op =
+  match o with
+  | Pack (res, sc, scs) -> Pack (res, copy_ssaconsume sc, List.map copy_ssaconsume scs)
+  | CallClosure (res, sc) -> CallClosure (res, copy_ssaconsume sc)
+  | CallDirect (res, fid, scs) -> CallDirect (res, fid, List.map copy_ssaconsume scs)
+  | StoreGlobal (gid, sc) -> StoreGlobal (gid, copy_ssaconsume sc)
+  | Tupinit (res, scs) -> Tupinit (res, List.map copy_ssaconsume scs)
+  | Tupextract (res, sc) -> Tupextract (res, copy_ssaconsume sc)
+  | Veclit (res, scs) -> Veclit (res, List.map copy_ssaconsume scs)
+  | Vecwrite (res, val_sc, vec, idxs) -> Vecwrite (res, copy_ssaconsume val_sc, vec, idxs)
+  | Vecinsert (res, vec_sc, ins_sc, idxs) -> Vecinsert (res, copy_ssaconsume vec_sc, copy_ssaconsume ins_sc, idxs)
+  | _ -> o (* Other ops only contain immutable values *)
+
+let copy_branch (br : branch) : branch =
+  { bbid = br.bbid; args = List.map copy_ssaconsume br.args }
+
+let copy_term (t : term option) : term option =
+  match t with
+  | None -> None
+  | Some (Br br) -> Some (Br (copy_branch br))
+  | Some (Cbr (cond, t_br, f_br)) -> Some (Cbr (cond, copy_branch t_br, copy_branch f_br))
+  | Some (Ret sc) -> Some (Ret (copy_ssaconsume sc))
+
+let copy_bb (b : bb) : bb =
+  {
+    bbid = b.bbid;
+    name = b.name;
+    args = b.args;
+    ops = List.map copy_op b.ops;
+    term = copy_term b.term;
+  }
+
+let copy_func (b : builder) (fid : funcid) : func =
+  let new_funcid = b.next_funcid in
+  b.next_funcid <- b.next_funcid + 1;
+  let versions = 
+    match FuncMap.find_opt fid b.func_vers with
+    | Some v -> v
+    | None -> raise (Errors.MirError (Printf.sprintf "Function with id %d not found in func_vers map, probably trying to copy a copy" fid))
+  in
+  b.func_vers <- FuncMap.add fid (new_funcid :: versions) b.func_vers;
+  let fn = find_func b fid in
+  let newfn = {
+    funcid = new_funcid;
+    name = fn.name ^ "_copy" ^ string_of_int new_funcid;
+    args = fn.args;
+    rettyp = fn.rettyp;
+    extern_name = fn.extern_name;
+    next_ssaid = fn.next_ssaid;
+    next_bbid = fn.next_bbid;
+    entry_bb = fn.entry_bb;
+    bbs = BBMap.map copy_bb fn.bbs; (* Deep copy of basic blocks *)
+    ssatyps = Dynarray.copy fn.ssatyps; (* Copy the type array *)
+    memown = Dynarray.copy fn.memown; (* Copy the ownership array *)
+    preds = None; (* Reset analysis data *)
+    rpo = None;  (* Reset analysis data *)
+    live = None; (* Reset analysis data *)
+    borrow = None; (* Reset analysis data *)
+    dom = None; (* Reset analysis data *)
+  } in
+  b.program.funcs <- FuncMap.add new_funcid newfn b.program.funcs;
+  newfn
+
+
+(* ========================================================================= *)
 (* Emitting Instructions & Terminators                                       *)
 (* ========================================================================= *)
 
@@ -484,8 +566,10 @@ let emit_op_hint (b : builder) (op : op) (mirtyp_hint : mirtyp option) : unit =
   | (Some fn, Some bb) -> (
     let mirtyp_defs = infer_mirtyp_from_op b op mirtyp_hint in
     let ownership_defs = infer_ownership_from_op b op in
-    List.iter (fun (ssaid, typ) -> Dynarray.set fn.ssatyps ssaid typ) mirtyp_defs;
-    List.iter (fun (ssaid, own) -> Dynarray.set fn.memown ssaid own) ownership_defs;
+    List.iter2 (fun (ssaid_typ, typ) (ssaid_own, own) -> 
+      assert (ssaid_typ = ssaid_own);  (* Ensure the SSA IDs match *)
+      set_mirtyp_ownership_func fn ssaid_typ typ own
+    ) mirtyp_defs ownership_defs;
     bb.ops <- op :: bb.ops
   )
   | (None, _) -> failwith "Builder Error: Cannot emit op without an active function!"

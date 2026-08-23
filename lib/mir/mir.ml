@@ -63,7 +63,7 @@ type op =                                                           (* Textual R
     | Func of ssaid * funcid                                        (* %res         = func @funcid                                                                      *)
     | Pack of ssaid *  ssaconsume * (ssaconsume list)               (* %res         = pack %oldclos %arg0 %arg1 ...                                                     *)
     | CallClosure of ssaid * ssaconsume                             (* %res         = callclosure %clos                                                                 *)
-    | CallDirect of ssaid * funcid * (ssaconsume list)              (* %res         = calldirect @funcid %arg0 %arg1 ...                                                *)
+    | CallDirect of ssaid * (funcid ref) * (ssaconsume list)        (* %res         = calldirect @funcid %arg0 %arg1 ...                                                *)
     | GarbageCollect of ssaid list                                  (*                garbagecollect %mem0 %mem1 ...                                                    *)
     | StoreGlobal of globalid * ssaconsume                          (*                storeglobal @gid %val                                                             *)
     | LoadGlobal of ssaid * globalid                                (* %res         = loadglobal @gid                                                                   *)
@@ -200,6 +200,13 @@ type program = {
 (* MIR Helpers (Finding Things)                                              *)
 (* ========================================================================= *)
 
+let is_memtyp (typ : mirtyp) : bool =
+  match typ with
+  | TMIRUnit -> false
+  | TMIRI32 -> false
+  | TMIRI8 -> false
+  | _ -> true
+
 let get_mirtyp_func (func : func) (ssaid : ssaid) : mirtyp =
   if ssaid < 0 || ssaid >= func.next_ssaid then
     raise (Errors.MirError (Printf.sprintf "SSA ID %d is out of bounds for function %s" ssaid func.name));
@@ -210,16 +217,31 @@ let get_ownership_func (func : func) (ssaid : ssaid) : ownership =
     raise (Errors.MirError (Printf.sprintf "SSA ID %d is out of bounds for function %s" ssaid func.name));
   Dynarray.get func.memown ssaid
 
+let set_mirtyp_ownership_func (func : func) (ssaid : ssaid) (typ : mirtyp) (own : ownership) : unit =
+  if ssaid < 0 || ssaid >= func.next_ssaid then
+    raise (Errors.MirError (Printf.sprintf "SSA ID %d is out of bounds for function %s" ssaid func.name));
+  if is_memtyp typ then
+    assert (own <> NoMem) (* Cannot set ownership to NoMem for a memory type *)
+  else
+    assert (own = NoMem)  (* Must set ownership to NoMem for a non-memory type *)
+  ;
+  Dynarray.set func.ssatyps ssaid typ;
+  Dynarray.set func.memown ssaid own
+
+let set_ownership_func (func : func) (ssaid : ssaid) (own : ownership) : unit =
+  if ssaid < 0 || ssaid >= func.next_ssaid then
+    raise (Errors.MirError (Printf.sprintf "SSA ID %d is out of bounds for function %s" ssaid func.name));
+  (*defense to avoid inconsitencies*)
+  if is_memtyp (Dynarray.get func.ssatyps ssaid) then
+    assert (own <> NoMem) (* Cannot set ownership to NoMem for a memory type *)
+  else
+    assert (own = NoMem) (* Must set ownership to NoMem for a non-memory type *)
+  ;
+  Dynarray.set func.memown ssaid own
+
 let invalidate_all_analysis (func : func) : unit =
   func.preds <- None;
   func.rpo <- None;
   func.live <- None;
   func.borrow <- None;
   func.dom <- None
-
-let is_memtyp (typ : mirtyp) : bool =
-  match typ with
-  | TMIRUnit -> false
-  | TMIRI32 -> false
-  | TMIRI8 -> false
-  | _ -> true

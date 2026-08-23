@@ -93,7 +93,7 @@ let string_of_op = function
       Printf.sprintf "%s = callclosure %s" (string_of_ssa dst) (string_of_ssaconsume clos)
   | CallDirect (dst, fid, args) ->
       let args_str = if args = [] then "" else " " ^ string_of_ssaconsumes args in
-      Printf.sprintf "%s = calldirect %s%s" (string_of_ssa dst) (string_of_funcid fid) args_str
+      Printf.sprintf "%s = calldirect %s%s" (string_of_ssa dst) (string_of_funcid !fid) args_str
   | GarbageCollect mems ->
       let mems_str = if mems = [] then "" else " " ^ string_of_ssaids mems in
       Printf.sprintf "garbagecollect%s" mems_str

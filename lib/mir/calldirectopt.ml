@@ -62,7 +62,7 @@ let calldirect_opt_func (fn : func) : unit =
       | CallClosure (dst, clos) ->
           (match resolve clos.ssaid with
            | Some info ->
-               CallDirect (dst, info.base_func, info.captured_args) :: acc
+               CallDirect (dst, ref info.base_func, info.captured_args) :: acc
            | None -> op :: acc)
       | _ -> op :: acc
     ) [] chron_ops in

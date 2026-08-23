@@ -5,7 +5,7 @@
  (libraries llvm)
  (modules ast errors printIntlang lexer parser include reccheck typecheck monomorph veccheck interp 
           mir printmir buildmir mirgen 
-          mirpass calldirectopt tco dceopt compactcfgopt borrbbargopt
+          mirpass calldirectopt tco dceopt compactcfgopt borrbbargopt consumeopt
           preds rpo live borrow dom
           )) ;codegen
 

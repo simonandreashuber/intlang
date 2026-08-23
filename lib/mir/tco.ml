@@ -46,10 +46,10 @@ let tco_opt_func (b : builder) (fn : func) : unit =
   BBMap.iter (fun _ (bb : bb) ->
     match bb.args, bb.ops, bb.term with
     | _, (CallDirect (callres, callfuncid, callargs)) :: tl, Some (Ret ret) 
-      when callres = ret.ssaid && callfuncid = fid
+      when callres = ret.ssaid && !callfuncid = fid
           -> Hashtbl.add tcbbs bb.bbid (TailCall callargs)
     | _, (CallDirect (callres, callfuncid, callargs)) :: tl, Some (Br {bbid = targetbbid ; args = [arg] }) 
-      when callres = arg.ssaid && callfuncid = fid
+      when callres = arg.ssaid && !callfuncid = fid
           -> Hashtbl.add tcbbs bb.bbid (TailCallOrigin (targetbbid, callargs))
     | [res], [], Some (Br {bbid = targetbbid ; args = [arg] }) 
       when res = arg.ssaid 
@@ -129,8 +129,7 @@ let tco_opt_func (b : builder) (fn : func) : unit =
   fn.args <- List.map (fun (arg_ssaid, arg_name_opt) ->
     match List.assoc_opt arg_ssaid sub with
     | Some new_arg_ssaid -> (
-      Dynarray.set fn.ssatyps new_arg_ssaid (Dynarray.get fn.ssatyps arg_ssaid);
-      Dynarray.set fn.memown new_arg_ssaid (Dynarray.get fn.memown arg_ssaid);
+      set_mirtyp_ownership_func fn new_arg_ssaid (get_mirtyp_func fn arg_ssaid) (get_ownership_func fn arg_ssaid);
       (new_arg_ssaid, arg_name_opt)
     )
     | None -> (arg_ssaid, arg_name_opt)
@@ -141,8 +140,8 @@ let tco_opt_func (b : builder) (fn : func) : unit =
   let old_entry_bb = find_bb b fn.funcid (Option.get fn.entry_bb) in
   old_entry_bb.args <- 
     List.map (fun (orig_ssaid, _) -> 
-      if Dynarray.get fn.memown orig_ssaid = Borrowed then
-        Dynarray.set fn.memown orig_ssaid Owned; (*default bb arg behavior is owned*)
+      if get_ownership_func fn orig_ssaid = Borrowed then
+        set_ownership_func fn orig_ssaid Owned; (*default bb arg behavior is owned*)
       orig_ssaid
       ) sub;
   old_entry_bb.name <- "tco_loop_header";

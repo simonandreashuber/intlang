@@ -26,7 +26,7 @@ let compute_preds fn =
         add_pred predsarr bb.bbid ebr.bbid
     )
     | Some _ -> ()
-    | None -> failwith ("compactcfgopt: bb " ^ string_of_int bb.bbid ^ " has no term")
+    | None -> failwith ("preds: func: " ^ fn.name ^ " bb " ^ string_of_int bb.bbid ^ " has no term")
   ) fn.bbs;
 
   fn.preds <- Some { preds = predsarr }
