@@ -5,7 +5,7 @@ module SsaSet = Set.Make(Int)
 
 (* Extract all SSA IDs defined by an operation *)
 let extract_op_defs = function
-  | Func (res, _) | Pack (res, _, _) | CallClosure (res, _)
+  | Func (res, _, _) | Pack (res, _, _) | CallClosure (res, _)
   | CallDirect (res, _, _) | Immi32 (res, _) | Immi8 (res, _)
   | ImmUnit res | Uopi32 (res, _, _) | Uopi8 (res, _, _)
   | Bopi32 (res, _, _, _) | Bopi8 (res, _, _, _)
@@ -14,6 +14,7 @@ let extract_op_defs = function
   | Vecinsert (res, _, _, _) | Vecslice (res, _, _, _)
   | Vecextend (res, _, _, _) | LoadGlobal (res, _) -> [res]
   | Tupextract (res_list, _) | Tupview (res_list, _) -> res_list
+  | Copy (res, _) -> [res]
   | StoreGlobal _ | GarbageCollect _ -> []
 
 (* Extract all SSA IDs used by an operation *)
@@ -21,6 +22,7 @@ let extract_op_uses = function
   | Pack (_, oldclos, args) -> oldclos.ssaid :: List.map (fun sc -> sc.ssaid) args
   | CallClosure (_, clos) -> [clos.ssaid]
   | CallDirect (_, _, args) -> List.map (fun sc -> sc.ssaid) args
+  | Copy (_, a) -> [a]
   | GarbageCollect mems -> mems
   | StoreGlobal (_, v) -> [v.ssaid]
   | Uopi32 (_, _, a) | Uopi8 (_, _, a) -> [a]

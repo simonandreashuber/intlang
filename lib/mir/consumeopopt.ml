@@ -29,7 +29,7 @@ open Dom
 
 *)
 
-let consume_opt_func (b : builder) funcid =
+let consumeop_opt_func (b : builder) funcid =
 
   let fn = match FuncMap.find_opt funcid b.program.funcs with
     | Some fn -> fn
@@ -59,40 +59,27 @@ let consume_opt_func (b : builder) funcid =
 
     let try_consume_lst used_later scs = List.iter (try_consume used_later) scs in
 
-    let try_consume_br used_later (br : branch) = 
-      let target_bb = match BBMap.find_opt br.bbid fn.bbs with
-        | Some bb -> bb
-        | None -> failwith (Printf.sprintf "consume_opt_func: bb %d has no target bb %d" bbid br.bbid)
-      in
-      let bbargs_own = List.map (fun ssa -> get_ownership_func fn ssa) target_bb.args in
-      List.iter2 (fun sc own -> 
-          if own = Owned then try_consume used_later sc (*only consume if the bb arg is owned*)
-          else add_use used_later sc.ssaid
-        ) br.args bbargs_own
-    in
-
+    let add_sc_uses used_later scs = List.iter (fun sc -> add_use used_later sc.ssaid) scs in
 
     let add_uses used_later ssaids = List.iter (add_use used_later) ssaids in
 
-    (* for the used last set the live out is used, 
-       except for cbr instructions where the live in of the succ is used*)
     let ul = ref live_info.live_out.(bbid) in
 
     (match bb.term with
-    | Some (Br br) -> try_consume_lst (ul) br.args
+    | Some (Br br) -> 
+        add_sc_uses ul br.args
     | Some (Cbr (cond , ibr, ebr)) -> 
-        let iflivein = ref live_info.live_in.(ibr.bbid) in
-        let elselivein = ref live_info.live_in.(ebr.bbid) in
-        try_consume_br iflivein ibr; 
-        try_consume_br elselivein ebr;
-        ul := SsaSet.union !ul (SsaSet.union !iflivein !elselivein); (*make sure the uses in the cbr are known for the ops*)
+        add_sc_uses ul ibr.args;
+        add_sc_uses ul ebr.args;
         add_use ul cond
-    | Some (Ret retval) -> try_consume ul retval
-    | _ -> failwith (Printf.sprintf "consume_opt_func: bb %d has no term" bbid)
+    | Some (Ret retval) -> 
+        add_use ul retval.ssaid
+    | _ -> failwith (Printf.sprintf "consumeop_opt_func: bb %d has no term" bbid)
     );
     
     List.iter (fun op ->
       match op with
+      | Func _ -> ()
       | Pack (_, sc, scs) -> try_consume ul sc; try_consume_lst ul scs
       | CallClosure (_, sc) -> try_consume ul sc
       | CallDirect (_, funcid_ref, scs) -> (
@@ -127,8 +114,11 @@ let consume_opt_func (b : builder) funcid =
               funcid_ref := fn_copy.funcid;
               opt_queue := fn_copy.funcid :: !opt_queue;
         )
+      | Copy (_, orig) -> add_use ul orig
       | GarbageCollect mems -> add_uses ul mems
+      | LoadGlobal _ -> ()
       | StoreGlobal (_, sc) -> try_consume ul sc
+      | Immi32 _ | Immi8 _ | ImmUnit _ -> ()
       | Uopi32 (_, _, a) | Uopi8 (_, _, a) ->  add_use ul a
       | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) ->  add_use ul a; add_use ul b
       | Tupinit (_, scs) ->  try_consume_lst ul scs
@@ -142,13 +132,12 @@ let consume_opt_func (b : builder) funcid =
       | Vecinsert (_, vec_sc, vecins_sc, idxs) -> try_consume ul vec_sc; try_consume ul vecins_sc; add_uses ul idxs
       | Vecslice (_, vec, start, len) ->  add_use ul vec; add_use ul start; add_use ul len
       | Vecextend (_, vec, lit, off) ->  add_use ul vec; add_use ul lit; add_use ul off
-      | _ -> () (* no uses*)
     )  bb.ops
   ) fn.bbs;
   !opt_queue
 
 
-let consume_opt (b : builder) : unit =
+let consumeop_opt (b : builder) : unit =
   let worklist = Queue.create () in
   FuncMap.iter (fun orig_funcid vers -> 
     assert (List.length vers = 0);
@@ -166,6 +155,7 @@ let consume_opt (b : builder) : unit =
 
   while not (Queue.is_empty worklist) do
     let funcid = Queue.pop worklist in
-    let new_funcids = consume_opt_func b funcid in
+    (* mb later push this logic to mirpass.ml so other opts can run here*)
+    let new_funcids = consumeop_opt_func b funcid in
     List.iter (fun new_funcid -> Queue.add new_funcid worklist) new_funcids
   done

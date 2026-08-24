@@ -45,7 +45,16 @@ let compute_borrow (fn : func) : unit =
         | _ -> ()
       ) 
       | Vecslice (def, vec, _, _) -> borrow def vec
-      | _ -> ()
+      (* when at some point a mir op is added and does borrow 
+         I need to remember that here I check for this. With | _ -> the compiler does not tell me
+         like this it does so thats why I put this here*)
+      | Func _ | Pack _ | CallClosure _ | CallDirect _
+      | Copy _ | GarbageCollect _ | StoreGlobal _ | LoadGlobal _
+      | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
+      | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupinit _
+      | Tupextract _ | Veclit _ | Vecinit _
+      | Veclen _ | Vecwrite _ | Vecinsert _
+      | Vecextend _ -> ()
     ) bb.ops;
 
     (*term borrows*)

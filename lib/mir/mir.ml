@@ -60,10 +60,11 @@ type ssaconsume = {
 let ssac = fun ssaid -> { ssaid; consume = false }
 
 type op =                                                           (* Textual Representation                                                                           *)
-    | Func of ssaid * funcid                                        (* %res         = func @funcid                                                                      *)
+    | Func of ssaid * funcid * (funcid option)                      (* %res         = func @funcid @allownedfuncid                                                      *)
     | Pack of ssaid *  ssaconsume * (ssaconsume list)               (* %res         = pack %oldclos %arg0 %arg1 ...                                                     *)
     | CallClosure of ssaid * ssaconsume                             (* %res         = callclosure %clos                                                                 *)
     | CallDirect of ssaid * (funcid ref) * (ssaconsume list)        (* %res         = calldirect @funcid %arg0 %arg1 ...                                                *)
+    | Copy of ssaid * ssaid                                         (* %res         = copy %val                                                                         *)
     | GarbageCollect of ssaid list                                  (*                garbagecollect %mem0 %mem1 ...                                                    *)
     | StoreGlobal of globalid * ssaconsume                          (*                storeglobal @gid %val                                                             *)
     | LoadGlobal of ssaid * globalid                                (* %res         = loadglobal @gid                                                                   *)

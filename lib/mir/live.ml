@@ -37,10 +37,11 @@ let compute_live (f : func) =
     (* 2. Accumulate Op uses/defs (processed in reverse order) *)
     List.iter (fun op ->
       match op with
-      | Func (res, _) -> apply_def res
+      | Func (res, _, _) -> apply_def res
       | Pack (res, sc, scs) -> apply_def res; apply_use sc.ssaid; apply_sc_uses scs
       | CallClosure (res, sc) -> apply_def res; apply_use sc.ssaid
       | CallDirect (res, _, scs) -> apply_def res; apply_sc_uses scs
+      | Copy (res, a) -> apply_def res; apply_use a
       | GarbageCollect mems -> apply_uses mems
       | StoreGlobal (_, sc) -> apply_use sc.ssaid
       | LoadGlobal (res, _) -> apply_def res
@@ -118,7 +119,7 @@ let compute_live (f : func) =
 
     List.iteri (fun op_index op ->
       match op with
-      | Func (res, _) -> add_def res op_index
+      | Func (res, _, _) -> add_def res op_index
       | Pack (res, sc, scs) -> add_def res op_index; 
                                add_use sc.ssaid op_index; 
                                add_sc_uses scs op_index
@@ -126,6 +127,7 @@ let compute_live (f : func) =
                                  add_use sc.ssaid op_index
       | CallDirect (res, _, scs) -> add_def res op_index;
                                     add_sc_uses scs op_index
+      | Copy (res, a) -> add_def res op_index; add_use a op_index
       | GarbageCollect mems -> add_uses mems op_index
       | StoreGlobal (_, sc) -> add_use sc.ssaid op_index
       | LoadGlobal (res, _) -> add_def res op_index

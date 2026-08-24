@@ -13,7 +13,7 @@ type builder = {
   mutable next_funcid : int;
   mutable next_globalid : int;
   mutable cursor : cursor;
-  mutable func_vers : (funcid list) FuncMap.t; (* for each lowered function this map stores all the copied versions *)
+  mutable func_vers : (funcid list) FuncMap.t; (* for each created function this map stores all the copied versions *)
 }
 
 let create_builder () : builder = {
@@ -108,7 +108,17 @@ let func_get_clos_mirtyp (b : builder) (fn : func) : mirtyp =
 *)
 let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) : (ssaid * mirtyp) list =
   match op with
-  | Func (ssaid, funcid) -> [(ssaid, func_get_clos_mirtyp b (find_func b funcid))]
+  | Func (ssaid, funcid, funcidopt) -> (
+    let ftyp1 = func_get_clos_mirtyp b (find_func b funcid) in
+    match funcidopt with
+    | Some fid2 -> 
+        let ftyp2 = func_get_clos_mirtyp b (find_func b fid2) in
+        if ftyp1 = ftyp2 then
+          [(ssaid, ftyp1)]
+        else
+          raise (Errors.MirError (Printf.sprintf "Function types do not match for funcid %d and allownedfuncid %d" funcid fid2))
+    | None -> [(ssaid, func_get_clos_mirtyp b (find_func b funcid))]
+  )
   | Pack (ssaid, clos , args) -> (
       match get_mirtyp b clos.ssaid with
       | TMIRClos (typs_avail, ret) ->
@@ -137,6 +147,13 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
         [(ssaid, fn.rettyp)]
       else
         raise (Errors.MirError "Argument types do not match function type in CallDirect operation")
+  )
+  | Copy (ssaid, a) -> (
+        let typ_a = get_mirtyp b a in
+        if not (is_memtyp typ_a) then
+          raise (Errors.MirError "Copy operation requires the source to be a memory type")
+        else
+          [(ssaid, typ_a)]
   )
   | GarbageCollect gclst -> (
       if
@@ -321,10 +338,11 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
 *)
 let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
   match op with
-  | Func (ssaid, _) -> [(ssaid, Owned)]
+  | Func (ssaid, _, _) -> [(ssaid, Owned)]
   | Pack (ssaid, _, _) -> [(ssaid, Owned)]
   | CallClosure (ssaid, _) -> [(ssaid, Owned)]
   | CallDirect (ssaid, _, _) -> [(ssaid, Owned)]
+  | Copy (ssaid, _) -> [(ssaid, Owned)]
   | GarbageCollect _ -> []
   | StoreGlobal _ -> []
   | LoadGlobal (ssaid, _) -> [(ssaid, Borrowed)]
@@ -504,7 +522,12 @@ let rec copy_op (o : op) : op =
   | Veclit (res, scs) -> Veclit (res, List.map copy_ssaconsume scs)
   | Vecwrite (res, val_sc, vec, idxs) -> Vecwrite (res, copy_ssaconsume val_sc, vec, idxs)
   | Vecinsert (res, vec_sc, ins_sc, idxs) -> Vecinsert (res, copy_ssaconsume vec_sc, copy_ssaconsume ins_sc, idxs)
-  | _ -> o (* Other ops only contain immutable values *)
+  | Copy _ | GarbageCollect _ | LoadGlobal _
+  | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
+  | Uopi8 _ | Bopi32 _ | Bopi8 _ 
+  | Tupview _ | Vecinit _  | Func _ 
+  | Veclen _ | Vecread _ 
+  | Vecslice _ | Vecextend _ -> o
 
 let copy_branch (br : branch) : branch =
   { bbid = br.bbid; args = List.map copy_ssaconsume br.args }
@@ -643,7 +666,10 @@ let sub_ops_uses submap ops =
     
     | CallDirect (dst, fid, args) -> 
         CallDirect (dst, fid, sub_sc_list args)
-    
+
+    | Copy (dst, a) -> 
+        Copy (dst, sub_id a)
+
     | GarbageCollect mems -> 
         GarbageCollect (sub_id_list mems)  (* Only uses! *)
     

@@ -84,7 +84,9 @@ let string_of_bopi8 = function
 (* ========================================================================= *)
 
 let string_of_op = function
-  | Func (dst, fid) ->
+  | Func (dst, fid, Some fid2) ->
+      Printf.sprintf "%s = func %s %s" (string_of_ssa dst) (string_of_funcid fid) (string_of_funcid fid2)
+  | Func (dst, fid, None) ->
       Printf.sprintf "%s = func %s" (string_of_ssa dst) (string_of_funcid fid)
   | Pack (dst, oldclos, args) ->
       let args_str = if args = [] then "" else " " ^ string_of_ssaconsumes args in
@@ -94,6 +96,8 @@ let string_of_op = function
   | CallDirect (dst, fid, args) ->
       let args_str = if args = [] then "" else " " ^ string_of_ssaconsumes args in
       Printf.sprintf "%s = calldirect %s%s" (string_of_ssa dst) (string_of_funcid !fid) args_str
+  | Copy (dst, src) ->
+      Printf.sprintf "%s = copy %s" (string_of_ssa dst) (string_of_ssa src)
   | GarbageCollect mems ->
       let mems_str = if mems = [] then "" else " " ^ string_of_ssaids mems in
       Printf.sprintf "garbagecollect%s" mems_str

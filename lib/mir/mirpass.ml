@@ -8,7 +8,8 @@ open Dceopt
 open Compactcfgopt
 
 open Borrbbargopt
-open Consumeopt
+open Consumeopopt
+open Consumetermopt
 
 (*
   One module to collect all the Passes
@@ -21,7 +22,10 @@ let run_passes (b : builder) : unit =
     Dceopt.dce_opt b;
     Compactcfgopt.compactcfg_opt b;
     Borrbbargopt.borrbbarg_opt b;
-    Consumeopt.consume_opt b
+    Consumeopopt.consumeop_opt b;
+    let funcids_optimized = FuncMap.fold (fun funcid vers acc -> vers @ acc) b.func_vers [] in
+    Consumetermopt.consumeterm_opt_funcidlst b funcids_optimized;
+    
   with e ->
     let msg = Printexc.to_string e in
     let backtrace = Printexc.get_backtrace () in
