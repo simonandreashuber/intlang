@@ -204,21 +204,15 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
     )
     | _ -> raise (Errors.MirError "Expected 8-bit integer types for both operands in Bopi8 operation")
   )
-  | Tupinit (ssaid, elems) -> (
+  | Tupwrp (ssaid, elems) -> (
       let elem_typs = List.map (fun elem -> get_mirtyp b elem.ssaid) elems in
       [(ssaid, TMIRTup elem_typs)]
   )
-  | Tupextract (elms, tup) -> (
+  | Tupuwrp (elms, tup) -> (
     match get_mirtyp b tup.ssaid with
     | TMIRTup elem_typs when List.length elms = List.length elem_typs -> List.map2 (fun ssaid typ -> (ssaid, typ)) elms elem_typs
-    | TMIRTup _ -> raise (Errors.MirError "Number of elements to extract does not match the tuple type in Tupextract operation")
-    | _ -> raise (Errors.MirError "Expected a tuple type for the tuple operand in Tupextract operation")
-  )
-  | Tupview (elms, tup) -> (
-    match get_mirtyp b tup with
-    | TMIRTup elem_typs when List.length elms = List.length elem_typs -> List.map2 (fun ssaid typ -> (ssaid, typ)) elms elem_typs
-    | TMIRTup _ -> raise (Errors.MirError "Number of elements to extract does not match the tuple type in Tupview operation")
-    | _ -> raise (Errors.MirError "Expected a tuple type for the tuple operand in Tupview operation")
+    | TMIRTup _ -> raise (Errors.MirError "Number of elements to extract does not match the tuple type in Tupuwrp operation")
+    | _ -> raise (Errors.MirError "Expected a tuple type for the tuple operand in Tupuwrp operation")
   )
   | Veclit (ssaid, lits) -> (
     match lits with
@@ -353,21 +347,15 @@ let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
   | Uopi8 (ssaid, _, _) -> [(ssaid, NoMem)]
   | Bopi32 (ssaid, _, _, _) -> [(ssaid, NoMem)]
   | Bopi8 (ssaid, _, _, _) -> [(ssaid, NoMem)]
-  | Tupinit (ssaid, _) -> [(ssaid, Owned)]
+  | Tupwrp (ssaid, _) -> [(ssaid, Owned)]
   (* Tup extract and view triggers a redundant call on the type inference function but I feel to not enforce an order in which
      infer_ownership_from_op and infer_mirtyp_from_op are called is worth it*)
-  | Tupextract (elms , _) -> (
+  | Tupuwrp (elms , tup) -> (
+    let elm_own = if tup.consume then Owned else Borrowed in
     List.map (fun (ssaid, mirtyp) ->
               match mirtyp with
               | TMIRUnit | TMIRI32 | TMIRI8 -> (ssaid, NoMem)
-              | _ -> (ssaid, Borrowed)
-              ) (infer_mirtyp_from_op b op None)
-  )
-  | Tupview (elms, _) -> (
-    List.map (fun (ssaid, mirtyp) ->
-              match mirtyp with
-              | TMIRUnit | TMIRI32 | TMIRI8 -> (ssaid, NoMem)
-              | _ -> (ssaid, Owned)
+              | _ -> (ssaid, elm_own)
               ) (infer_mirtyp_from_op b op None)
   )
   | Veclit (ssaid, _) -> [(ssaid, Owned)]
@@ -517,15 +505,15 @@ let rec copy_op (o : op) : op =
   | CallClosure (res, sc) -> CallClosure (res, copy_ssaconsume sc)
   | CallDirect (res, fid, scs) -> CallDirect (res, fid, List.map copy_ssaconsume scs)
   | StoreGlobal (gid, sc) -> StoreGlobal (gid, copy_ssaconsume sc)
-  | Tupinit (res, scs) -> Tupinit (res, List.map copy_ssaconsume scs)
-  | Tupextract (res, sc) -> Tupextract (res, copy_ssaconsume sc)
+  | Tupwrp (res, scs) -> Tupwrp (res, List.map copy_ssaconsume scs)
+  | Tupuwrp (res, sc) -> Tupuwrp (res, copy_ssaconsume sc)
   | Veclit (res, scs) -> Veclit (res, List.map copy_ssaconsume scs)
   | Vecwrite (res, val_sc, vec, idxs) -> Vecwrite (res, copy_ssaconsume val_sc, vec, idxs)
   | Vecinsert (res, vec_sc, ins_sc, idxs) -> Vecinsert (res, copy_ssaconsume vec_sc, copy_ssaconsume ins_sc, idxs)
   | Copy _ | GarbageCollect _ | LoadGlobal _
   | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
   | Uopi8 _ | Bopi32 _ | Bopi8 _ 
-  | Tupview _ | Vecinit _  | Func _ 
+  | Vecinit _  | Func _ 
   | Veclen _ | Vecread _ 
   | Vecslice _ | Vecextend _ -> o
 
@@ -685,14 +673,11 @@ let sub_ops_uses submap ops =
     | Bopi8 (dst, bop, a, b) -> 
         Bopi8 (dst, bop, sub_id a, sub_id b)
     
-    | Tupinit (dst, elms) -> 
-        Tupinit (dst, sub_sc_list elms)
+    | Tupwrp (dst, elms) -> 
+        Tupwrp (dst, sub_sc_list elms)
     
-    | Tupextract (elms, tup) -> 
-        Tupextract (elms, sub_sc tup)
-    
-    | Tupview (elms, tup) -> 
-        Tupview (elms, sub_id tup)
+    | Tupuwrp (elms, tup) -> 
+        Tupuwrp (elms, sub_sc tup)
     
     | Veclit (dst, elms) -> 
         Veclit (dst, sub_sc_list elms)

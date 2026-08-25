@@ -514,7 +514,7 @@ let rec lower_body (b : builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
     (*the default behavior is to borrow form the tuple ie. use the tupview*)
     let tup_ssaid = lower_body b env e in
     let elms_ssaid = List.map (fun _ -> fresh_ssaid b) elms in
-    emit_op b (Tupview (elms_ssaid, tup_ssaid));
+    emit_op b (Tupuwrp (elms_ssaid, ssac tup_ssaid));
     let env' = 
       List.fold_left2 (fun env_acc elm_opt elm_ssaid ->
         match elm_opt with
@@ -538,7 +538,7 @@ let rec lower_body (b : builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
         ) explst 
       in
       let tup_ssaid = fresh_ssaid b in
-      emit_op b (Tupinit (tup_ssaid, ssaid_lst));
+      emit_op b (Tupwrp (tup_ssaid, ssaid_lst));
       tup_ssaid
     )
   | I32LitT (i, _) -> (

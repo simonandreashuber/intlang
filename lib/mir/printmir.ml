@@ -119,12 +119,10 @@ let string_of_op = function
       Printf.sprintf "%s = bopi32 %s %s %s" (string_of_ssa dst) (string_of_bopi32 bop) (string_of_ssa a) (string_of_ssa b)
   | Bopi8 (dst, bop, a, b) ->
       Printf.sprintf "%s = bopi8 %s %s %s" (string_of_ssa dst) (string_of_bopi8 bop) (string_of_ssa a) (string_of_ssa b)
-  | Tupinit (dst, elms) ->
-      Printf.sprintf "%s = tupinit %s" (string_of_ssa dst) (string_of_ssaconsumes elms)
-  | Tupextract (elms, tup) ->
-      Printf.sprintf "(%s) = tupextract %s" (string_of_ssaids elms) (string_of_ssaconsume tup)
-  | Tupview (elms, tup) ->
-      Printf.sprintf "(%s) = tupview %s" (string_of_ssaids elms) (string_of_ssa tup)
+  | Tupwrp (dst, elms) ->
+      Printf.sprintf "%s = tupwrp %s" (string_of_ssa dst) (string_of_ssaconsumes elms)
+  | Tupuwrp (elms, tup) ->
+      Printf.sprintf "(%s) = tupuwrp %s" (string_of_ssaids elms) (string_of_ssaconsume tup)
   | Veclit (dst, elms) ->
       Printf.sprintf "%s = veclit %s" (string_of_ssa dst) (string_of_ssaconsumes elms)
   | Vecinit (dst, defval, dims) ->

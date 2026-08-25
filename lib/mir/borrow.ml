@@ -33,10 +33,10 @@ let compute_borrow (fn : func) : unit =
     (*ops borrows*)
     List.iter (fun op ->
       match op with
-      | Tupview (deflst, tup) -> (
+      | Tupuwrp (deflst, tup) -> (
         List.iter (fun def ->
            if Mir.is_memtyp (Mir.get_mirtyp_func fn def)
-           then borrow def tup
+           then borrow def tup.ssaid
         ) deflst
       )
       | Vecread (def, vec, idxlst) -> (
@@ -51,8 +51,8 @@ let compute_borrow (fn : func) : unit =
       | Func _ | Pack _ | CallClosure _ | CallDirect _
       | Copy _ | GarbageCollect _ | StoreGlobal _ | LoadGlobal _
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
-      | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupinit _
-      | Tupextract _ | Veclit _ | Vecinit _
+      | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
+      | Veclit _ | Vecinit _
       | Veclen _ | Vecwrite _ | Vecinsert _
       | Vecextend _ -> ()
     ) bb.ops;

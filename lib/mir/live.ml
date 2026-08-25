@@ -46,9 +46,8 @@ let compute_live (f : func) =
       | Immi32 (res, _) | Immi8 (res, _) | ImmUnit res -> apply_def res
       | Uopi32 (res, _, a) | Uopi8 (res, _, a) -> apply_def res; apply_use a
       | Bopi32 (res, _, a, b) | Bopi8 (res, _, a, b) -> apply_def res; apply_uses [a; b]
-      | Tupinit (res, scs) -> apply_def res; apply_sc_uses scs
-      | Tupextract (res_list, sc) -> apply_defs res_list; apply_use sc.ssaid
-      | Tupview (res_list, tup) -> apply_defs res_list; apply_use tup
+      | Tupwrp (res, scs) -> apply_def res; apply_sc_uses scs
+      | Tupuwrp (res_list, sc) -> apply_defs res_list; apply_use sc.ssaid
       | Veclit (res, scs) -> apply_def res; apply_sc_uses scs
       | Vecinit (res, defval, dims) -> apply_def res; apply_use defval; apply_uses dims
       | Veclen (res, vec) -> apply_def res; apply_use vec
@@ -132,9 +131,8 @@ let compute_live (f : func) =
       | Immi32 (res, _) | Immi8 (res, _) | ImmUnit res -> add_def res op_index
       | Uopi32 (res, _, a) | Uopi8 (res, _, a) -> add_def res op_index; add_use a op_index
       | Bopi32 (res, _, a, b) | Bopi8 (res, _, a, b) -> add_def res op_index; add_uses [a; b] op_index
-      | Tupinit (res, scs) -> add_def res op_index; add_sc_uses scs op_index
-      | Tupextract (res_list, sc) -> add_defs res_list op_index; add_use sc.ssaid op_index
-      | Tupview (res_list, tup) -> add_defs res_list op_index; add_use tup op_index
+      | Tupwrp (res, scs) -> add_def res op_index; add_sc_uses scs op_index
+      | Tupuwrp (res_list, sc) -> add_defs res_list op_index; add_use sc.ssaid op_index
       | Veclit (res, scs) -> add_def res op_index; add_sc_uses scs op_index
       | Vecinit (res, defval, dims) -> add_def res op_index; add_use defval op_index; add_uses dims op_index
       | Veclen (res, vec) -> add_def res op_index; add_use vec op_index

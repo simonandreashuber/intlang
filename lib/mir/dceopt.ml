@@ -9,11 +9,11 @@ let extract_op_defs = function
   | CallDirect (res, _, _) | Immi32 (res, _) | Immi8 (res, _)
   | ImmUnit res | Uopi32 (res, _, _) | Uopi8 (res, _, _)
   | Bopi32 (res, _, _, _) | Bopi8 (res, _, _, _)
-  | Tupinit (res, _) | Veclit (res, _) | Vecinit (res, _, _)
+  | Tupwrp (res, _) | Veclit (res, _) | Vecinit (res, _, _)
   | Veclen (res, _) | Vecread (res, _, _) | Vecwrite (res, _, _, _)
   | Vecinsert (res, _, _, _) | Vecslice (res, _, _, _)
   | Vecextend (res, _, _, _) | LoadGlobal (res, _) -> [res]
-  | Tupextract (res_list, _) | Tupview (res_list, _) -> res_list
+  | Tupuwrp (res_list, _) -> res_list
   | Copy (res, _) -> [res]
   | StoreGlobal _ | GarbageCollect _ -> []
 
@@ -27,9 +27,8 @@ let extract_op_uses = function
   | StoreGlobal (_, v) -> [v.ssaid]
   | Uopi32 (_, _, a) | Uopi8 (_, _, a) -> [a]
   | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) -> [a; b]
-  | Tupinit (_, elms) | Veclit (_, elms) -> List.map (fun sc -> sc.ssaid) elms
-  | Tupextract (_, tup) -> [tup.ssaid]
-  | Tupview (_, tup) -> [tup]
+  | Tupwrp (_, elms) | Veclit (_, elms) -> List.map (fun sc -> sc.ssaid) elms
+  | Tupuwrp (_, tup) -> [tup.ssaid]
   | Vecinit (_, defval, dims) -> defval :: dims
   | Veclen (_, vec) -> [vec]
   | Vecread (_, vec, idxs) -> vec :: idxs

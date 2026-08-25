@@ -119,9 +119,8 @@ let consumeop_opt_func (b : builder) funcid =
       | Immi32 _ | Immi8 _ | ImmUnit _ -> ()
       | Uopi32 (_, _, a) | Uopi8 (_, _, a) ->  add_use ul a
       | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) ->  add_use ul a; add_use ul b
-      | Tupinit (_, scs) ->  try_consume_lst ul scs
-      | Tupextract (_, sc) -> try_consume ul sc
-      | Tupview (_, tup) -> add_use ul tup
+      | Tupwrp (_, scs) ->  try_consume_lst ul scs
+      | Tupuwrp (_, sc) -> try_consume ul sc
       | Veclit (_, scs) ->  try_consume_lst ul scs
       | Vecinit (_, defval, dims) -> add_use ul defval; add_uses ul dims
       | Veclen (_, vec) ->  add_use ul vec

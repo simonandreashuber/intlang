@@ -29,8 +29,8 @@ let calldirect_opt_func (fn : func) : unit =
       | CallClosure _ | CallDirect _
       | Copy _ | GarbageCollect _ | StoreGlobal _ | LoadGlobal _
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
-      | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupinit _
-      | Tupextract _ | Tupview _ | Veclit _ | Vecinit _
+      | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
+      | Tupuwrp _ | Veclit _ | Vecinit _
       | Veclen _ | Vecread _ | Vecwrite _ | Vecinsert _
       | Vecslice _ | Vecextend _ -> ()
     ) bb.ops
