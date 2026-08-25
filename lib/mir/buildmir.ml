@@ -388,7 +388,7 @@ let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
   | Vecslice (ssaid, _, _, _) -> [(ssaid, Borrowed)]
   | Vecextend (ssaid, _, _, _) -> [(ssaid, Owned)]
 
-
+(*
 let check_branch (b : builder) (branch : branch) : unit =
   match b.cursor with
   | (Some fn, _) -> (
@@ -421,7 +421,7 @@ let check_term (b : builder) (term : term) : unit =
           if get_mirtyp b ret_ssa.ssaid <> fn.rettyp then
             raise (Errors.MirError "Return SSA ID type does not match function return type"))
       | _ -> raise (Errors.MirError "No active function in builder")
-  )
+  )*)
 
 (* ========================================================================= *)
 (* Create Functions & Basic Blocks & Globals                                 *)
@@ -529,15 +529,12 @@ let rec copy_op (o : op) : op =
   | Veclen _ | Vecread _ 
   | Vecslice _ | Vecextend _ -> o
 
-let copy_branch (br : branch) : branch =
-  { bbid = br.bbid; args = List.map copy_ssaconsume br.args }
-
 let copy_term (t : term option) : term option =
   match t with
   | None -> None
-  | Some (Br br) -> Some (Br (copy_branch br))
-  | Some (Cbr (cond, t_br, f_br)) -> Some (Cbr (cond, copy_branch t_br, copy_branch f_br))
-  | Some (Ret sc) -> Some (Ret (copy_ssaconsume sc))
+  | Some (Br (brbbid, brargs)) -> Some (Br (brbbid, List.map copy_ssaconsume brargs))
+  | Some (Cbr _) -> t
+  | Some (Ret _) -> t
 
 let copy_bb (b : bb) : bb =
   {
@@ -608,7 +605,7 @@ let emit_term (b : builder) (term : term) : unit =
   | (_, Some bb) ->
       match bb.term with
       | Some _ -> failwith (Printf.sprintf "Builder Error: Basic block '%s' already has a terminator!" bb.name)
-      | None -> check_term b term; bb.term <- Some term
+      | None -> (*check_term b term;*) bb.term <- Some term
 
 (* ========================================================================= *)
 (* Generating SSA IDs                                                        *)
@@ -721,13 +718,3 @@ let sub_ops_uses submap ops =
     | Vecextend (dst, vec, lit, off) -> 
         Vecextend (dst, sub_id vec, sub_id lit, sub_id off)
   ) ops
-
-  let sub_branch submap (br : branch) = 
-    { bbid = br.bbid; args = sub_sc_list submap br.args } 
-
-let sub_term submap term =
-  match term with
-  | Br br -> Br (sub_branch submap br)
-  | Cbr (cond, br_true, br_false) -> 
-      Cbr (sub_id submap cond, sub_branch submap br_true, sub_branch submap br_false)
-  | Ret sc -> Ret (sub_sc submap sc)

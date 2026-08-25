@@ -93,23 +93,21 @@ let dce_opt_func (fn : func) =
     ) bb.ops;
 
     (* 1b. Process Terminators & Map BB Arguments *)
-    let map_branch_args (br : branch) =
-      let target_bb = BBMap.find br.bbid bbs in
+    let map_branch_args (brbbid : bbid) (brargs : ssaconsume list) =
+      let target_bb = BBMap.find brbbid bbs in
       (* target_bb parameter depends on incoming branch argument *)
       List.iter2 (fun param arg -> 
         add_dependency param arg.ssaid
-      ) target_bb.args br.args
+      ) target_bb.args brargs
     in
 
     match bb.term with
-    | Some (Ret sc) -> 
-        mark_live sc.ssaid (* Return is a root *)
-    | Some (Br br) -> 
-        map_branch_args br (* Arguments are NOT roots, just data flow! *)
-    | Some (Cbr (cond, br_t, br_f)) -> 
+    | Some (Ret ret) -> 
+        mark_live ret (* Return is a root *)
+    | Some (Br (brbbid, brargs)) -> 
+        map_branch_args brbbid brargs (* Arguments are NOT roots, just data flow! *)
+    | Some (Cbr (cond, _, _)) -> 
         mark_live cond;    (* Branch condition IS a root *)
-        map_branch_args br_t;
-        map_branch_args br_f;
     | None -> ()
   ) bbs;
 
@@ -135,9 +133,9 @@ let dce_opt_func (fn : func) =
   ) bbs;
 
   (* Helper to filter branch arguments based on the target block's surviving parameters *)
-  let prune_branch (br : branch) =
-    let mask = Hashtbl.find bb_arg_masks br.bbid in
-    { br with args = filter_mask mask br.args }
+  let prune_branch (brbbid : bbid) (brargs : ssaconsume list) =
+    let mask = Hashtbl.find bb_arg_masks brbbid in
+    filter_mask mask brargs
   in
 
   (* Mutate the bbs in place to strip dead code *)
@@ -155,8 +153,7 @@ let dce_opt_func (fn : func) =
 
     (* 3c. Strip dead arguments in terminators *)
     bb.term <- match bb.term with
-      | Some (Br br) -> Some (Br (prune_branch br))
-      | Some (Cbr (cond, br_t, br_f)) -> Some (Cbr (cond, prune_branch br_t, prune_branch br_f))
+      | Some (Br (brbbid, brargs)) -> Some (Br (brbbid, prune_branch brbbid brargs))
       | term_other -> term_other
   ) bbs
 

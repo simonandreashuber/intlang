@@ -142,22 +142,16 @@ let string_of_op = function
   | Vecextend (dst, vec, lit, off) ->
       Printf.sprintf "%s = vecextend %s %s %s" (string_of_ssa dst) (string_of_ssa vec) (string_of_ssa lit) (string_of_ssa off)
 (* ========================================================================= *)
-(* Branches & Terminators                                                    *)
+(* Terminators                                                               *)
 (* ========================================================================= *)
 
-let string_of_branch (brn : branch) =
-  if brn.args = [] then
-    string_of_bbid brn.bbid
-  else
-    Printf.sprintf "%s(%s)" (string_of_bbid brn.bbid) (string_of_ssaconsumes brn.args)
-
 let string_of_term = function
-  | Br target -> 
-      Printf.sprintf "br %s" (string_of_branch target)
+  | Br (target, args) -> 
+      Printf.sprintf "br %s(%s)" (string_of_bbid target) (string_of_ssaconsumes args)
   | Cbr (cond, target_then, target_else) ->
-      Printf.sprintf "cbr %s %s %s" (string_of_ssa cond) (string_of_branch target_then) (string_of_branch target_else)
+      Printf.sprintf "cbr %s %s %s" (string_of_ssa cond) (string_of_bbid target_then) (string_of_bbid target_else)
   | Ret arg -> 
-      Printf.sprintf "ret %s" (string_of_ssaconsume arg)
+      Printf.sprintf "ret %s" (string_of_ssa arg)
 
 (* ========================================================================= *)
 (* Basic Blocks, Functions, and Program                                      *)

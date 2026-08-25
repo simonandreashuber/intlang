@@ -46,16 +46,16 @@ let tco_opt_func (b : builder) (fn : func) : unit =
   BBMap.iter (fun _ (bb : bb) ->
     match bb.args, bb.ops, bb.term with
     | _, (CallDirect (callres, callfuncid, callargs)) :: tl, Some (Ret ret) 
-      when callres = ret.ssaid && !callfuncid = fid
+      when callres = ret && !callfuncid = fid
           -> Hashtbl.add tcbbs bb.bbid (TailCall callargs)
-    | _, (CallDirect (callres, callfuncid, callargs)) :: tl, Some (Br {bbid = targetbbid ; args = [arg] }) 
+    | _, (CallDirect (callres, callfuncid, callargs)) :: tl, Some (Br (targetbbid, [arg])) 
       when callres = arg.ssaid && !callfuncid = fid
           -> Hashtbl.add tcbbs bb.bbid (TailCallOrigin (targetbbid, callargs))
-    | [res], [], Some (Br {bbid = targetbbid ; args = [arg] }) 
+    | [res], [], Some (Br (targetbbid, [arg])) 
       when res = arg.ssaid 
           -> Hashtbl.add tcbbs bb.bbid (TailCallForward targetbbid)
     | [res], [], Some (Ret ret) 
-      when res = ret.ssaid 
+      when res = ret 
           -> Hashtbl.add tcbbs bb.bbid (TailCallSink)
     | _ -> ()
   ) fn.bbs;
@@ -150,7 +150,7 @@ let tco_opt_func (b : builder) (fn : func) : unit =
   let new_entry_bb = create_bb b "tco_new_entry" [] in  
   set_entry_bb b new_entry_bb.bbid;
   switch_bb b new_entry_bb;
-  emit_term b (Br (brac old_entry_bb.bbid (List.map (fun (_, arg_ssaid) -> ssac arg_ssaid) sub)));
+  emit_term b (Br (old_entry_bb.bbid, List.map (fun (_, arg_ssaid) -> ssac arg_ssaid) sub));
 
   (* iterate all tail calls: remove the directcalls and put the backedge *)
   List.iter (fun tcp -> 
@@ -168,7 +168,7 @@ let tco_opt_func (b : builder) (fn : func) : unit =
         | None -> arg :: subacc (*arg not fixed => pass on backedge*)
       ) [] tcp.args fixed_args 
     in
-    bb.term <- Some (Br (brac old_entry_bb.bbid passed_args))
+    bb.term <- Some (Br (old_entry_bb.bbid, passed_args))
     ) tcpos
 
 

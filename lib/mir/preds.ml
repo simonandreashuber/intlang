@@ -18,12 +18,12 @@ let compute_preds fn =
   (* Accumulate Predecessor Info *)
   BBMap.iter (fun _ bb ->
     match bb.term with
-    | Some (Br br) -> (
-        add_pred predsarr bb.bbid br.bbid
+    | Some (Br (brbbid, _)) -> (
+        add_pred predsarr bb.bbid brbbid
     )
     | Some (Cbr (_, ibr, ebr)) -> (
-        add_pred predsarr bb.bbid ibr.bbid;
-        add_pred predsarr bb.bbid ebr.bbid
+        add_pred predsarr bb.bbid ibr;
+        add_pred predsarr bb.bbid ebr
     )
     | Some _ -> ()
     | None -> failwith ("preds: func: " ^ fn.name ^ " bb " ^ string_of_int bb.bbid ^ " has no term")

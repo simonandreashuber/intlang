@@ -24,68 +24,88 @@ let compactcfg_opt_func (fn : func) : unit =
     | Some bb when Some (bb.bbid) <> fn.entry_bb -> (
 
       let preds = get_preds bbid in
-      match preds, bb.ops, bb.term with
+      match preds, bb.args, bb.ops, bb.term with
       (* Unreachable BB removal *)
-      | [], _ , Some (Br br) -> (
+      | [], _, _ , Some (Br (brbbid, brargs)) -> (
         fn.bbs <- BBMap.remove bbid fn.bbs;
-        rem_pred bb.bbid br.bbid;
-        Queue.push br.bbid wl
+        rem_pred bb.bbid brbbid;
+        Queue.push brbbid wl
       )
-      | [], _ , Some (Cbr (_, ibr, ebr)) -> (
+      | [], _, _ , Some (Cbr (_, ibr, ebr)) -> (
         fn.bbs <- BBMap.remove bbid fn.bbs;
-        rem_pred bb.bbid ibr.bbid;
-        rem_pred bb.bbid ebr.bbid;
-        Queue.push ibr.bbid wl;
-        Queue.push ebr.bbid wl
+        rem_pred bb.bbid ibr;
+        rem_pred bb.bbid ebr;
+        Queue.push ibr wl;
+        Queue.push ebr wl
       )
-      (* Trampoline BB removal *)
-      | _, [], Some (Br tbr) when tbr.bbid <> bbid-> (
-          let sub_branch (pbr : branch) : branch =
-            if pbr.bbid <> bbid then pbr else (*only sub branches that branch to the trampoline bb*)
-            let sub = List.map2 (fun bbarg brarg -> (bbarg, brarg.ssaid)) bb.args pbr.args in
-            sub_branch sub tbr
-          in
+      (* Trampoline BB removal, no args*)
+      | _, [], [], Some (Br (tbrbbid, [])) when tbrbbid <> bbid-> (
           List.iter (
             fun predbbid ->
               let predbb = BBMap.find predbbid fn.bbs in
                 (match predbb.term with
-                | Some (Br pbr) -> 
-                    predbb.term <- Some (Br (sub_branch pbr))
-                | Some (Cbr (cond, pibr, pebr)) -> 
-                    predbb.term <- Some (Cbr (cond, sub_branch pibr, sub_branch pebr))
-                | _ -> failwith "predbb term is not a branch");
-                rem_pred bb.bbid tbr.bbid;
-                add_pred predbb.bbid tbr.bbid;
-                Queue.push predbb.bbid wl
+                | Some (Br (pbrbbid, [])) when bbid = pbrbbid-> 
+                    predbb.term <- Some (Br (pbrbbid, []))
+                | Some (Cbr (cond, pibrbbid, pebrbbid)) -> 
+                    let pibrbbid' = if pibrbbid = bbid then tbrbbid else pibrbbid in
+                    let pebrbbid' = if pebrbbid = bbid then tbrbbid else pebrbbid in
+                    predbb.term <- Some (Cbr (cond, pibrbbid', pebrbbid'))
+                | _ -> failwith "compactcfg_opt_func: predbb term is not of the fromat expected for a trampoline bb with no args");
+                rem_pred predbbid bbid;
+                add_pred predbbid tbrbbid;
+                Queue.push predbbid wl
           ) preds;
           fn.bbs <- BBMap.remove bbid fn.bbs;
-          rem_pred bbid tbr.bbid;
-          Queue.add tbr.bbid wl
+          rem_pred bbid tbrbbid;
+          Queue.add tbrbbid wl
+      )
+      (* Trampoline BB removal, with args *)
+      | _, bbargs, [], Some (Br (tbrbbid, tbrargs)) when List.length bbargs > 0 && tbrbbid <> bbid-> (
+          List.iter (
+            fun predbbid ->
+              let predbb = BBMap.find predbbid fn.bbs in
+                (match predbb.term with
+                | Some (Br (pbrbbid, pbrargs)) when pbrbbid = bbid -> 
+                    let sub = List.map2 (fun bbarg brarg -> (bbarg, brarg.ssaid)) bbargs pbrargs in
+                    let tbrargs' = sub_sc_list sub tbrargs in
+                    predbb.term <- Some (Br (tbrbbid, tbrargs'))
+                | _ -> failwith "compactcfg_opt_func: predbb term is not of the fromat expected for a trampoline bb with args");
+                rem_pred predbbid bbid;
+                add_pred predbbid tbrbbid;
+                Queue.push predbbid wl
+          ) preds;
+          fn.bbs <- BBMap.remove bbid fn.bbs;
+          rem_pred bbid tbrbbid;
+          Queue.add tbrbbid wl
       )
       (* Successor BB chain compaction*)
-      | _, _, Some (Br br) when get_preds br.bbid = [bbid] -> (
-        let succbb = BBMap.find br.bbid fn.bbs in
-        let sub = List.map2 (fun bbarg brarg -> (bbarg, brarg.ssaid)) succbb.args br.args in
+      | _, _, _, Some (Br (brbbid, brargs)) when get_preds brbbid = [bbid] -> (
+        let succbb = BBMap.find brbbid fn.bbs in
+        let sub = List.map2 (fun sbbarg brarg -> (sbbarg, brarg.ssaid)) succbb.args brargs in
         bb.ops <- (sub_ops_uses sub succbb.ops) @ bb.ops;
-        bb.term <- Some (sub_term sub (Option.get succbb.term));
-        fn.bbs <- BBMap.remove br.bbid fn.bbs;
-        rem_pred bb.bbid br.bbid;
-        Queue.push bb.bbid wl;
-        match bb.term with
-        | Some (Br nbr) -> (
-          rem_pred succbb.bbid nbr.bbid;
-          add_pred bb.bbid nbr.bbid;
-          Queue.push nbr.bbid wl
+        (match succbb.term with
+        | Some (Br (sbrbbid, sbrargs)) -> (
+          bb.term <- Some (Br (sbrbbid, sub_sc_list sub sbrargs));
+          rem_pred brbbid sbrbbid;
+          add_pred bbid sbrbbid;
+          Queue.push sbrbbid wl
         )
-        | Some (Cbr (_, nibr, nebr)) -> (
-          rem_pred succbb.bbid nibr.bbid;
-          rem_pred succbb.bbid nebr.bbid;
-          add_pred bb.bbid nibr.bbid;
-          add_pred bb.bbid nebr.bbid;
-          Queue.push nibr.bbid wl;
-          Queue.push nebr.bbid wl
+        | Some (Cbr (cond, sibrbbid, sebrbbid)) -> (
+          bb.term <- Some (Cbr (sub_id sub cond, sibrbbid, sebrbbid));
+          rem_pred brbbid sibrbbid;
+          rem_pred brbbid sebrbbid;
+          add_pred bbid sibrbbid;
+          add_pred bbid sebrbbid;
+          Queue.push sibrbbid wl;
+          Queue.push sebrbbid wl;
         )
-        | _ -> (); (*ret or no term (no term should not happen)*)
+        | Some (Ret ret) -> (
+          bb.term <- Some (Ret (sub_id sub ret));
+        )
+        | None -> failwith "compactcfg_opt_func: succbb term is not of the fromat expected for a trampoline bb with args"); 
+        fn.bbs <- BBMap.remove brbbid fn.bbs;
+        rem_pred bbid brbbid;
+        Queue.push bbid wl;
       )
       | _ -> () (* no compact opportunity*)
     )

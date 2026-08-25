@@ -14,8 +14,8 @@ let compute_borrow (fn : func) : unit =
   in
 
   (*helper for the terms*)
-  let bbargs_borrow (br : branch) =
-    let targbb = BBMap.find br.bbid fn.bbs in
+  let bbargs_borrow brbbid brargs =
+    let targbb = BBMap.find brbbid fn.bbs in
     List.iter2 (fun brarg bbarg ->
     (*
       I put all the potential borrows in the graph while this makes
@@ -25,7 +25,7 @@ let compute_borrow (fn : func) : unit =
     *)
     if Mir.is_memtyp (Mir.get_mirtyp_func fn bbarg)
     then borrow bbarg brarg.ssaid  
-    ) br.args targbb.args
+    ) brargs targbb.args
   in
 
   BBMap.iter (fun _ bb ->
@@ -59,8 +59,7 @@ let compute_borrow (fn : func) : unit =
 
     (*term borrows*)
     match bb.term with
-    | Some ( Br br ) -> bbargs_borrow br
-    | Some ( Cbr (_, ibr, ebr)) -> bbargs_borrow ibr; bbargs_borrow ebr
+    | Some ( Br (brbbid, brargs) ) -> bbargs_borrow brbbid brargs
     | _ -> ();
 
   ) fn.bbs;

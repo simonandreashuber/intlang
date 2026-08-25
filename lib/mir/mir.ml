@@ -87,17 +87,11 @@ type op =                                                           (* Textual R
     | Vecslice of ssaid * ssaid * ssaid * ssaid                     (* %res         = vecslice %vec %start %len                                                         *)
     | Vecextend of ssaid * ssaid * ssaid * ssaid                    (* %res         = vecextend %vec %lit %off                                                          *)
 
-type branch = {
-  bbid: bbid;
-  args: (ssaconsume list);
-}
-
-let brac = fun bbid args -> { bbid; args }
 
 type term =
-    | Br of branch
-    | Cbr of ssaid * branch * branch
-    | Ret of ssaconsume
+    | Br of bbid * (ssaconsume list) 
+    | Cbr of ssaid * bbid * bbid
+    | Ret of ssaid
 
 (* ========================================================================= *)
 (* MIR Control Flow Graph                                                    *)

@@ -344,7 +344,7 @@ let eta_expansion (b : builder) (unsat_ssaid : ssaid) : ssaid =
         res_ssaid
       ) 0 sat_args (*0 is the hardcoded closure argument*)
   in
-  emit_term b (Ret (ssac res_ssaid));
+  emit_term b (Ret res_ssaid);
 
   cp_ret b cp;
   
@@ -443,7 +443,7 @@ let rec lower_body (b : builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
 
     (*lower cond*)
     let ssaid_cond = lower_body b env cond in
-    emit_term b (Cbr (ssaid_cond, brac bb_then.bbid [], brac bb_else.bbid []));
+    emit_term b (Cbr (ssaid_cond, bb_then.bbid, bb_else.bbid));
 
     (*lower if branch*)
     switch_bb b bb_then;
@@ -454,7 +454,7 @@ let rec lower_body (b : builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
       | TMIRClos (_, TMIRClos _) -> eta_expansion b then_res_ssaid
       | _ -> then_res_ssaid
     in
-    emit_term b (Br (brac bb_merge.bbid [ssac sat_then_res_ssaid]));
+    emit_term b (Br (bb_merge.bbid, [ssac sat_then_res_ssaid]));
 
     (*lower else branch*)
     switch_bb b bb_else;
@@ -465,7 +465,7 @@ let rec lower_body (b : builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
       | TMIRClos (_, TMIRClos _) -> eta_expansion b else_res_ssaid
       | _ -> else_res_ssaid
     in
-    emit_term b (Br (brac bb_merge.bbid [ssac sat_else_res_ssaid]));
+    emit_term b (Br (bb_merge.bbid, [ssac sat_else_res_ssaid]));
 
     switch_bb b bb_merge;
     merge_res_ssaid
@@ -676,7 +676,7 @@ and lower_loc_func (b : builder)
   in
 
   let res_ssaid = lower_body b env'' l_body in
-  emit_term b (Ret (ssac res_ssaid));
+  emit_term b (Ret res_ssaid);
 
   cp_ret b cp;
 
@@ -704,7 +704,7 @@ let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t
         switch_bb b bbentry;
         let env = env_merge toplvl_env env_func in
         let res_ssaid = lower_body b env l_body in
-        emit_term b (Ret (ssac res_ssaid))
+        emit_term b (Ret res_ssaid)
       )
     | GlobalDecl (global, l_init) -> (
         cp_ret b !init_global_cp;
@@ -718,7 +718,7 @@ let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t
   cp_ret b !init_global_cp;
   let unit_ssaid = fresh_ssaid b in
   emit_op b (ImmUnit unit_ssaid);
-  emit_term b (Ret (ssac unit_ssaid))
+  emit_term b (Ret unit_ssaid)
   
 let lower_builtins (b : builder) (builtins : Ast.typenv) : mirval UuidMap.t =
   List.fold_left (fun env_acc (name , (schema , uuid)) ->

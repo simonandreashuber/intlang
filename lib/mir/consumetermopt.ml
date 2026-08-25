@@ -49,18 +49,15 @@ let consumeterm_opt_func (b : builder) (fn : func) =
       used_later := SsaSet.add ssaid !used_later
     in
 
-    let try_consume_lst used_later scs = List.iter (try_consume used_later) scs in
+    let try_consume_br used_later brbbid brargs = 
+      let target_bb = match BBMap.find_opt brbbid fn.bbs with
+        | Some bb -> bb | None -> failwith (Printf.sprintf "try_consume_br: bb %d has no target bb %d" bbid brbbid) in
 
-    let try_consume_br used_later (br : branch) = 
-      let target_bb = match BBMap.find_opt br.bbid fn.bbs with
-        | Some bb -> bb
-        | None -> failwith (Printf.sprintf "consume_opt_func: bb %d has no target bb %d" bbid br.bbid)
-      in
       let bbargs_own = List.map (fun ssa -> get_ownership_func fn ssa) target_bb.args in
       List.iter2 (fun sc own -> 
-          if own = Owned then try_consume used_later sc (*only consume if the bb arg is owned*)
+          if own = Owned then try_consume used_later sc (*only consume if the target bb arg is owned*)
           else add_use used_later sc.ssaid
-        ) br.args bbargs_own
+        ) brargs bbargs_own
     in
 
     (* for the used last set the live out is used, 
@@ -69,15 +66,10 @@ let consumeterm_opt_func (b : builder) (fn : func) =
     let ul = ref live_info.live_out.(bbid) in
 
     (match bb.term with
-    | Some (Br br) -> try_consume_lst (ul) br.args
-    | Some (Cbr (cond , ibr, ebr)) -> 
-        let iflivein = ref live_info.live_in.(ibr.bbid) in
-        let elselivein = ref live_info.live_in.(ebr.bbid) in
-        try_consume_br iflivein ibr; 
-        try_consume_br elselivein ebr;
-        ul := SsaSet.union !ul (SsaSet.union !iflivein !elselivein); (*make sure the uses in the cbr are known for the ops*)
+    | Some (Br (brbbid, brargs)) -> try_consume_br ul brbbid brargs
+    | Some (Cbr (cond , _, _)) -> 
         add_use ul cond
-    | Some (Ret retval) -> try_consume ul retval
+    | Some (Ret retval) -> add_use ul retval
     | _ -> failwith (Printf.sprintf "consume_opt_func: bb %d has no term" bbid)
     )
 

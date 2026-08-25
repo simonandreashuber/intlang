@@ -11,8 +11,8 @@ let compute_rpo (fn : func) =
       | Some bb ->
           (* 1. Extract successors *)
           let succs = match bb.term with
-            | Some (Br br) -> [br.bbid]
-            | Some (Cbr (_, br_t, br_f)) -> [br_f.bbid; br_t.bbid]
+            | Some (Br (brbbid, _)) -> [brbbid]
+            | Some (Cbr (_, br_t, br_f)) -> [br_f; br_t]
             | Some (Ret _) | None -> []
           in
           (* 2. Visit children (Post-Order step) *)

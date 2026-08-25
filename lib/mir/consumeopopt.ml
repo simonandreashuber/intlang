@@ -66,14 +66,12 @@ let consumeop_opt_func (b : builder) funcid =
     let ul = ref live_info.live_out.(bbid) in
 
     (match bb.term with
-    | Some (Br br) -> 
-        add_sc_uses ul br.args
-    | Some (Cbr (cond , ibr, ebr)) -> 
-        add_sc_uses ul ibr.args;
-        add_sc_uses ul ebr.args;
+    | Some (Br (_, brargs)) -> 
+        add_sc_uses ul brargs
+    | Some (Cbr (cond , _, _)) -> 
         add_use ul cond
     | Some (Ret retval) -> 
-        add_use ul retval.ssaid
+        add_use ul retval
     | _ -> failwith (Printf.sprintf "consumeop_opt_func: bb %d has no term" bbid)
     );
     

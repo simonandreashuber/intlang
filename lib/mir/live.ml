@@ -23,14 +23,12 @@ let compute_live (f : func) =
 
     (* 1. Accumulate Terminator uses *)
     (match bb.term with
-     | Some (Br br) -> 
-        apply_sc_uses br.args
-     | Some (Cbr (cond, t, f)) -> 
+     | Some (Br (_, brargs)) -> 
+        apply_sc_uses brargs
+     | Some (Cbr (cond, tbbid, fbbid)) -> 
         apply_use cond;
-        apply_sc_uses t.args;
-        apply_sc_uses f.args
-     | Some (Ret sc) -> 
-        apply_use sc.ssaid
+     | Some (Ret ret) -> 
+        apply_use ret
      | None -> failwith ("live_analysis: function " ^ string_of_int f.funcid ^ " block " ^ string_of_int bbid ^ " has no terminator")
     );
 
@@ -83,8 +81,8 @@ let compute_live (f : func) =
 
       (* live_out = Union of live_in of all successors *)
       let out_set = match bb.term with
-        | Some (Br br) -> live_in.(br.bbid)
-        | Some (Cbr (_, t, f)) -> SsaSet.union live_in.(t.bbid) live_in.(f.bbid)
+        | Some (Br (brbbid, _)) -> live_in.(brbbid)
+        | Some (Cbr (_, tbbid, fbbid)) -> SsaSet.union live_in.(tbbid) live_in.(fbbid)
         | Some (Ret _) | None -> SsaSet.empty
       in
       live_out.(bbid) <- out_set;

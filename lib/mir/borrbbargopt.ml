@@ -71,11 +71,9 @@ let borrbbarg_opt_func fn =
     let bb = BBMap.find bbid fn.bbs in
     let appmask = List.iter2 (fun is_canret brarg -> if is_canret then canret := brarg.ssaid :: !canret) mask in
     (match bb.term with
-    | Some (Ret retsc) -> canret := retsc.ssaid :: !canret
-    | Some (Br br)-> appmask br.args
-    | Some (Cbr (_, ibr, ebr)) -> 
-        if ibr.bbid = succbbid then appmask ibr.args; 
-        if ebr.bbid = succbbid then appmask ebr.args
+    | Some (Ret ret) -> canret := ret :: !canret
+    | Some (Br (_, brargs))-> appmask brargs
+    | Some (Cbr _) -> ()
     | None -> failwith "borrbbargop: try find canret but found bb with not term");
     let mask = List.map (fun argssaid -> List.mem argssaid !canret) bb.args in
     List.iter (fun predbbid ->
