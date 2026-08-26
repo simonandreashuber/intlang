@@ -1,6 +1,7 @@
 open Mir
 open Printmir
 open Buildmir
+open Analysis
 
 (* Stores the raw definition payload of a closure SSA ID *)
 type tc_bbtyp =
@@ -33,9 +34,8 @@ type tc_info = {
   args : ssaconsume list;
 }
 
-let tco_opt_func (b : builder) (fn : func) : unit =
+let tco_opt_func (b : builder) (aly : analysis_info) (fn : func) : unit =
 
-  Mir.invalidate_all_analysis fn;
 
   let tcbbs : (bbid, tc_bbtyp) Hashtbl.t = Hashtbl.create 32 in
   let fid = fn.funcid in
@@ -169,12 +169,15 @@ let tco_opt_func (b : builder) (fn : func) : unit =
       ) [] tcp.args fixed_args 
     in
     bb.term <- Some (Br (old_entry_bb.bbid, passed_args))
-    ) tcpos
+    ) tcpos;
+
+    invalidate_all_analysis aly fn.funcid
 
 
-let tco_opt (b : builder) : unit =
+
+let tco_opt (b : builder) (aly : analysis_info) : unit =
   FuncMap.iter (fun _fid fn -> 
     match fn.extern_name with
     | Some _ -> ()
-    | None -> tco_opt_func b fn
+    | None -> tco_opt_func b aly fn
   ) b.program.funcs

@@ -1,13 +1,14 @@
 open Mir
-open Rpo
-open Preds
-open Live
-open Borrow
-open Dom
-
+open Analysis
 (* ========================================================================= *)
 (* String Helpers for Identifier and Primitive Types                         *)
 (* ========================================================================= *)
+
+let string_of_ssa_def (fn : func) (id : ssaid) : string =
+  match get_ownership_func fn id with
+  | Owned -> Printf.sprintf "%%o%d" id
+  | Borrowed -> Printf.sprintf "%%b%d" id
+  | NoMem -> Printf.sprintf "%%%d" id
 
 let string_of_ssa (id : ssaid) : string =
   Printf.sprintf "%%%d" id
@@ -83,62 +84,63 @@ let string_of_bopi8 = function
 (* Instructions (op)                                                         *)
 (* ========================================================================= *)
 
-let string_of_op = function
-  | Func (dst, fid, Some fid2) ->
-      Printf.sprintf "%s = func %s %s" (string_of_ssa dst) (string_of_funcid fid) (string_of_funcid fid2)
-  | Func (dst, fid, None) ->
-      Printf.sprintf "%s = func %s" (string_of_ssa dst) (string_of_funcid fid)
+let string_of_op (fn : func) = function
+  | Func (dst, fid_ref, fid2opt_ref) -> (
+      match !fid2opt_ref with
+      | Some fid2 -> Printf.sprintf "%s = func %s %s" (string_of_ssa_def fn dst) (string_of_funcid !fid_ref) (string_of_funcid fid2)
+      | None -> Printf.sprintf "%s = func %s" (string_of_ssa_def fn dst) (string_of_funcid !fid_ref)
+  )
   | Pack (dst, oldclos, args) ->
       let args_str = if args = [] then "" else " " ^ string_of_ssaconsumes args in
-      Printf.sprintf "%s = pack %s%s" (string_of_ssa dst) (string_of_ssaconsume oldclos) args_str
+      Printf.sprintf "%s = pack %s%s" (string_of_ssa_def fn dst) (string_of_ssaconsume oldclos) args_str
   | CallClosure (dst, clos) ->
-      Printf.sprintf "%s = callclosure %s" (string_of_ssa dst) (string_of_ssaconsume clos)
+      Printf.sprintf "%s = callclosure %s" (string_of_ssa_def fn dst) (string_of_ssaconsume clos)
   | CallDirect (dst, fid, args) ->
       let args_str = if args = [] then "" else " " ^ string_of_ssaconsumes args in
-      Printf.sprintf "%s = calldirect %s%s" (string_of_ssa dst) (string_of_funcid !fid) args_str
+      Printf.sprintf "%s = calldirect %s%s" (string_of_ssa_def fn dst) (string_of_funcid !fid) args_str
   | Copy (dst, src) ->
-      Printf.sprintf "%s = copy %s" (string_of_ssa dst) (string_of_ssa src)
+      Printf.sprintf "%s = copy %s" (string_of_ssa_def fn dst) (string_of_ssa src)
   | GarbageCollect mems ->
       let mems_str = if mems = [] then "" else " " ^ string_of_ssaids mems in
       Printf.sprintf "garbagecollect%s" mems_str
   | StoreGlobal (gid, v) ->
       Printf.sprintf "storeglobal %s %s" (string_of_globalid gid) (string_of_ssaconsume v)
   | LoadGlobal (dst, gid) ->
-      Printf.sprintf "%s = loadglobal %s" (string_of_ssa dst) (string_of_globalid gid)
+      Printf.sprintf "%s = loadglobal %s" (string_of_ssa_def fn dst) (string_of_globalid gid)
   | Immi32 (dst, v) ->
-      Printf.sprintf "%s = immi32 %s" (string_of_ssa dst) (Int32.to_string v)
+      Printf.sprintf "%s = immi32 %s" (string_of_ssa_def fn dst) (Int32.to_string v)
   | Immi8 (dst, c) ->
-      Printf.sprintf "%s = immi8 %d" (string_of_ssa dst) (Char.code c)
+      Printf.sprintf "%s = immi8 %d" (string_of_ssa_def fn dst) (Char.code c)
   | ImmUnit dst ->
-      Printf.sprintf "%s = immunit" (string_of_ssa dst)
+      Printf.sprintf "%s = immunit" (string_of_ssa_def fn dst)
   | Uopi32 (dst, uop, a) ->
-      Printf.sprintf "%s = uopi32 %s %s" (string_of_ssa dst) (string_of_uopi32 uop) (string_of_ssa a)
+      Printf.sprintf "%s = uopi32 %s %s" (string_of_ssa_def fn dst) (string_of_uopi32 uop) (string_of_ssa a)
   | Uopi8 (dst, uop, a) ->
-      Printf.sprintf "%s = uopi8 %s %s" (string_of_ssa dst) (string_of_uopi8 uop) (string_of_ssa a)
+      Printf.sprintf "%s = uopi8 %s %s" (string_of_ssa_def fn dst) (string_of_uopi8 uop) (string_of_ssa a)
   | Bopi32 (dst, bop, a, b) ->
-      Printf.sprintf "%s = bopi32 %s %s %s" (string_of_ssa dst) (string_of_bopi32 bop) (string_of_ssa a) (string_of_ssa b)
+      Printf.sprintf "%s = bopi32 %s %s %s" (string_of_ssa_def fn dst) (string_of_bopi32 bop) (string_of_ssa a) (string_of_ssa b)
   | Bopi8 (dst, bop, a, b) ->
-      Printf.sprintf "%s = bopi8 %s %s %s" (string_of_ssa dst) (string_of_bopi8 bop) (string_of_ssa a) (string_of_ssa b)
+      Printf.sprintf "%s = bopi8 %s %s %s" (string_of_ssa_def fn dst) (string_of_bopi8 bop) (string_of_ssa a) (string_of_ssa b)
   | Tupwrp (dst, elms) ->
-      Printf.sprintf "%s = tupwrp %s" (string_of_ssa dst) (string_of_ssaconsumes elms)
+      Printf.sprintf "%s = tupwrp %s" (string_of_ssa_def fn dst) (string_of_ssaconsumes elms)
   | Tupuwrp (elms, tup) ->
       Printf.sprintf "(%s) = tupuwrp %s" (string_of_ssaids elms) (string_of_ssaconsume tup)
   | Veclit (dst, elms) ->
-      Printf.sprintf "%s = veclit %s" (string_of_ssa dst) (string_of_ssaconsumes elms)
+      Printf.sprintf "%s = veclit %s" (string_of_ssa_def fn dst) (string_of_ssaconsumes elms)
   | Vecinit (dst, defval, dims) ->
-      Printf.sprintf "%s = vecinit %s %s" (string_of_ssa dst) (string_of_ssa defval) (string_of_ssaids dims)
+      Printf.sprintf "%s = vecinit %s %s" (string_of_ssa_def fn dst) (string_of_ssa defval) (string_of_ssaids dims)
   | Veclen (dst, vec) ->
-      Printf.sprintf "%s = veclen %s" (string_of_ssa dst) (string_of_ssa vec)
+      Printf.sprintf "%s = veclen %s" (string_of_ssa_def fn dst) (string_of_ssa vec)
   | Vecread (dst, vec, idxs) ->
-      Printf.sprintf "%s = vecread %s %s" (string_of_ssa dst) (string_of_ssa vec) (string_of_ssaids idxs)
+      Printf.sprintf "%s = vecread %s %s" (string_of_ssa_def fn dst) (string_of_ssa vec) (string_of_ssaids idxs)
   | Vecwrite (dst, vec, v, idxs) ->
-      Printf.sprintf "%s = vecwrite %s %s %s" (string_of_ssa dst) (string_of_ssaconsume vec) (string_of_ssa v) (string_of_ssaids idxs)
+      Printf.sprintf "%s = vecwrite %s %s %s" (string_of_ssa_def fn dst) (string_of_ssaconsume vec) (string_of_ssa v) (string_of_ssaids idxs)
   | Vecinsert (dst, vec, vecins, idxs) ->
-      Printf.sprintf "%s = vecinsert %s %s %s" (string_of_ssa dst) (string_of_ssaconsume vec) (string_of_ssaconsume vecins) (string_of_ssaids idxs)
+      Printf.sprintf "%s = vecinsert %s %s %s" (string_of_ssa_def fn dst) (string_of_ssaconsume vec) (string_of_ssaconsume vecins) (string_of_ssaids idxs)
   | Vecslice (dst, vec, start, len) ->
-      Printf.sprintf "%s = vecslice %s %s %s" (string_of_ssa dst) (string_of_ssa vec) (string_of_ssa start) (string_of_ssa len)
+      Printf.sprintf "%s = vecslice %s %s %s" (string_of_ssa_def fn dst) (string_of_ssa vec) (string_of_ssa start) (string_of_ssa len)
   | Vecextend (dst, vec, lit, off) ->
-      Printf.sprintf "%s = vecextend %s %s %s" (string_of_ssa dst) (string_of_ssa vec) (string_of_ssa lit) (string_of_ssa off)
+      Printf.sprintf "%s = vecextend %s %s %s" (string_of_ssa_def fn dst) (string_of_ssa vec) (string_of_ssa lit) (string_of_ssa off)
 (* ========================================================================= *)
 (* Terminators                                                               *)
 (* ========================================================================= *)
@@ -155,17 +157,17 @@ let string_of_term = function
 (* Basic Blocks, Functions, and Program                                      *)
 (* ========================================================================= *)
 
-let string_of_bb (bb : bb) : string =
+let string_of_bb (fn : func) (bb : bb) : string =
   let args_str =
     if bb.args = [] then "()"
     else
-      "(" ^ String.concat ", " (List.map (fun arg -> Printf.sprintf "%s" (string_of_ssa arg)) bb.args) ^ ")"
+      "(" ^ String.concat ", " (List.map (fun arg -> Printf.sprintf "%s" (string_of_ssa_def fn arg)) bb.args) ^ ")"
   in
   let header = Printf.sprintf "\tbb: %s (%s) %s :" (string_of_int bb.bbid) bb.name args_str in
   
   (* NOTE: bb.ops is stored in reverse order, so we reverse it here to print chronologically *)
   let ops_chronological = List.rev bb.ops in
-  let ops_strs = List.map (fun op -> Printf.sprintf "\t\t%s" (string_of_op op)) ops_chronological in
+  let ops_strs = List.map (fun op -> Printf.sprintf "\t\t%s" (string_of_op fn op)) ops_chronological in
   
   let term_str =
     match bb.term with
@@ -173,6 +175,34 @@ let string_of_bb (bb : bb) : string =
     | None -> ["\t\t<missing terminator>"]
   in
   String.concat "\n" ([header] @ ops_strs @ term_str)
+
+let string_of_func (aly : analysis_info) (f : func) : string =
+
+  let args_str =
+    String.concat ", "
+      (List.map (fun (id, opt_name) -> 
+        match opt_name with
+        | Some n -> Printf.sprintf "%s \"%s\": %s" (string_of_ssa_def f id) n (string_of_typ @@ get_mirtyp_func f id)
+        | None -> Printf.sprintf "%s: %s" (string_of_ssa_def f id) (string_of_typ @@ get_mirtyp_func f id)
+      ) f.args)
+  in
+  let header = Printf.sprintf "fn %s %s(%s) -> %s {" (string_of_funcid f.funcid) f.name args_str (string_of_typ f.rettyp) in
+  let body_str =
+  match f.extern_name with
+  | Some ext_name -> Printf.sprintf "\t<extern: %s>" ext_name
+  | None ->
+    match f.entry_bb with
+    | Some entry_bbid ->
+        let rpo_info = get_rpo_info aly f in
+        let rpo_bbs = List.map (fun bbid -> BBMap.find bbid f.bbs) rpo_info.rpo_lst in
+        String.concat "\n\n" (List.map (string_of_bb f) rpo_bbs)
+    | None -> "<no entry basic block>" ^ (
+        f.bbs
+        |> BBMap.bindings
+        |> List.map (fun (_, bb) -> string_of_bb f bb)
+        |> String.concat "\n\n")
+  in
+  header ^ "\n" ^ body_str ^ "\n}"
 
 let string_of_ssa_info_table ssatyps memown =
   let len1 = Dynarray.length ssatyps in
@@ -249,42 +279,15 @@ let string_of_dom_info (d : dom_info) =
   ) d.idom;
   !s
 
-let string_of_func (f : func) : string =
-  let args_str =
-    String.concat ", "
-      (List.map (fun (id, opt_name) -> 
-        match opt_name with
-        | Some n -> Printf.sprintf "%s(\"%s\"): %s" (string_of_ssa id) n (string_of_typ @@ get_mirtyp_func f id)
-        | None -> Printf.sprintf "%s: %s" (string_of_ssa id) (string_of_typ @@ get_mirtyp_func f id)
-      ) f.args)
-  in
-  let header = Printf.sprintf "fn %s %s(%s) -> %s {" (string_of_funcid f.funcid) f.name args_str (string_of_typ f.rettyp) in
-  let body_str =
-  match f.extern_name with
-  | Some ext_name -> Printf.sprintf "\t<extern: %s>" ext_name
-  | None ->
-    match f.entry_bb with
-    | Some entry_bbid ->
-        let rpo_info = Rpo.get_rpo_info f in
-        let rpo_bbs = List.map (fun bbid -> BBMap.find bbid f.bbs) rpo_info.rpo_lst in
-        String.concat "\n\n" (List.map string_of_bb rpo_bbs)
-    | None -> "<no entry basic block>" ^ (
-        f.bbs
-        |> BBMap.bindings
-        |> List.map (fun (_, bb) -> string_of_bb bb)
-        |> String.concat "\n\n")
-  in
-  let analysis_str = 
-    if f.extern_name <> None then ""
+let string_of_analysis (aly : analysis_info) (f : func) : string =
+    if f.extern_name <> None then "external func: no Analysis"
     else
     string_of_ssa_info_table f.ssatyps f.memown ^
-    string_of_preds_info (get_preds_info f) ^
-    string_of_rpo_info (get_rpo_info f) ^
-    string_of_live_info (get_live_info f) ^
-    string_of_borrow_info (get_borrow_info f) ^
-    string_of_dom_info (get_dom_info f)
-  in
-  header ^ "\n" ^ body_str ^ "\n}\n" ^ analysis_str
+    string_of_preds_info (get_preds_info aly f) ^
+    string_of_rpo_info (get_rpo_info aly f) ^
+    string_of_live_info (get_live_info aly f) ^
+    string_of_borrow_info (get_borrow_info aly f) ^
+    string_of_dom_info (get_dom_info aly f)
 
 let string_of_program (prog : program) : string =
   (* 1. Print special entry point metadata *)
@@ -308,10 +311,12 @@ let string_of_program (prog : program) : string =
     |> String.concat "\n"
   in
 
+  let aly = create_analysis_info () in
+
   (* 3. Print functions (Iterate Map) *)
   let funcs_str =
     FuncMap.bindings prog.funcs
-    |> List.map (fun (_, f) -> string_of_func f)
+    |> List.map (fun (_, f) -> string_of_func aly f)
     |> String.concat "\n\n"
   in
 

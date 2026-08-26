@@ -350,7 +350,7 @@ let eta_expansion (b : builder) (unsat_ssaid : ssaid) : ssaid =
   
   (*pack the unsaturated closure object as the first argument to the eta expansion function*)
   let eta_rawfunc_ssaid = fresh_ssaid b in
-  emit_op b ( Func (eta_rawfunc_ssaid, eta_func.funcid, None) );
+  emit_op b ( Func (eta_rawfunc_ssaid,  ref eta_func.funcid, ref None) );
   let eta_func_ssaid = fresh_ssaid b in
   emit_op b ( Pack (eta_func_ssaid, ssac eta_rawfunc_ssaid, [ ssac unsat_ssaid]) );
   eta_func_ssaid
@@ -360,7 +360,7 @@ let eta_expansion (b : builder) (unsat_ssaid : ssaid) : ssaid =
    Creates a closure with all the captured variables packed*)
 let func_to_closure (b : builder) (env : mirval UuidMap.t) (func : func) (cap_uuids : uuid list) : ssaid =
     let func_ssaid = fresh_ssaid b in
-    emit_op b (Func (func_ssaid, func.funcid, None));
+    emit_op b (Func (func_ssaid, ref func.funcid, ref None));
     if cap_uuids = [] then
       func_ssaid
     else (
@@ -390,7 +390,7 @@ let rec lower_body (b : builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
         compiletime known and does not does not have any lambda lifted catpured vars
         so we can just instanciate it directly*)
       let ssaid = fresh_ssaid b in
-      let op = Func (ssaid, funcid, None) in
+      let op = Func (ssaid, ref funcid, ref None) in
       emit_op b op;
       ssaid
     )

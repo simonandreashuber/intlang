@@ -13,7 +13,6 @@ type builder = {
   mutable next_funcid : int;
   mutable next_globalid : int;
   mutable cursor : cursor;
-  mutable func_vers : (funcid list) FuncMap.t; (* for each created function this map stores all the copied versions *)
 }
 
 let create_builder () : builder = {
@@ -26,7 +25,6 @@ let create_builder () : builder = {
   next_funcid = 0;
   next_globalid = 0;
   cursor = (None, None);
-  func_vers = FuncMap.empty;
 }
 
 let get_program (b : builder) : program =
@@ -108,16 +106,16 @@ let func_get_clos_mirtyp (b : builder) (fn : func) : mirtyp =
 *)
 let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) : (ssaid * mirtyp) list =
   match op with
-  | Func (ssaid, funcid, funcidopt) -> (
-    let ftyp1 = func_get_clos_mirtyp b (find_func b funcid) in
-    match funcidopt with
+  | Func (ssaid, funcid_ref, funcidopt_ref) -> (
+    let ftyp1 = func_get_clos_mirtyp b (find_func b !funcid_ref) in
+    match !funcidopt_ref with
     | Some fid2 -> 
         let ftyp2 = func_get_clos_mirtyp b (find_func b fid2) in
         if ftyp1 = ftyp2 then
           [(ssaid, ftyp1)]
         else
-          raise (Errors.MirError (Printf.sprintf "Function types do not match for funcid %d and allownedfuncid %d" funcid fid2))
-    | None -> [(ssaid, func_get_clos_mirtyp b (find_func b funcid))]
+          raise (Errors.MirError (Printf.sprintf "Function types do not match for funcid %d and allownedfuncid %d" !funcid_ref fid2))
+    | None -> [(ssaid, ftyp1)]
   )
   | Pack (ssaid, clos , args) -> (
       match get_mirtyp b clos.ssaid with
@@ -127,8 +125,7 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
           if List.for_all2 (fun t1 t2 -> t1 = t2) typs_clos typs_args then
             [(ssaid, TMIRClos ( List.drop (List.length args) typs_avail, ret))]
           else
-            raise (Errors.MirError (Printf.sprintf "Argument types do not match closure type in Pack operation\n op: %s\n ClosTyp: %s\n ArgsTyps: %s\n"
-              (Printmir.string_of_op op)
+            raise (Errors.MirError (Printf.sprintf "Argument types do not match closure type in Pack operation\n ClosTyp: %s\n ArgsTyps: %s\n"
               (Printmir.string_of_typ (get_mirtyp b clos.ssaid))
               (String.concat ", " (List.map (Printmir.string_of_typ) typs_args))
             ))
@@ -444,16 +441,13 @@ let create_func (b : builder)
             bbs = BBMap.empty;
             ssatyps = mirtyps;
             memown = memowns;
-            preds = None;
-            rpo = None;
-            live = None;
-            borrow = None;
-            dom = None;
             } in
   let p = b.program in
   p.funcs <- FuncMap.add fid fn p.funcs;
-  b.func_vers <- FuncMap.add fid [] b.func_vers;
   fn
+
+let delete_func (b : builder) (func : func) : unit =
+  b.program.funcs <- FuncMap.remove func.funcid b.program.funcs
 
 let create_bb (b : builder) 
               (name : string) 
@@ -501,9 +495,10 @@ let copy_ssaconsume (sc : ssaconsume) =
 
 let rec copy_op (o : op) : op =
   match o with
+  | Func (res, funcid1, funcid2_opt) -> Func (res, ref !funcid1, ref !funcid2_opt)
   | Pack (res, sc, scs) -> Pack (res, copy_ssaconsume sc, List.map copy_ssaconsume scs)
   | CallClosure (res, sc) -> CallClosure (res, copy_ssaconsume sc)
-  | CallDirect (res, fid, scs) -> CallDirect (res, fid, List.map copy_ssaconsume scs)
+  | CallDirect (res, fid_ref, scs) -> CallDirect (res, ref !fid_ref, List.map copy_ssaconsume scs)
   | StoreGlobal (gid, sc) -> StoreGlobal (gid, copy_ssaconsume sc)
   | Tupwrp (res, scs) -> Tupwrp (res, List.map copy_ssaconsume scs)
   | Tupuwrp (res, sc) -> Tupuwrp (res, copy_ssaconsume sc)
@@ -513,7 +508,7 @@ let rec copy_op (o : op) : op =
   | Copy _ | GarbageCollect _ | LoadGlobal _
   | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
   | Uopi8 _ | Bopi32 _ | Bopi8 _ 
-  | Vecinit _  | Func _ 
+  | Vecinit _ 
   | Veclen _ | Vecread _ 
   | Vecslice _ | Vecextend _ -> o
 
@@ -536,12 +531,6 @@ let copy_bb (b : bb) : bb =
 let copy_func (b : builder) (fid : funcid) : func =
   let new_funcid = b.next_funcid in
   b.next_funcid <- b.next_funcid + 1;
-  let versions = 
-    match FuncMap.find_opt fid b.func_vers with
-    | Some v -> v
-    | None -> raise (Errors.MirError (Printf.sprintf "Function with id %d not found in func_vers map, probably trying to copy a copy" fid))
-  in
-  b.func_vers <- FuncMap.add fid (new_funcid :: versions) b.func_vers;
   let fn = find_func b fid in
   let newfn = {
     funcid = new_funcid;
@@ -555,11 +544,6 @@ let copy_func (b : builder) (fid : funcid) : func =
     bbs = BBMap.map copy_bb fn.bbs; (* Deep copy of basic blocks *)
     ssatyps = Dynarray.copy fn.ssatyps; (* Copy the type array *)
     memown = Dynarray.copy fn.memown; (* Copy the ownership array *)
-    preds = None; (* Reset analysis data *)
-    rpo = None;  (* Reset analysis data *)
-    live = None; (* Reset analysis data *)
-    borrow = None; (* Reset analysis data *)
-    dom = None; (* Reset analysis data *)
   } in
   b.program.funcs <- FuncMap.add new_funcid newfn b.program.funcs;
   newfn

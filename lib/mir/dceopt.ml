@@ -1,7 +1,7 @@
 open Mir
 open Buildmir
+open Analysis
 
-module SsaSet = Set.Make(Int)
 
 (* Extract all SSA IDs defined by an operation *)
 let extract_op_defs = function
@@ -50,9 +50,7 @@ let rec filter_mask mask lst =
   | m::ms, x::xs -> if m then x :: filter_mask ms xs else filter_mask ms xs
   | _ -> invalid_arg "mask length mismatch"
 
-let dce_opt_func (fn : func) =
-
-  Mir.invalidate_all_analysis fn;
+let dce_opt_func (aly : analysis_info) (fn : func) =
 
   let def_to_uses = Hashtbl.create 256 in
   let worklist = Queue.create () in
@@ -154,12 +152,14 @@ let dce_opt_func (fn : func) =
     bb.term <- match bb.term with
       | Some (Br (brbbid, brargs)) -> Some (Br (brbbid, prune_branch brbbid brargs))
       | term_other -> term_other
-  ) bbs
+  ) bbs;
+  
+  invalidate_all_analysis aly fn.funcid
 
 
-let dce_opt (b : builder) : unit =
+let dce_opt (b : builder) (aly : analysis_info) : unit =
   FuncMap.iter (fun _fid fn -> 
     match fn.extern_name with
     | Some _ -> ()
-    | None -> dce_opt_func fn
+    | None -> dce_opt_func aly fn
   ) b.program.funcs

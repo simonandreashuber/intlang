@@ -1,5 +1,6 @@
 open Mir
 open Buildmir
+open Analysis
 
 (* Stores the raw definition payload of a closure SSA ID *)
 type raw_def =
@@ -11,9 +12,7 @@ type closure_info = {
   captured_args : ssaconsume list;
 }
 
-let calldirect_opt_func (fn : func) : unit =
-
-  Mir.invalidate_all_analysis fn;
+let calldirect_opt_func (aly : analysis_info) (fn : func) : unit =
 
   let defs : (ssaid, raw_def) Hashtbl.t = Hashtbl.create 32 in
 
@@ -22,8 +21,8 @@ let calldirect_opt_func (fn : func) : unit =
   (* -------------------------------------------------------------------- *)
   BBMap.iter (fun _ bb ->
     List.iter (function
-      | Func (dst, fid, _) ->
-          Hashtbl.add defs dst (DefFunc fid)
+      | Func (dst, fid_ref, _) ->
+          Hashtbl.add defs dst (DefFunc !fid_ref)
       | Pack (dst, oldclos, newargs) ->
           Hashtbl.add defs dst (DefPack (oldclos, newargs))
       | CallClosure _ | CallDirect _
@@ -73,12 +72,15 @@ let calldirect_opt_func (fn : func) : unit =
       | _ -> op :: acc
     ) [] chron_ops in
     bb.ops <- new_ops_rev
-  ) fn.bbs
+  ) fn.bbs;
+
+  invalidate_all_analysis aly fn.funcid
 
 
-let calldirect_opt (b : builder) : unit =
+
+let calldirect_opt (b : builder) (aly : analysis_info) : unit =
   FuncMap.iter (fun _fid fn -> 
     match fn.extern_name with
     | Some _ -> ()
-    | None -> calldirect_opt_func fn
+    | None -> calldirect_opt_func aly fn
   ) b.program.funcs

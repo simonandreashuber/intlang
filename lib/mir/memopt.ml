@@ -1,0 +1,393 @@
+open Mir
+open Buildmir
+open Analysis
+
+
+(*
+
+  The lowered MIR is
+    - not legal (memory leaks, does not consume in places that need ownership transfer)
+    - not optimized (unneeded implicit copies)
+
+  This pass makes sure that the code is legal (guarantee) and makes a best effort to have fast and efficient code (best effort, not guaranteed)
+*)
+
+(* ========================================================================= *)
+(* Memory Signature                                                          *)
+(* ========================================================================= *)
+
+type memsig = ownership list
+let get_memsig_func (func : func) : memsig =
+  List.map (fun (ssaid, _) -> get_ownership_func func ssaid) func.args
+
+let get_memsig_calldirect_args (fn : func) (args : ssaconsume list) : memsig =
+  List.map (fun sc -> get_ownership_func fn sc.ssaid) args
+
+let cmp_memsig (sig1 : memsig) (sig2 : memsig) : bool =
+  List.for_all2 (fun own1 own2 -> own1 = own2) sig1 sig2
+
+let memsig_all_to (memsig : memsig) (own : ownership) : memsig =
+  if own = NoMem then failwith "memsig_all_to: cannot convert to NoMem ownership";
+  List.map (fun argown -> if argown = NoMem then argown else own) memsig
+
+
+(* ========================================================================= *)
+(* Memory Optimizer Def and Helpers                                          *)
+(* ========================================================================= *)
+
+type mem_optimizer = {
+  b : builder;                                            (* Mir Builder *)
+  aly : analysis_info;                                    (* Analysis information *)
+  exter_vers : func list;                               (* All funcion that are marked as external *)
+  orig_vers : func list;                                (* All original versions where all func args are borrowed and all bb args are owned *)
+  mutable orig_to_opt_vers : (func list) FuncMap.t;     (* Given some funcid of an original version, find all optimized versions *)
+  opt_queue: func Queue.t;                              (* Queue of functions to optimize *)
+}
+
+let is_orig_vers opt funcid =
+  match List.find_opt (fun ofn -> ofn.funcid = funcid) opt.orig_vers with Some _ -> true | None -> false
+
+let request_func_vers (opt : mem_optimizer) (funcid : funcid) (ownsig : ownership list) : funcid =
+  if Option.is_some @@ List.find_opt (fun efn -> efn.funcid = funcid) opt.exter_vers then funcid
+  else
+  match FuncMap.find_opt funcid opt.orig_to_opt_vers with
+  | None -> failwith ("request_func_vers: given funcid is not an original version funcid: " ^ string_of_int funcid)
+  | Some optvers -> 
+      let existing_vers = List.find_opt 
+        (fun versfn -> cmp_memsig ownsig (get_memsig_func versfn)) optvers in
+      match existing_vers with
+      | Some versfunc ->  versfunc.funcid
+      | None -> 
+          let fn_copy = copy_func opt.b funcid in
+          List.iter2 (fun needed (argssaid, _ ) -> 
+            set_ownership_func fn_copy argssaid needed
+          ) ownsig fn_copy.args;
+          opt.orig_to_opt_vers <- FuncMap.add funcid (fn_copy :: optvers) opt.orig_to_opt_vers;
+          Queue.push fn_copy opt.opt_queue;
+          fn_copy.funcid
+
+let pop_func_to_opt opt = Queue.pop opt.opt_queue
+let has_func_to_opt opt = not (Queue.is_empty opt.opt_queue)
+
+(* ========================================================================= *)
+(* BB Arg Borrowed Promotion                                                 *)
+(* ========================================================================= *)
+
+(*
+  By Default all bb args are lowered owned, this can trigger defensive copies that are not needed
+  the goal of this optimization pass is to remove them if possible.
+  
+  Having some BB arg borrowed is not always legal. For example in this case:
+
+  entry:
+    ...
+    br loopheader(%0)
+  
+  loopheader(%1):
+    ...
+    %2 = vecinit...
+    %3 = vecread %1 ...
+    cbr .. loopheader(%2) exitbb
+
+  if here %1 were to borrow it would need to borrow from %0 and %2, but after the "redefinition" 
+  of %2 in a second iteration of the loopheader bb we basically borrow from something that does
+  not exist anymore and can also not really be kept alive
+
+  Thus all things that are borrowed from need to DOMINATE the BB arg definition.
+
+  "promoting" an BB arg from owned to borrowed can destroy some downstream optimization.
+  The main reason for this it that there is currently no way to "make last borrower owner" ie. 
+  say I have some borrowed value used in a place that needs transfer of ownership, so generally a
+  copy is made done. But say the only thing keeping the owner alive is this borrowed value, in theory
+  one could make this last borrower the new owner and avoid the copy. But this brings a number of problems
+  / complexities like:
+    1. Vecget on multidimensional vectors, Vecslice, Tupuwrp without consumption: In all of these cases 
+       the borrowed value does not see the entire thing it borrows from anymore.
+    2. BB args with more then one predecessor that borrow: In this cases one value can borrow from
+       more than one owner.
+
+  While I dont think these problems are impossible to solve, I have decided to not do it now.
+  But here is an idea no how it could mb work: I mean it is basically a drop operation but instead
+  of just freeing everything, one avoids freeing the last borrower. In principle quite simple but 
+  there are some technicalities that come to mind, like a Vecslice does not point to the beginning
+  of the allocated memory range. So one could either store a "free" ptr for each vector or write a 
+  memory allocator that works with free ptrs in the middle of an allocated range (prob not worth it).
+
+  For now all bb args that can legally be borrowed are borrowed except if there is a direct path via a 
+  chain of bb args to a ret. This is a common pattern that occurs with if/else and a return is a place
+  that needs transfer of ownership. Its a simple heuristic but does improve things for some common cases.
+*)
+
+let bbarg opt fn =
+
+  let pred_info = get_preds_info opt.aly fn in
+
+  let canret = ref [] in
+
+  let rec find_canret mask succbbid bbid =
+    let bb = BBMap.find bbid fn.bbs in
+    let appmask = List.iter2 (fun is_canret brarg -> if is_canret then canret := brarg.ssaid :: !canret) mask in
+    (match bb.term with
+    | Some (Ret ret) -> canret := ret :: !canret
+    | Some (Br (_, brargs))-> appmask brargs
+    | Some (Cbr _) -> ()
+    | None -> failwith "borrbbargop: try find canret but found bb with not term");
+    let mask = List.map (fun argssaid -> List.mem argssaid !canret) bb.args in
+    List.iter (fun predbbid ->
+      if does_strictly_dominate opt.aly fn predbbid bbid then find_canret mask bbid predbbid
+    ) pred_info.preds.(bbid)
+  in
+
+  (match BBMap.fold (fun bbid bb acc -> (*could do this with dom as well but this is ok I think*)
+    match bb.term with | Some (Ret retval) -> bbid :: acc | _ -> acc ) fn.bbs [] with
+  | [retbbid] -> find_canret [] (-1) retbbid
+  | _ -> failwith (Printf.sprintf "borrbbarg_opt_func: funcid %d has no or multiple ret bbs" fn.funcid));
+
+
+  (* Check for each bb arg if its legal and desirable 
+     to promote it to borrowed *)
+  let live_info = get_live_info opt.aly fn in
+  BBMap.iter ( fun _ bb ->
+    List.iter (fun arg ->
+        if is_memtyp (get_mirtyp_func fn arg) &&
+           (get_ownership_func fn arg = Owned) then (
+          let pot_owners = find_funclocal_owners opt.aly fn arg in
+          if
+          List.for_all (fun owner_ssaid ->
+            let (owner_bbid,_) = live_info.def.(owner_ssaid) in
+            (does_strictly_dominate opt.aly fn owner_bbid bb.bbid) &&
+            (not @@ List.mem arg !canret)
+          ) pot_owners
+          then (
+            set_ownership_func fn arg Borrowed
+          )
+        )
+    ) bb.args
+  ) fn.bbs
+
+(* ========================================================================= *)
+(* Consume                                                                   *)
+(* ========================================================================= *)
+
+(*
+  There are some uses in the MIR that can consume (those with ssaconsume)
+  only memory types can be consumed but apart from that for a value to 
+  be consumed 2 things need to be true:
+
+    1. The value is owned
+    2. The value or anyone borrowing from the value is not live after the use
+
+  This pass makes a function local best effort to consume as many values as possible.
+  
+  Tupuwrp changes the ownership of the ssa defs depending on wether or not the 
+  tuple is consumed. Thus the core pass is run itertively until a fixpoint is reached.
+
+  This pass leaves calls with funcids that do not match the ownership transfer indicated by the call (see monofunc pass).
+  This pass potentially leaves bb args that need ownership transfer without such (see inscopy pass).
+
+  Also a small not on the correct ness of this pass: The live and borrow analysis are not updated, during this pass.
+  That is because consumption and or ownership of ssa values does not impact any of them. This is maybe a bit confusing
+  at first for the borrowing but in the borrowing graph all places where a borrowing relation ship could occur are in there
+  and then the actull borrowers and owners are determinded by walking the graph and refering to ssa value ownership during
+  the walk (see the borrow analysis in analysis.ml).
+*)
+
+
+let consume (opt : mem_optimizer) fn =
+
+  let live_info = get_live_info opt.aly fn in
+
+  let changed = ref true in
+
+  while !changed do
+    changed := false;
+    BBMap.iter (fun bbid bb ->
+
+      let ul = ref live_info.live_out.(bbid) in
+      (
+      match bb.term with
+      | Some (Br (brbbid, _)) -> (
+        let succbb = find_bb_func fn brbbid in
+        List.iter (fun succbbarg -> 
+          if get_ownership_func fn succbbarg = Borrowed then
+            ul := SsaSet.add succbbarg !ul
+        ) succbb.args
+      )
+      | Some (Cbr _) | Some (Ret _) | None-> ()
+      );
+
+      let try_consume_indicate sc : bool =
+        let before = sc.consume in
+        if get_ownership_func fn sc.ssaid = Owned then (
+          let cannot_be_used_later = sc.ssaid :: find_borrowers opt.aly fn sc.ssaid in
+          if List.for_all (fun ssaid -> not (SsaSet.mem ssaid !ul)) cannot_be_used_later then
+            sc.consume <- true
+        );
+        ul := SsaSet.add sc.ssaid !ul;
+        before <> sc.consume
+      in
+
+      let try_consume sc = ignore (try_consume_indicate sc) in
+
+      let add_use ssaid = ul := SsaSet.add ssaid !ul in
+
+      let try_consume_lst scs = List.iter (try_consume) scs in
+
+      let add_uses ssaids = List.iter (add_use) ssaids in
+
+      let try_consume_br brbbid brargs = 
+        let target_bb = match BBMap.find_opt brbbid fn.bbs with
+          | Some bb -> bb | None -> failwith (Printf.sprintf "try_consume_br: bb %d has no target bb %d" bbid brbbid) in
+
+        let bbargs_memsig = List.map (fun ssa -> get_ownership_func fn ssa) target_bb.args in
+        List.iter2 (fun sc own -> 
+            if own = Owned then try_consume sc (*only consume if the target bb arg is owned*)
+            else add_use sc.ssaid
+          ) brargs bbargs_memsig
+      in
+
+
+      (match bb.term with
+      | Some (Br (brbbid, brargs)) -> try_consume_br brbbid brargs
+      | Some (Cbr (cond , _, _)) -> 
+          add_use cond
+      | Some (Ret retval) -> add_use retval
+      | _ -> failwith (Printf.sprintf "consume_opt_func: bb %d has no term" bbid)
+      );
+      
+      List.iter (fun op ->
+        match op with
+        | Func _ -> ()
+        | Pack (_, sc, scs) -> try_consume sc; try_consume_lst scs
+        | CallClosure (_, sc) -> try_consume sc
+        | CallDirect (_, funcid_ref, scs) -> try_consume_lst scs
+        | Copy (_, orig) -> add_use orig
+        | GarbageCollect mems -> add_uses mems
+        | LoadGlobal _ -> ()
+        | StoreGlobal (_, sc) -> try_consume sc
+        | Immi32 _ | Immi8 _ | ImmUnit _ -> ()
+        | Uopi32 (_, _, a) | Uopi8 (_, _, a) ->  add_use a
+        | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) ->  add_use a; add_use b
+        | Tupwrp (_, scs) ->  try_consume_lst scs
+        | Tupuwrp (elms, sc) -> (
+          if try_consume_indicate sc then
+            List.iter (fun elmssaid -> 
+              let elmtyp = get_mirtyp_func fn elmssaid in
+              if is_memtyp (elmtyp) then set_mirtyp_ownership_func fn elmssaid elmtyp Owned ) elms;
+            changed := true)
+        | Veclit (_, scs) ->  try_consume_lst scs
+        | Vecinit (_, defval, dims) -> add_use defval; add_uses dims
+        | Veclen (_, vec) ->  add_use vec
+        | Vecread (_, vec, idxs) ->  add_use vec; add_uses idxs
+        | Vecwrite (_, sc, vec, idxs) -> add_use vec; try_consume sc; add_uses idxs
+        | Vecinsert (_, vec_sc, vecins_sc, idxs) -> try_consume vec_sc; try_consume vecins_sc; add_uses idxs
+        | Vecslice (_, vec, start, len) ->  add_use vec; add_use start; add_use len
+        | Vecextend (_, vec, lit, off) ->  add_use vec; add_use lit; add_use off
+      )  bb.ops
+    ) fn.bbs;
+  done
+
+
+(* ========================================================================= *)
+(* Monomorph Func                                                            *)
+(* ========================================================================= *)
+
+let monofunc (opt : mem_optimizer) (fn : func) =
+
+  BBMap.iter (fun bbid bb ->
+    List.iter (fun op ->
+      match op with
+      | Func (def, funcid1, funcid2_opt) 
+          when is_orig_vers opt !funcid1 && Option.is_none !funcid2_opt -> (
+          let orig_fn = find_func opt.b !funcid1 in
+          let orig_memsig = get_memsig_func orig_fn in
+          let all_borr_sig = memsig_all_to orig_memsig Borrowed in
+          let all_own_sig = memsig_all_to orig_memsig Owned in
+          let borr_funcid = request_func_vers opt !funcid1 all_borr_sig in
+          let own_funcid = request_func_vers opt !funcid1 all_own_sig in
+          funcid1 := borr_funcid;
+          funcid2_opt := Some own_funcid
+      )
+      | Func (_, funcid1, _) -> failwith (Printf.sprintf "monofunc: bb %d has func op with funcid %d that is not an original version" bbid !funcid1)
+      | CallDirect (_, funcid_ref, args) -> (
+        let call_memsig = get_memsig_calldirect_args fn args in
+        try
+          let mono_funcid = request_func_vers opt !funcid_ref call_memsig in
+          funcid_ref := mono_funcid
+        with e -> 
+          failwith (Printf.sprintf "monofunc: in func %d bb %d calldirect to func %d" fn.funcid bbid !funcid_ref)
+      )
+      | Pack _ | CallClosure _ 
+      | Copy _ | GarbageCollect _ | StoreGlobal _ | LoadGlobal _
+      | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
+      | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
+      | Tupuwrp _ | Veclit _ | Vecinit _ | Vecread _
+      | Veclen _ | Vecwrite _ | Vecinsert _
+      | Vecextend _ | Vecslice _ -> ()
+    ) bb.ops
+  ) fn.bbs
+
+(*
+  When a value becomes newly consumed by a calldirect this means that now inside
+  the callees body argument can be considered owned. Thus the callee will be copied,
+  have their respective arguments set as owned and then put in the optimization queue.
+  That is of course if the needed version does not yet exist.
+*)
+
+(* ========================================================================= *)
+(* Insert Explicit Copies at Terms                                           *)
+(* ========================================================================= *)
+
+(* ========================================================================= *)
+(* Insert Drop                                                               *)
+(* ========================================================================= *)
+
+(* ========================================================================= *)
+(* Memory Optimizer Main Loop                                                *)
+(* ========================================================================= *)
+
+(* assumes all function in the program are unoptimized lowered functions *)
+let create_mem_optimizer (b : builder) (aly : analysis_info) : mem_optimizer =
+  let orig, exter = FuncMap.fold 
+    (fun k f (origacc, exteracc) -> 
+      assert (f.funcid = k);
+      match f.extern_name with
+      | Some _ -> (origacc, f :: exteracc)
+      | None -> (f :: origacc, exteracc)
+    ) b.program.funcs ([],[]) in
+  { 
+    b; 
+    aly;
+    exter_vers = exter;
+    orig_vers = orig; 
+    orig_to_opt_vers = List.fold_left (fun mapacc orig_func -> FuncMap.add orig_func.funcid [] mapacc ) FuncMap.empty orig; 
+    opt_queue = Queue.create ();
+  }
+
+let push_canonical_funcvers opt =
+  List.iter (fun orig_fn -> 
+    let orig_memsig = get_memsig_func orig_fn in
+    let all_borr_memsig = memsig_all_to orig_memsig Borrowed in
+    ignore(request_func_vers opt orig_fn.funcid all_borr_memsig)
+  ) opt.orig_vers
+
+let finalize_mem_optimizer opt =
+  List.iter (fun orig_fn -> 
+    delete_func opt.b orig_fn
+  ) opt.orig_vers
+
+
+let mem_opt (b : builder) (aly : analysis_info) =
+    let opt = create_mem_optimizer b aly in
+    push_canonical_funcvers opt;                  (* starts the optimizer worklist with a all borrowed and all owned function versions *)
+
+    while has_func_to_opt opt do
+      let fn = pop_func_to_opt opt in
+      bbarg opt fn;             (* select bb args should borrow *)
+      consume opt fn;           (* try to consume in as many places as possible *)
+      monofunc opt fn          (* Monomorphize Functions suited to the specific signature of what args can be consumed *)
+      (*inscopy opt fn;            inserts explicit copies for term uses that cant be consumed but need to be consumed *)
+      (*insdrop opt fn             drop all memory objects when they are not consumed on last use *)
+    done;
+
+    finalize_mem_optimizer opt

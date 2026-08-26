@@ -1,18 +1,14 @@
 open Mir
 open Buildmir
+open Analysis
 
-open Preds
+let compactcfg_opt_func (aly : analysis_info) (fn : func) : unit =
 
-let compactcfg_opt_func (fn : func) : unit =
+  let predsarr = (get_preds_info aly fn).preds in
 
-  let predsarr = (Preds.get_preds_info fn).preds in
-
-  let get_preds = Preds.get_preds predsarr in
-  let add_pred = Preds.add_pred predsarr in
-  let rem_pred = Preds.rem_pred predsarr in
-  
-  (* the actual array for the predecessors is "save" as local var predsarr so Setting to None is ok*)
-  Mir.invalidate_all_analysis fn;
+  let get_preds = Analysis.get_preds predsarr in
+  let add_pred = Analysis.add_pred predsarr in
+  let rem_pred = Analysis.rem_pred predsarr in
 
   (* worlist *)
   let wl = Queue.create () in
@@ -112,12 +108,11 @@ let compactcfg_opt_func (fn : func) : unit =
     | _ -> () (* already removed bb or entry bb*);
     done;
 
-    (* The predecessor info is updated and valid so no reason to not keep it *)
-    fn.preds <- Some { preds = predsarr }
+    invalidate_all_analysis aly fn.funcid
 
-let compactcfg_opt (b : builder) : unit =
+let compactcfg_opt (b : builder) (aly : analysis_info) : unit =
   FuncMap.iter (fun _fid fn -> 
     match fn.extern_name with
     | Some _ -> ()
-    | None -> compactcfg_opt_func fn
+    | None -> compactcfg_opt_func aly fn
   ) b.program.funcs

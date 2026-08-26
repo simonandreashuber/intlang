@@ -87,11 +87,10 @@ let main () =
       Interp.interp_monotast monotast;
 
     let b = Mirgen.lower_monotast monotast in
-    Mirpass.run_passes b;
+    Mirpipe.run_pipeline b;
     if !print_ast then begin
       Printf.printf "%sMIR:\n%s" headerline (Printmir.string_of_program b.program); flush stdout;
     end;
-    
     
     exit 0
 

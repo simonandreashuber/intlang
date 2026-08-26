@@ -5,6 +5,8 @@ type bbid = int
 type funcid = int
 type globalid = int
 
+module SsaSet = Set.Make(Int)
+
 (* ========================================================================= *)
 (* MIR Types                                                                 *)
 (* ========================================================================= *)
@@ -60,7 +62,7 @@ type ssaconsume = {
 let ssac = fun ssaid -> { ssaid; consume = false }
 
 type op =                                                           (* Textual Representation                                                                           *)
-    | Func of ssaid * funcid * (funcid option)                      (* %res         = func @funcid @allownedfuncid                                                      *)
+    | Func of ssaid * (funcid ref) * ((funcid option) ref)          (* %res         = func @funcid @allownedfuncid                                                      *)
     | Pack of ssaid *  ssaconsume * (ssaconsume list)               (* %res         = pack %oldclos %arg0 %arg1 ...                                                     *)
     | CallClosure of ssaid * ssaconsume                             (* %res         = callclosure %clos                                                                 *)
     | CallDirect of ssaid * (funcid ref) * (ssaconsume list)        (* %res         = calldirect @funcid %arg0 %arg1 ...                                                *)
@@ -105,42 +107,6 @@ type bb = {
 }
 module BBMap = Map.Make(Int)
 
-(* ========================================================================= *)
-(* MIR Analysis                                                              *)
-(* ========================================================================= *)
-
-module SsaSet = Set.Make(Int)
-
-type preds_info = {
-  preds: bbid list array; (* preds[bbid] = list of predecessor bbids *)
-}
-
-type rpo_info = {
-  rpo_lst: bbid list;      (* reverse post order of basic blocks *)
-  rpo_idx: int array;    (* rpo_index[bbid] = index of bbid in rpo *)
-}
-
-type live_info = {
-  live_in  : SsaSet.t array;
-  live_out : SsaSet.t array;
-  (* op_index counts form bottom to top, so lower op_index mean later in the block *)
-  def: (bbid * int) array; (* def[ssaid] = (bbid, op_index) definition of ssaid, if any *)
-  last_use : ((bbid * int) list ) array; (* last_use[ssaid] = (bbid, op_index) of last use of ssaid*)
-}
-
-type borrow_info = {
-  (* Given ssaid, find all DIRECT borrowers *)
-  lender_to_borrowers : ssaid list array;
-  (* Given ssaid, find all DIRECT lenders *)
-  borrower_to_lenders : ssaid list array;
-}
-
-type dom_info = {
-  (* idom[bbid] = immediate parent in dominator tree *)
-  idom : bbid option array;
-  (* dom tree *)
-  dom_tree : bbid list array;
-}
 
 (* ========================================================================= *)
 (* MIR Function                                                              *)
@@ -158,12 +124,6 @@ type func = {
     mutable bbs: bb BBMap.t;                              
     ssatyps: mirtyp Dynarray.t;                           (* stores mirtypes of all ssa values *)
     memown: ownership Dynarray.t;                         (* stores ownership information of all ssa values *)
-    (* Analysis information *)
-    mutable preds       : preds_info option;
-    mutable rpo         : rpo_info option; 
-    mutable live        : live_info option;
-    mutable borrow      : borrow_info option;
-    mutable dom         : dom_info option;
 }
 
 module FuncMap = Map.Make(Int)
@@ -193,6 +153,11 @@ type program = {
 (* ========================================================================= *)
 (* MIR Helpers (Finding Things)                                              *)
 (* ========================================================================= *)
+
+let find_bb_func (func : func) (bbid : bbid) : bb =
+  match BBMap.find_opt bbid func.bbs with
+  | Some bb -> bb
+  | None -> failwith (Printf.sprintf "find_bb_func: bb %d not found in function %s" bbid func.name)
 
 let is_memtyp (typ : mirtyp) : bool =
   match typ with
@@ -232,10 +197,3 @@ let set_ownership_func (func : func) (ssaid : ssaid) (own : ownership) : unit =
     assert (own = NoMem) (* Must set ownership to NoMem for a non-memory type *)
   ;
   Dynarray.set func.memown ssaid own
-
-let invalidate_all_analysis (func : func) : unit =
-  func.preds <- None;
-  func.rpo <- None;
-  func.live <- None;
-  func.borrow <- None;
-  func.dom <- None
