@@ -48,5 +48,5 @@ let run_pipeline (b : builder) : unit =
       | _,_ -> ("None", "None")
     in
     Printf.eprintf "Cursor: %s %s\n" curr_fun curr_bb;
-    Printf.eprintf "Error during lowering: %s\nBacktrace:\n%s\n" msg backtrace;
+    Printf.eprintf "Error during Mir Pipeline: %s\nBacktrace:\n%s\n" msg backtrace;
     raise e

@@ -220,8 +220,9 @@ let consume (opt : mem_optimizer) fn =
         let before = sc.consume in
         if get_ownership_func fn sc.ssaid = Owned then (
           let cannot_be_used_later = sc.ssaid :: find_borrowers opt.aly fn sc.ssaid in
-          if List.for_all (fun ssaid -> not (SsaSet.mem ssaid !ul)) cannot_be_used_later then
+          if List.for_all (fun ssaid -> not (SsaSet.mem ssaid !ul)) cannot_be_used_later then (
             sc.consume <- true
+          )
         );
         ul := SsaSet.add sc.ssaid !ul;
         before <> sc.consume
@@ -270,11 +271,13 @@ let consume (opt : mem_optimizer) fn =
         | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) ->  add_use a; add_use b
         | Tupwrp (_, scs) ->  try_consume_lst scs
         | Tupuwrp (elms, sc) -> (
-          if try_consume_indicate sc then
+          if try_consume_indicate sc then (
             List.iter (fun elmssaid -> 
               let elmtyp = get_mirtyp_func fn elmssaid in
               if is_memtyp (elmtyp) then set_mirtyp_ownership_func fn elmssaid elmtyp Owned ) elms;
-            changed := true)
+            changed := true
+          )
+        )
         | Veclit (_, scs) ->  try_consume_lst scs
         | Vecinit (_, defval, dims) -> add_use defval; add_uses dims
         | Veclen (_, vec) ->  add_use vec

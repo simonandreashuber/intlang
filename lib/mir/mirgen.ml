@@ -709,7 +709,16 @@ let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t
     | GlobalDecl (global, l_init) -> (
         cp_ret b !init_global_cp;
         let res_ssaid = lower_body b toplvl_env l_init in
-        emit_op b (StoreGlobal (global.globalid, ssac res_ssaid));
+        let sat_res_ssaid = 
+          match get_mirtyp b res_ssaid with
+          | TMIRClos (_, TMIRClos _) -> 
+              (*Functions that return functions are not fully saturated, but all functions
+                are lowered such that arguments are expected to have functions in fully saturated form.
+                Hence I put a wrapper around the unsaturated functions or in other words an eta expansion.*)
+              eta_expansion b res_ssaid
+          | _ -> res_ssaid
+        in
+        emit_op b (StoreGlobal (global.globalid, ssac sat_res_ssaid));
         init_global_cp := cp_set b;
       )
   ) decls;

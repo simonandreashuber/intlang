@@ -169,7 +169,11 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
         if get_mirtyp b loc.ssaid = global.typ then
           []
         else
-          raise (Errors.MirError "Value type does not match global type in StoreGlobal operation")
+          raise (Errors.MirError ("Value type does not match global type in StoreGlobal operation. globaltyp: " 
+                                  ^ (Printmir.string_of_typ (global.typ))
+                                  ^ "local typ: "
+                                  ^ Printmir.string_of_typ (get_mirtyp b loc.ssaid)
+                                  ))
   )
   | LoadGlobal (ssaid, gid) -> 
       let global = find_global b gid in
@@ -328,15 +332,27 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
   infer the ownership of the ssaids defined by the op
 *)
 let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
+  let if_memtyp_then (memtyp_own : ownership) =
+    assert (memtyp_own <> NoMem);
+    match (infer_mirtyp_from_op b op None) with
+    | [(ssaid, mirtyp)] -> (
+      if is_memtyp mirtyp then
+        [(ssaid, memtyp_own)]
+      else
+        [(ssaid, NoMem)]
+    )
+    | _ -> raise (Errors.MirError "if_memtyp_then operation should infer exactly one type for the result SSA ID")
+  in
+
   match op with
   | Func (ssaid, _, _) -> [(ssaid, Owned)]
   | Pack (ssaid, _, _) -> [(ssaid, Owned)]
-  | CallClosure (ssaid, _) -> [(ssaid, Owned)]
-  | CallDirect (ssaid, _, _) -> [(ssaid, Owned)]
+  | CallClosure (ssaid, _) -> if_memtyp_then Owned
+  | CallDirect (ssaid, _, _) -> if_memtyp_then Owned
   | Copy (ssaid, _) -> [(ssaid, Owned)]
   | Drop _ -> []
   | StoreGlobal _ -> []
-  | LoadGlobal (ssaid, _) -> [(ssaid, Borrowed)]
+  | LoadGlobal (ssaid, _) -> if_memtyp_then Borrowed
   | Immi32 (ssaid, _) -> [(ssaid, NoMem)]
   | Immi8 (ssaid, _) -> [(ssaid, NoMem)]
   | ImmUnit ssaid -> [(ssaid, NoMem)]
@@ -358,16 +374,7 @@ let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
   | Veclit (ssaid, _) -> [(ssaid, Owned)]
   | Vecinit (ssaid, _, _) -> [(ssaid, Owned)]
   | Veclen (ssaid, _) -> [(ssaid, NoMem)]
-  | Vecread (ssaid, _, _) -> (
-      match (infer_mirtyp_from_op b op None) with
-      | [(ssaid, mirtyp)] -> (
-        if is_memtyp mirtyp then
-          [(ssaid, Borrowed)]
-        else
-          [(ssaid, NoMem)]
-      )
-      | _ -> raise (Errors.MirError "Vecread operation should infer exactly one type for the result SSA ID")
-  )
+  | Vecread (ssaid, _, _) -> if_memtyp_then Borrowed
   | Vecwrite (ssaid, _, _, _) -> [(ssaid, Owned)]
   | Vecinsert (ssaid, _, _, _) -> [(ssaid, Owned)]
   | Vecslice (ssaid, _, _, _) -> [(ssaid, Borrowed)]
