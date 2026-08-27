@@ -100,9 +100,9 @@ let string_of_op (fn : func) = function
       Printf.sprintf "%s = calldirect %s%s" (string_of_ssa_def fn dst) (string_of_funcid !fid) args_str
   | Copy (dst, src) ->
       Printf.sprintf "%s = copy %s" (string_of_ssa_def fn dst) (string_of_ssa src)
-  | GarbageCollect mems ->
+  | Drop mems ->
       let mems_str = if mems = [] then "" else " " ^ string_of_ssaids mems in
-      Printf.sprintf "garbagecollect%s" mems_str
+      Printf.sprintf "drop%s" mems_str
   | StoreGlobal (gid, v) ->
       Printf.sprintf "storeglobal %s %s" (string_of_globalid gid) (string_of_ssaconsume v)
   | LoadGlobal (dst, gid) ->

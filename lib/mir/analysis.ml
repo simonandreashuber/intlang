@@ -16,6 +16,8 @@ type rpo_info = {
 type live_info = {
   live_in  : SsaSet.t array;
   live_out : SsaSet.t array;
+  block_defs: SsaSet.t array;
+  block_uses: SsaSet.t array;
   (* op_index counts form bottom to top, so lower op_index mean later in the block *)
   def: (bbid * int) array; (* def[ssaid] = (bbid, op_index) definition of ssaid, if any *)
   last_use : ((bbid * int) list ) array; (* last_use[ssaid] = (bbid, op_index) of last use of ssaid*)
@@ -198,7 +200,7 @@ let compute_live (aly : analysis_info) (f : func) =
       | CallClosure (res, sc) -> apply_def res; apply_use sc.ssaid
       | CallDirect (res, _, scs) -> apply_def res; apply_sc_uses scs
       | Copy (res, a) -> apply_def res; apply_use a
-      | GarbageCollect mems -> apply_uses mems
+      | Drop mems -> apply_uses mems
       | StoreGlobal (_, sc) -> apply_use sc.ssaid
       | LoadGlobal (res, _) -> apply_def res
       | Immi32 (res, _) | Immi8 (res, _) | ImmUnit res -> apply_def res
@@ -283,7 +285,7 @@ let compute_live (aly : analysis_info) (f : func) =
       | CallDirect (res, _, scs) -> add_def res op_index;
                                     add_sc_uses scs op_index
       | Copy (res, a) -> add_def res op_index; add_use a op_index
-      | GarbageCollect mems -> add_uses mems op_index
+      | Drop mems -> add_uses mems op_index
       | StoreGlobal (_, sc) -> add_use sc.ssaid op_index
       | LoadGlobal (res, _) -> add_def res op_index
       | Immi32 (res, _) | Immi8 (res, _) | ImmUnit res -> add_def res op_index
@@ -308,7 +310,7 @@ let compute_live (aly : analysis_info) (f : func) =
     )  bb.ops
   ) f.bbs;
 
-  { live_in; live_out; def; last_use }
+  { live_in; live_out; block_defs; block_uses; def; last_use }
 
 let get_live_info (aly : analysis_info) (func : func) : live_info =
   dynarray_len_check aly.live_arr func.funcid;
@@ -370,7 +372,7 @@ let compute_borrow (fn : func) =
          I need to remember that here I check for this. With | _ -> the compiler does not tell me
          like this it does so thats why I put this here*)
       | Func _ | Pack _ | CallClosure _ | CallDirect _
-      | Copy _ | GarbageCollect _ | StoreGlobal _ | LoadGlobal _
+      | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
       | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
       | Veclit _ | Vecinit _

@@ -262,7 +262,7 @@ let consume (opt : mem_optimizer) fn =
         | CallClosure (_, sc) -> try_consume sc
         | CallDirect (_, funcid_ref, scs) -> try_consume_lst scs
         | Copy (_, orig) -> add_use orig
-        | GarbageCollect mems -> add_uses mems
+        | Drop mems -> add_uses mems
         | LoadGlobal _ -> ()
         | StoreGlobal (_, sc) -> try_consume sc
         | Immi32 _ | Immi8 _ | ImmUnit _ -> ()
@@ -292,6 +292,13 @@ let consume (opt : mem_optimizer) fn =
 (* Monomorph Func                                                            *)
 (* ========================================================================= *)
 
+(*
+  When a value becomes newly consumed by a calldirect this means that now inside
+  the callees body argument can be considered owned. Thus the callee will be copied,
+  have their respective arguments set as owned and then put in the optimization queue.
+  That is of course if the needed version does not yet exist.
+*)
+
 let monofunc (opt : mem_optimizer) (fn : func) =
 
   BBMap.iter (fun bbid bb ->
@@ -318,7 +325,7 @@ let monofunc (opt : mem_optimizer) (fn : func) =
           failwith (Printf.sprintf "monofunc: in func %d bb %d calldirect to func %d" fn.funcid bbid !funcid_ref)
       )
       | Pack _ | CallClosure _ 
-      | Copy _ | GarbageCollect _ | StoreGlobal _ | LoadGlobal _
+      | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
       | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
       | Tupuwrp _ | Veclit _ | Vecinit _ | Vecread _
@@ -327,20 +334,146 @@ let monofunc (opt : mem_optimizer) (fn : func) =
     ) bb.ops
   ) fn.bbs
 
-(*
-  When a value becomes newly consumed by a calldirect this means that now inside
-  the callees body argument can be considered owned. Thus the callee will be copied,
-  have their respective arguments set as owned and then put in the optimization queue.
-  That is of course if the needed version does not yet exist.
-*)
-
 (* ========================================================================= *)
 (* Insert Explicit Copies at Terms                                           *)
 (* ========================================================================= *)
 
+(*
+  Ret terms and Br term args where the respecitve bb args are owned need to be consumed
+  but sometimes this is not possible it is also not implicitly possible to define this 
+  as part of the br and ret semantics since then some things (ie the borrowed values owner 
+  beeing copied) can not be dropped in time so explicit copies are inserted in these cases.
+*)
+
+let inscopy (opt : mem_optimizer) (fn : func) =
+
+  BBMap.iter (fun bbid bb ->
+    match bb.term with
+    | Some (Ret retval) -> (
+      if get_ownership_func fn retval = Borrowed then (
+        switch_func opt.b fn;
+        switch_bb opt.b bb;
+        let retval' = fresh_ssaid opt.b in
+        emit_op opt.b (Copy (retval', retval));
+        bb.term <- Some (Ret retval')
+      )
+    )
+    | Some (Cbr _) -> ()
+    | Some (Br (brbbid, brargs)) -> (      
+        switch_func opt.b fn;
+        switch_bb opt.b bb;
+        let targetbb = find_bb_func fn brbbid in
+        let brargs'=
+        List.map2 (fun brarg bbarg -> 
+            if (not brarg.consume) && (get_ownership_func fn bbarg = Owned) then
+              let brarg' = fresh_ssaid opt.b in
+              emit_op opt.b (Copy (brarg', brarg.ssaid));
+              { ssaid = brarg' ; consume = true }
+            else
+              brarg
+          ) brargs targetbb.args in
+        bb.term <- Some (Br (brbbid, brargs'))
+    )
+    | None -> failwith "inscopy: no term are u kidding me"
+  ) fn.bbs
+
 (* ========================================================================= *)
 (* Insert Drop                                                               *)
 (* ========================================================================= *)
+
+let collect_consumed_ssaids (ops : op list) : SsaSet.t =
+  let check acc sc =
+    if sc.consume then SsaSet.add sc.ssaid acc else acc
+  in
+  let check_list acc scl =
+    List.fold_left check acc scl
+  in
+  let process_op acc = function
+    | Pack (_, sc, scl)          -> check_list (check acc sc) scl
+    | CallClosure (_, sc)        -> check acc sc
+    | CallDirect (_, _, scl)     -> check_list acc scl
+    | StoreGlobal (_, sc)        -> check acc sc
+    | Tupwrp (_, scl)            -> check_list acc scl
+    | Tupuwrp (_, sc)            -> check acc sc
+    | Veclit (_, scl)            -> check_list acc scl
+    | Vecwrite (_, sc, _, _)     -> check acc sc
+    | Vecinsert (_, sc1, sc2, _) -> check (check acc sc1) sc2
+    | Drop _ -> failwith "collect_consumed_ssaids: drop op should not be in the ops list"
+    | Func _ | Copy _ | LoadGlobal _
+    | Immi32 _ | Immi8 _ | ImmUnit _
+    | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
+    | Vecinit _ | Veclen _ | Vecread _
+    | Vecslice _ | Vecextend _  -> acc
+  in
+  List.fold_left process_op SsaSet.empty ops
+
+let insdrop (opt : mem_optimizer) (fn : func) =
+
+  let live_info = get_live_info opt.aly fn in
+
+  BBMap.iter (fun bbid bb ->
+    switch_func opt.b fn;
+    switch_bb opt.b bb;
+
+    let term_use_ssaids, bbarg_ssaids =
+      match bb.term with
+      | Some (Br (brbbid, brargs)) -> (
+        let targetbb = find_bb_func fn brbbid in
+        List.map (fun brarg -> brarg.ssaid) brargs, targetbb.args
+      )
+       | Some (Ret retval) -> [retval], []
+      | Some (Cbr _) | None -> [], []
+    in
+
+    (*dead_ssaids are all ssaids that were alive coming into the bb
+      or were defined in the bb but are dead after the last op just before
+      the term *)
+    let dead_ssaids = 
+      SsaSet.diff
+      (SsaSet.union live_info.live_in.(bb.bbid) live_info.block_defs.(bb.bbid))
+      (SsaSet.union live_info.live_out.(bb.bbid) (SsaSet.of_list term_use_ssaids))
+    in
+    (*dead_ssaids_owners contains all the owners of the ssaids 
+      from dead_ssaids ie. the things that are actually candidates to be 
+      droped*)
+    let dead_ssaids_owners =
+      SsaSet.fold (fun dead_ssaid owners_acc ->
+        match get_ownership_func fn dead_ssaid with
+        | NoMem -> owners_acc
+        | Owned -> SsaSet.add dead_ssaid owners_acc
+        | Borrowed -> (
+          let owners = SsaSet.of_list @@ find_funclocal_owners opt.aly fn dead_ssaid in
+          SsaSet.union owners owners_acc
+        )
+      ) dead_ssaids SsaSet.empty
+    in
+    (*illegal_borrowers are the ssaids that are live at the beginning of the
+      target bb and hence can not be in the borrowers of some potentially dropped
+      owned value *)
+    let illegal_borrowers = 
+      SsaSet.union live_info.live_out.(bb.bbid) (SsaSet.of_list bbarg_ssaids)
+    in
+
+    let consumed_ssaids = collect_consumed_ssaids bb.ops in
+
+    (* a owner can be dropped if no borrower is alive at the start of
+       the target bb and the value has not been consumed *)
+    let drop_ssaids =
+      SsaSet.fold (fun dead_ssaid_owner drop_acc ->
+        let borrowers = find_borrowers opt.aly fn dead_ssaid_owner in
+        if 
+          List.for_all (fun borrower -> not (SsaSet.mem borrower illegal_borrowers)) borrowers &&
+          not (SsaSet.mem dead_ssaid_owner consumed_ssaids)
+        then dead_ssaid_owner :: drop_acc
+        else drop_acc
+      ) dead_ssaids_owners [] 
+    in
+
+    if List.length drop_ssaids > 0 then
+      emit_op opt.b ( Drop drop_ssaids )
+
+  ) fn.bbs
+
 
 (* ========================================================================= *)
 (* Memory Optimizer Main Loop                                                *)
@@ -385,9 +518,9 @@ let mem_opt (b : builder) (aly : analysis_info) =
       let fn = pop_func_to_opt opt in
       bbarg opt fn;             (* select bb args should borrow *)
       consume opt fn;           (* try to consume in as many places as possible *)
-      monofunc opt fn          (* Monomorphize Functions suited to the specific signature of what args can be consumed *)
-      (*inscopy opt fn;            inserts explicit copies for term uses that cant be consumed but need to be consumed *)
-      (*insdrop opt fn             drop all memory objects when they are not consumed on last use *)
+      monofunc opt fn;          (* Monomorphize Functions suited to the specific signature of what args can be consumed *)
+      inscopy opt fn;           (* inserts explicit copies for term uses that cant be consumed but need to be consumed *)
+      insdrop opt fn            (* drop all memory objects when they are not consumed on last use *)
     done;
 
     finalize_mem_optimizer opt

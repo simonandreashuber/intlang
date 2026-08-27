@@ -152,7 +152,7 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
         else
           [(ssaid, typ_a)]
   )
-  | GarbageCollect gclst -> (
+  | Drop gclst -> (
       if
       List.for_all (fun gcssaid -> 
         match get_mirtyp b gcssaid with
@@ -162,7 +162,7 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
       then
         []
       else
-        raise (Errors.MirError "GarbageCollect operation requires all arguments to be memory objects")
+        raise (Errors.MirError "Drop operation requires all arguments to be memory objects")
   )
   | StoreGlobal (gid, loc) -> (
         let global = find_global b gid in
@@ -334,7 +334,7 @@ let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
   | CallClosure (ssaid, _) -> [(ssaid, Owned)]
   | CallDirect (ssaid, _, _) -> [(ssaid, Owned)]
   | Copy (ssaid, _) -> [(ssaid, Owned)]
-  | GarbageCollect _ -> []
+  | Drop _ -> []
   | StoreGlobal _ -> []
   | LoadGlobal (ssaid, _) -> [(ssaid, Borrowed)]
   | Immi32 (ssaid, _) -> [(ssaid, NoMem)]
@@ -505,7 +505,7 @@ let rec copy_op (o : op) : op =
   | Veclit (res, scs) -> Veclit (res, List.map copy_ssaconsume scs)
   | Vecwrite (res, val_sc, vec, idxs) -> Vecwrite (res, copy_ssaconsume val_sc, vec, idxs)
   | Vecinsert (res, vec_sc, ins_sc, idxs) -> Vecinsert (res, copy_ssaconsume vec_sc, copy_ssaconsume ins_sc, idxs)
-  | Copy _ | GarbageCollect _ | LoadGlobal _
+  | Copy _ | Drop _ | LoadGlobal _
   | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
   | Uopi8 _ | Bopi32 _ | Bopi8 _ 
   | Vecinit _ 
@@ -639,8 +639,8 @@ let sub_ops_uses submap ops =
     | Copy (dst, a) -> 
         Copy (dst, sub_id a)
 
-    | GarbageCollect mems -> 
-        GarbageCollect (sub_id_list mems)  (* Only uses! *)
+    | Drop mems -> 
+        Drop (sub_id_list mems)  (* Only uses! *)
     
     | StoreGlobal (gid, v) -> 
         StoreGlobal (gid, sub_sc v)

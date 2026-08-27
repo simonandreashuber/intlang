@@ -15,7 +15,7 @@ let extract_op_defs = function
   | Vecextend (res, _, _, _) | LoadGlobal (res, _) -> [res]
   | Tupuwrp (res_list, _) -> res_list
   | Copy (res, _) -> [res]
-  | StoreGlobal _ | GarbageCollect _ -> []
+  | StoreGlobal _ | Drop _ -> []
 
 (* Extract all SSA IDs used by an operation *)
 let extract_op_uses = function
@@ -23,7 +23,7 @@ let extract_op_uses = function
   | CallClosure (_, clos) -> [clos.ssaid]
   | CallDirect (_, _, args) -> List.map (fun sc -> sc.ssaid) args
   | Copy (_, a) -> [a]
-  | GarbageCollect mems -> mems
+  | Drop mems -> mems
   | StoreGlobal (_, v) -> [v.ssaid]
   | Uopi32 (_, _, a) | Uopi8 (_, _, a) -> [a]
   | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) -> [a; b]
@@ -40,7 +40,7 @@ let extract_op_uses = function
 
 (* Operations that cannot be deleted even if their results are ignored *)
 let is_critical_op = function
-  | CallClosure _ | CallDirect _ | StoreGlobal _ | GarbageCollect _ -> true
+  | CallClosure _ | CallDirect _ | StoreGlobal _ | Drop _ -> true
   | _ -> false
 
 (* Helper to filter a list using a boolean mask *)

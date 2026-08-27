@@ -67,7 +67,7 @@ type op =                                                           (* Textual R
     | CallClosure of ssaid * ssaconsume                             (* %res         = callclosure %clos                                                                 *)
     | CallDirect of ssaid * (funcid ref) * (ssaconsume list)        (* %res         = calldirect @funcid %arg0 %arg1 ...                                                *)
     | Copy of ssaid * ssaid                                         (* %res         = copy %val                                                                         *)
-    | GarbageCollect of ssaid list                                  (*                garbagecollect %mem0 %mem1 ...                                                    *)
+    | Drop of ssaid list                                            (*                drop %mem0 %mem1 ...                                                    *)
     | StoreGlobal of globalid * ssaconsume                          (*                storeglobal @gid %val                                                             *)
     | LoadGlobal of ssaid * globalid                                (* %res         = loadglobal @gid                                                                   *)
     | Immi32 of ssaid * Int32.t                                     (* %res         = immi32 1234                                                                       *)
@@ -173,7 +173,7 @@ let get_mirtyp_func (func : func) (ssaid : ssaid) : mirtyp =
 
 let get_ownership_func (func : func) (ssaid : ssaid) : ownership =
   if ssaid < 0 || ssaid >= func.next_ssaid then
-    raise (Errors.MirError (Printf.sprintf "SSA ID %d is out of bounds for function %s" ssaid func.name));
+    raise (Errors.MirError (Printf.sprintf "get_ownership_func: SSA ID %d is out of bounds for function %s" ssaid func.name));
   Dynarray.get func.memown ssaid
 
 let set_mirtyp_ownership_func (func : func) (ssaid : ssaid) (typ : mirtyp) (own : ownership) : unit =
