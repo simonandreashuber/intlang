@@ -399,18 +399,22 @@ let get_borrow_info (aly : analysis_info) (func : func) : borrow_info =
     borrow_info
 
 (* Find all borrowers of a given lender not just the direct ones (can contain duplicates)*)
-let find_borrowers (aly : analysis_info) (fn : func) (lender : ssaid) : ssaid list =
+  let find_borrowers_excludelist (excludelist: ssaid list) (aly : analysis_info) (fn : func) (lender : ssaid) : ssaid list =
   let borrow_info = get_borrow_info aly fn in
   let rec transacc acc lender =
     let borrowers = borrow_info.lender_to_borrowers.(lender) in
     List.fold_left (fun acc borrower -> 
       match get_ownership_func fn borrower with
+      | Borrowed when List.mem borrower excludelist -> acc
       | Borrowed -> transacc (borrower :: acc) borrower 
       | Owned -> acc
       | NoMem -> failwith (Printf.sprintf "find_borrowers: ssaid %d is not a memory type but in borrowers" borrower)
      ) acc borrowers
   in
   transacc [] lender
+
+let find_borrowers = find_borrowers_excludelist []
+
 
 (* 
   Find all function local owners of a given borrower

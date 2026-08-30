@@ -219,8 +219,7 @@ let consume (opt : mem_optimizer) fn =
       | Some (Cbr _) | Some (Ret _) | None-> ()
       );
 
-      let try_consume_indicate sc : bool =
-        let before = sc.consume in
+      let try_consume sc =
         if get_ownership_func fn sc.ssaid = Owned then (
           let cannot_be_used_later = sc.ssaid :: find_borrowers opt.aly fn sc.ssaid in
           if List.for_all (fun ssaid -> not (SsaSet.mem ssaid !ul)) cannot_be_used_later then (
@@ -228,10 +227,7 @@ let consume (opt : mem_optimizer) fn =
           )
         );
         ul := SsaSet.add sc.ssaid !ul;
-        before <> sc.consume
       in
-
-      let try_consume sc = ignore (try_consume_indicate sc) in
 
       let add_use ssaid = ul := SsaSet.add ssaid !ul in
 
@@ -274,12 +270,17 @@ let consume (opt : mem_optimizer) fn =
         | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) ->  add_use a; add_use b
         | Tupwrp (_, scs) ->  try_consume_lst scs
         | Tupuwrp (elms, sc) -> (
-          if try_consume_indicate sc then (
-            List.iter (fun elmssaid -> 
-              let elmtyp = get_mirtyp_func fn elmssaid in
-              if is_memtyp (elmtyp) then set_mirtyp_ownership_func fn elmssaid elmtyp Owned ) elms;
-            changed := true
-          )
+          if get_ownership_func fn sc.ssaid = Owned && (not sc.consume) then (
+            let cannot_be_used_later = sc.ssaid :: find_borrowers_excludelist elms opt.aly fn sc.ssaid in
+            if List.for_all (fun ssaid -> not (SsaSet.mem ssaid !ul)) cannot_be_used_later then (
+              sc.consume <- true;
+              List.iter (fun elmssaid -> 
+                let elmtyp = get_mirtyp_func fn elmssaid in
+                if is_memtyp (elmtyp) then set_mirtyp_ownership_func fn elmssaid elmtyp Owned ) elms;
+              changed := true
+            )
+          );
+          ul := SsaSet.add sc.ssaid !ul
         )
         | Veclit (_, scs) ->  try_consume_lst scs
         | Vecinit (_, defval, dims) -> add_use defval; add_uses dims
@@ -416,36 +417,12 @@ let collect_consumed_ssaids (ops : op list) : SsaSet.t =
 
 let insdrop (opt : mem_optimizer) (fn : func) =
 
-  (* DOES LEAD TO MEMROY leaks if things die on edges :( need to fix *)
-
   let live_info = get_live_info opt.aly fn in
 
-  BBMap.iter (fun bbid bb ->
-    switch_func opt.b fn;
-    switch_bb opt.b bb;
-
-    let term_use_ssaids, bbarg_ssaids =
-      match bb.term with
-      | Some (Br (brbbid, brargs)) -> (
-        let targetbb = find_bb_func fn brbbid in
-        List.map (fun brarg -> brarg.ssaid) brargs, targetbb.args
-      )
-       | Some (Ret retval) -> [retval], []
-      | Some (Cbr _) | None -> [], [] (* cbr can be ignored since the ssaid used in the cond is always an i32 with does not matter *)
-    in
-
-    (*dead_ssaids are all ssaids that were alive coming into the bb
-      or were defined in the bb but are dead after the last op just before
-      the term *)
-    let dead_ssaids = 
-      SsaSet.diff
-      (SsaSet.union live_info.live_in.(bb.bbid) live_info.block_defs.(bb.bbid))
-      (SsaSet.union live_info.live_out.(bb.bbid) (SsaSet.of_list term_use_ssaids))
-    in
-    (*dead_ssaids_owners contains all the owners of the ssaids 
+  (*dead_ssaids_owners contains all the owners of the ssaids 
       from dead_ssaids ie. the things that are actually candidates to be 
       droped*)
-    let dead_ssaids_owners =
+    let find_dead_ssaids_owners dead_ssaids =
       SsaSet.fold (fun dead_ssaid owners_acc ->
         match get_ownership_func fn dead_ssaid with
         | NoMem -> owners_acc
@@ -456,31 +433,91 @@ let insdrop (opt : mem_optimizer) (fn : func) =
         )
       ) dead_ssaids SsaSet.empty
     in
-    (*illegal_ssaids are the ssaids that are live at the beginning of the
-      target bb and hence can not be in the borrowers of some potentially dropped
-      owned value *)
-    let illegal_ssaids = 
-      SsaSet.union live_info.live_out.(bb.bbid) (SsaSet.of_list bbarg_ssaids)
-    in
-
-    let consumed_ssaids = collect_consumed_ssaids bb.ops in
 
     (* a owner can be dropped if no borrower is alive at the start of
        the target bb and the value has not been consumed *)
-    let drop_ssaids =
+    let find_drop_ssaids banned_owners illegal_ssaids dead_ssaids_owners =
       SsaSet.fold (fun dead_ssaid_owner drop_acc ->
         let borrowers = find_borrowers opt.aly fn dead_ssaid_owner in
         if 
           not (SsaSet.mem dead_ssaid_owner illegal_ssaids) &&
           List.for_all (fun borrower -> not (SsaSet.mem borrower illegal_ssaids)) borrowers &&
-          not (SsaSet.mem dead_ssaid_owner consumed_ssaids)
+          not (SsaSet.mem dead_ssaid_owner banned_owners)
         then dead_ssaid_owner :: drop_acc
         else drop_acc
       ) dead_ssaids_owners [] 
     in
 
-    if List.length drop_ssaids > 0 then
-      emit_op opt.b ( Drop drop_ssaids )
+  BBMap.iter (fun bbid bb ->
+    switch_func opt.b fn;
+    switch_bb opt.b bb;
+
+    if bb.term = None then failwith (Printf.sprintf "insdrop: bb %d has no term" bbid);
+
+    let term_use_ssaids, bbarg_ssaids =
+      match Option.get bb.term with
+      | Br (brbbid, brargs) -> (
+        let targetbb = find_bb_func fn brbbid in
+        List.map (fun brarg -> brarg.ssaid) brargs, targetbb.args
+      )
+      | Ret retval -> [retval], []
+      | Cbr _ -> [], [] (* the cond on the cbr is term use but on an ssaid guarantied to be of NoMem ownership*)
+    in
+
+    (*dead_ssaids are all ssaids that were alive coming into the bb
+      or were defined in the bb but are dead after the last op just before
+      the term *)
+    let dead_ssaids = 
+      SsaSet.diff
+      (SsaSet.union live_info.live_in.(bb.bbid) live_info.block_defs.(bb.bbid))
+      (SsaSet.union live_info.live_out.(bb.bbid) (SsaSet.of_list term_use_ssaids))
+    in
+
+    let dead_ssaids_owners = find_dead_ssaids_owners dead_ssaids in
+
+    (*illegal_ssaids are the ssaids that are live at the beginning of the
+      target bb and hence can not be in the borrowers of some potentially dropped
+      owned value *)
+    let illegal_ssaids = SsaSet.union live_info.live_out.(bb.bbid) (SsaSet.of_list bbarg_ssaids) in
+
+    let consumed_ssaids = collect_consumed_ssaids bb.ops in
+
+    let drop_ssaids = find_drop_ssaids consumed_ssaids illegal_ssaids dead_ssaids_owners in
+
+    if List.length drop_ssaids > 0 then emit_op opt.b ( Drop drop_ssaids );
+
+
+    (*
+      cbr can require some drop ops to be placed in a separate
+      intermediate bb, eg. a vecread on a owned vector in a loop body
+    *)
+    match Option.get bb.term with
+    | Cbr (cond, ifbbid, elsebbid) -> (
+    
+      (* Ssaids that were either consumed or dropped in the general pass just above *)
+      let consumed_or_dropped_ssaids = SsaSet.union consumed_ssaids (SsaSet.of_list drop_ssaids) in
+
+      let cbredgedrop br_bbid =
+        let br_dead_ssaids = SsaSet.diff live_info.live_out.(bb.bbid)  live_info.live_in.(br_bbid) in
+        let br_dead_ssaids_owners = find_dead_ssaids_owners br_dead_ssaids in
+        let br_illegal_ssaids = live_info.live_in.(br_bbid) in
+        let br_drop_ssaids = find_drop_ssaids consumed_or_dropped_ssaids br_illegal_ssaids br_dead_ssaids_owners in
+
+        if List.length br_drop_ssaids > 0 then (
+        let brbb = create_bb opt.b "cbredgedrop_br" [] in
+        switch_bb opt.b brbb;
+        emit_op opt.b ( Drop br_drop_ssaids );
+        emit_term opt.b ( Br (br_bbid, []) );
+        brbb.bbid
+        )
+        else br_bbid
+      in
+      
+      let ifbbid' = cbredgedrop ifbbid in
+      let elsebbid' = cbredgedrop elsebbid in
+      bb.term <- Some (Cbr (cond, ifbbid', elsebbid'))
+    )
+    | _ -> ()
 
   ) fn.bbs
 

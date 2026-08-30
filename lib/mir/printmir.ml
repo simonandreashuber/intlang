@@ -47,6 +47,9 @@ let string_of_ownership = function
   | Owned    -> "Owned"
   | NoMem    -> "NoMem"
 
+let string_of_ssa_defs (fn : func) (args : ssaid list) : string =
+  String.concat " " (List.map (string_of_ssa_def fn) args)
+
 let string_of_ssaids (args : ssaid list) : string =
   String.concat " " (List.map string_of_ssa args)
 
@@ -124,7 +127,7 @@ let string_of_op (fn : func) = function
   | Tupwrp (dst, elms) ->
       Printf.sprintf "%s = tupwrp %s" (string_of_ssa_def fn dst) (string_of_ssaconsumes elms)
   | Tupuwrp (elms, tup) ->
-      Printf.sprintf "(%s) = tupuwrp %s" (string_of_ssaids elms) (string_of_ssaconsume tup)
+      Printf.sprintf "(%s) = tupuwrp %s" (string_of_ssa_defs fn elms) (string_of_ssaconsume tup)
   | Veclit (dst, elms) ->
       Printf.sprintf "%s = veclit %s" (string_of_ssa_def fn dst) (string_of_ssaconsumes elms)
   | Vecinit (dst, defval, dims) ->

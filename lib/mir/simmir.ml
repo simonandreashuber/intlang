@@ -55,7 +55,12 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
     with Not_found -> failwith (Printf.sprintf "Simulator Error: SSA ID %d used before definition in %s" s func.name) 
   in
 
-  let use_sc (sc : ssaconsume) = use sc.ssaid in
+  let consume (sc : ssaconsume) = 
+    let v = use sc.ssaid in
+    if is_memval v
+    then (if sc.consume then (Hashtbl.remove values sc.ssaid; v) else v)
+    else ( if sc.consume then failwith "consume: consumed a non memory value this should not happen" else v )
+  in
 
   let def (s : ssaid) (v : value) = Hashtbl.replace values s v in
 
@@ -80,17 +85,10 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
     else v
   in
 
-  let consume_or_copy_memval (sc : ssaconsume) = 
-    let v = use sc.ssaid in
-    if is_memval v
-    then ( if sc.consume then v else copy_memvalue v )
-    else failwith ( Printf.sprintf "consume_or_copy_memval: used on non memory value should not happen, ssaid: %%%d func: %s" sc.ssaid func.name)
-  in
-
   let consume_or_copy (sc : ssaconsume) = 
     let v = use sc.ssaid in
     if is_memval v
-    then ( if sc.consume then v else copy_memvalue v )
+    then (if sc.consume then (Hashtbl.remove values sc.ssaid; v) else copy_memvalue v)
     else ( if sc.consume then failwith "consume_or_copy: consumed a non memory value this should not happen" else v )
   in
 
@@ -112,16 +110,15 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
         | None -> def res (Vclos (!fid_ref, !fid_ref, [])) (*externals need this*)
     )
     | Pack (res, clos_sc, args_sc_list) ->
-        let fid, fid2, env = match use_sc clos_sc with Vclos (f, f2, e) -> (f, f2, e) | _ -> failwith "Pack on non-closure" in
+        let fid, fid2, env = match consume_or_copy clos_sc with Vclos (f, f2, e) -> (f, f2, e) | _ -> failwith "Pack on non-closure" in
         let new_args = List.map (consume_or_copy) args_sc_list in
-        let env' = if clos_sc.consume then env else List.map (copy_value) env in
-        def res (Vclos (fid, fid2, env' @ new_args))
+        def res (Vclos (fid, fid2, env @ new_args))
     | CallClosure (res, clos_sc) ->
-        let fid, fid2, env = match use_sc clos_sc with Vclos (f, f2, e) -> (f, f2, e) | _ -> failwith "CallClosure on non-closure" in
+        let fid, fid2, env = match consume clos_sc with Vclos (f, f2, e) -> (f, f2, e) | _ -> failwith "CallClosure on non-closure" in
         let resv = if clos_sc.consume then simmir_func p fid2 env else simmir_func p fid env in
         def res resv
     | CallDirect (res, fid_ref, args_sc_list) ->
-        let evaled_args = List.map use_sc args_sc_list in
+        let evaled_args = List.map consume args_sc_list in
         def res (simmir_func p !fid_ref evaled_args)
     | Copy (res, ssaid) -> 
         def res (copy_memvalue @@ use ssaid)
@@ -200,7 +197,7 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
         def res (Vtup (List.map consume_or_copy sc_list))
         
     | Tupuwrp (res_list, tup_sc) ->
-        let tup = match use_sc tup_sc with Vtup t -> t | _ -> failwith "Tupuwrp on non-tuple" in
+        let tup = match consume tup_sc with Vtup t -> t | _ -> failwith "Tupuwrp on non-tuple" in
         if List.length res_list <> List.length tup then failwith "Tuple destructuring arity mismatch";
         List.iter2 def res_list tup
 
@@ -258,12 +255,12 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
             )
             | [] -> failwith "Vecwrite: index list cannot be empty"
         in
-        let new_vec = consume_or_copy_memval vec in
+        let new_vec = consume_or_copy vec in
         writevec new_vec idx_list;
         def res new_vec
 
     | Vecinsert (res, vec, val_ins, idx_list) ->
-        let new_val = consume_or_copy_memval val_ins in
+        let new_val = consume_or_copy val_ins in
         let rec writevec (v : value) (idxs : ssaid list) : unit =
             match idxs with
             | [lastidx] -> (
@@ -281,7 +278,7 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
             )
             | [] -> failwith "Vecinsert: index list cannot be empty"
         in
-        let new_vec = consume_or_copy_memval vec in
+        let new_vec = consume_or_copy vec in
         writevec new_vec idx_list;
         def res new_vec
 
@@ -327,13 +324,16 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
     match bb.term with
     | None -> failwith (Printf.sprintf "Simulator: Block %d in %s has no terminator!" bb_id func.name)
     | Some (Br (next_bb, args_sc)) ->
-        let next_args = List.map use_sc args_sc in
+        let next_args = List.map consume args_sc in
         eval_bb next_bb next_args
     | Some (Cbr (cond, true_bb, false_bb)) ->
         let cond_int = Int32.to_int @@ i32val_unpack (use cond) in
         if cond_int <> 0 then eval_bb true_bb [] else eval_bb false_bb []
-    | Some (Ret ssaid) ->
-        use ssaid
+    | Some (Ret retssaid) ->(
+        Hashtbl.iter (fun live_ssaid _ -> if get_ownership_func func live_ssaid = Owned && live_ssaid <> retssaid then 
+            failwith (Printf.sprintf "Memory leak detected in function %s: SSA ID %d is owned but not consumed before return" func.name live_ssaid)
+        ) values;
+        use retssaid)
   in
 
   (* Start execution at the entry block *)
@@ -362,6 +362,6 @@ let simmir_program (p : program) =
     with e ->
         let msg = Printexc.to_string e in
         let backtrace = Printexc.get_backtrace () in
-        Printf.eprintf "%s\n" (Printmir.string_of_program p);
+        (*Printf.eprintf "%s\n" (Printmir.string_of_program p);*)
         Printf.eprintf "Error during MirSim: %s\nBacktrace:\n%s\n" msg backtrace;
         raise e
