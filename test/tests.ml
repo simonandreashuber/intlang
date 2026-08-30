@@ -15,7 +15,7 @@ let prln_int32 (i : int32) : string = Int32.to_string i ^ "\n"
 
 let prln_int32lst xs = String.concat "," (List.map Int32.to_string xs) ^ "\n"
 
-let prln_int32tuplst xs = let (vs, us) = List.split xs in prln_int32lst us ^ prln_int32lst vs
+let prln_int32tuplst xs = let (vs, us) = List.split xs in prln_int32lst vs ^ prln_int32lst us
 
 let prln_int32lst_trailing xs = String.concat "," (List.map Int32.to_string xs) ^ ",\n"
 

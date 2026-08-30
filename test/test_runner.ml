@@ -84,7 +84,7 @@ let run_batch interp_binary case =
 
   let all_input = Buffer.contents input_buf in
   let all_expected = Buffer.contents expect_buf in
-  let cmd = Printf.sprintf "%s --stdlibpath %s --test %d %s" 
+  let cmd = Printf.sprintf "%s --stdlibpath %s --testmir %d %s" 
       (Filename.quote interp_binary) 
       (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/")) 
       case.iterations 
@@ -98,7 +98,7 @@ let run_batch interp_binary case =
 
 (* SEPARATE MODE: Runs a new process for every iteration *)
 let run_separate interp_binary case =
-  let cmd = Printf.sprintf "%s --stdlibpath %s %s" 
+  let cmd = Printf.sprintf "%s --stdlibpath %s --testmir 1 %s" 
       (Filename.quote interp_binary) 
       (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/")) 
       (Filename.quote case.filename) in

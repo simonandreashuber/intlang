@@ -408,7 +408,7 @@ let rec lower_body (b : builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
     func_to_closure b env func cap_uuids
   )
   | AppT (e1, e2, _) -> (
-    let ssaid_clos = lower_body b env e1 in
+    let ssaid_clos = lower_body b env e1 in (*left to right is more intuitive :)*)
     let arg_ssaid = lower_body b env e2 in
     let sat_arg_ssaid = 
       match get_mirtyp b arg_ssaid with
@@ -686,7 +686,7 @@ and lower_loc_func (b : builder)
 let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t) : unit =
 
   (*setup @init_globals*)
-  let init_globals_func = create_func b "init_globals" [] TMIRUnit None in
+  let init_globals_func = create_func b "init_globals" [(0, None, TMIRUnit)] TMIRUnit None in
   switch_func b init_globals_func;
   let bbentry = create_bb b "entry" [] in
   set_entry_bb b bbentry.bbid;

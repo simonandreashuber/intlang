@@ -47,6 +47,9 @@ type mem_optimizer = {
 let is_orig_vers opt funcid =
   match List.find_opt (fun ofn -> ofn.funcid = funcid) opt.orig_vers with Some _ -> true | None -> false
 
+let is_exter_vers opt funcid =
+  match List.find_opt (fun efn -> efn.funcid = funcid) opt.exter_vers with Some _ -> true | None -> false
+
 let request_func_vers (opt : mem_optimizer) (funcid : funcid) (ownsig : ownership list) : funcid =
   if Option.is_some @@ List.find_opt (fun efn -> efn.funcid = funcid) opt.exter_vers then funcid
   else
@@ -318,6 +321,7 @@ let monofunc (opt : mem_optimizer) (fn : func) =
           funcid1 := borr_funcid;
           funcid2_opt := Some own_funcid
       )
+      | Func (_, funcid1 , _) when is_exter_vers opt !funcid1 -> ()
       | Func (_, funcid1, _) -> failwith (Printf.sprintf "monofunc: bb %d has func op with funcid %d that is not an original version" bbid !funcid1)
       | CallDirect (_, funcid_ref, args) -> (
         let call_memsig = get_memsig_calldirect_args fn args in
@@ -412,6 +416,8 @@ let collect_consumed_ssaids (ops : op list) : SsaSet.t =
 
 let insdrop (opt : mem_optimizer) (fn : func) =
 
+  (* DOES LEAD TO MEMROY leaks if things die on edges :( need to fix *)
+
   let live_info = get_live_info opt.aly fn in
 
   BBMap.iter (fun bbid bb ->
@@ -425,7 +431,7 @@ let insdrop (opt : mem_optimizer) (fn : func) =
         List.map (fun brarg -> brarg.ssaid) brargs, targetbb.args
       )
        | Some (Ret retval) -> [retval], []
-      | Some (Cbr _) | None -> [], []
+      | Some (Cbr _) | None -> [], [] (* cbr can be ignored since the ssaid used in the cond is always an i32 with does not matter *)
     in
 
     (*dead_ssaids are all ssaids that were alive coming into the bb
@@ -450,10 +456,10 @@ let insdrop (opt : mem_optimizer) (fn : func) =
         )
       ) dead_ssaids SsaSet.empty
     in
-    (*illegal_borrowers are the ssaids that are live at the beginning of the
+    (*illegal_ssaids are the ssaids that are live at the beginning of the
       target bb and hence can not be in the borrowers of some potentially dropped
       owned value *)
-    let illegal_borrowers = 
+    let illegal_ssaids = 
       SsaSet.union live_info.live_out.(bb.bbid) (SsaSet.of_list bbarg_ssaids)
     in
 
@@ -465,7 +471,8 @@ let insdrop (opt : mem_optimizer) (fn : func) =
       SsaSet.fold (fun dead_ssaid_owner drop_acc ->
         let borrowers = find_borrowers opt.aly fn dead_ssaid_owner in
         if 
-          List.for_all (fun borrower -> not (SsaSet.mem borrower illegal_borrowers)) borrowers &&
+          not (SsaSet.mem dead_ssaid_owner illegal_ssaids) &&
+          List.for_all (fun borrower -> not (SsaSet.mem borrower illegal_ssaids)) borrowers &&
           not (SsaSet.mem dead_ssaid_owner consumed_ssaids)
         then dead_ssaid_owner :: drop_acc
         else drop_acc
@@ -508,8 +515,17 @@ let push_canonical_funcvers opt =
   ) opt.orig_vers
 
 let finalize_mem_optimizer opt =
+  let find_single_copy origfuncid = 
+    match FuncMap.find_opt origfuncid opt.orig_to_opt_vers with 
+    | Some ([singlecopyfunc]) -> singlecopyfunc.funcid
+    | _ -> failwith "find_single_copy: there is not single copy" 
+  in
   List.iter (fun orig_fn -> 
-    delete_func opt.b orig_fn
+    delete_func opt.b orig_fn;
+    if opt.b.program.init_globals_funcid = Some orig_fn.funcid then opt.b.program.init_globals_funcid <- Some (find_single_copy orig_fn.funcid);
+    if opt.b.program.main_funcid = Some orig_fn.funcid then opt.b.program.main_funcid <- Some (find_single_copy orig_fn.funcid);
+    if opt.b.program.uninit_globals_funcid = Some orig_fn.funcid then opt.b.program.uninit_globals_funcid <- Some (find_single_copy orig_fn.funcid);
+
   ) opt.orig_vers
 
 

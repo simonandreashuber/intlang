@@ -258,6 +258,13 @@ let string_of_live_info (l : live_info) =
       (string_of_ssaset l.live_in.(bbid)) 
       (string_of_ssaset l.live_out.(bbid))
   done;
+  s := !s ^ "\nBBID | Defs                              | Uses\n---------------------------------------------------------------------------\n";
+  for bbid = 0 to (len - 1) do
+    s := !s ^ Printf.sprintf "%4d | %-33s | %s\n" 
+      bbid 
+      (string_of_ssaset l.block_defs.(bbid)) 
+      (string_of_ssaset l.block_uses.(bbid))
+  done;
   !s
 
 (* 4. Borrow *)
@@ -316,7 +323,7 @@ let string_of_program (prog : program) : string =
   (* 3. Print functions (Iterate Map) *)
   let funcs_str =
     FuncMap.bindings prog.funcs
-    |> List.map (fun (_, f) -> string_of_func aly f)
+    |> List.map (fun (_, f) -> (string_of_func aly f ^ "\n" ^ string_of_analysis aly f ))
     |> String.concat "\n\n"
   in
 

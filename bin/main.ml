@@ -5,7 +5,8 @@ let headerline = "--------------------------------------------------------------
 let main () =
   (* Define mutable references *)
   let repeat_count = ref 1 in
-  let test_flag_passed = ref false in
+  let testast_flag_passed = ref false in
+  let testmir_flag_passed = ref false in
   let print_ast = ref false in
   let filename = ref "" in
   
@@ -15,15 +16,23 @@ let main () =
 
   (* Map command-line flags *)
   let speclist = [
-    ("--test", Arg.Int (fun i ->
+    ("--testast", Arg.Int (fun i ->
        if i <= 0 then
          raise (Arg.Bad "must be greater than 0")
        else begin
          repeat_count := i;
-         test_flag_passed := true
+         testast_flag_passed := true
        end
-     ), "<int> Number of times to execute the interpreter (default: 1)");
-    ("--print", Arg.Set print_ast, "Print the parsed AST to stdout");
+     ), "<int> Number of times to execute the AST interpreter (default: 1)");
+    ("--testmir", Arg.Int (fun i ->
+       if i <= 0 then
+         raise (Arg.Bad "must be greater than 0")
+       else begin
+         repeat_count := i;
+         testmir_flag_passed := true
+       end
+     ), "<int> Number of times to execute the MIR Simulator (default: 1)");
+    ("--print", Arg.Set print_ast, "Print AST and MIR to stdout");
     ("--stdlibpath", Arg.Set_string stdlib_path, "<path> Custom path to the standard library");
   ] in
 
@@ -41,8 +50,20 @@ let main () =
   end;
 
   (* Guard against incompatible flags *)
-  if !test_flag_passed && !print_ast then begin
-    prerr_endline "Error: --test and --print are incompatible. (printing breaks the test protocol)";
+  if !testast_flag_passed && !print_ast then begin
+    prerr_endline "Error: --testast and --print are incompatible. (printing breaks the test protocol)";
+    Arg.usage speclist usage_msg;
+    exit 1
+  end;
+  
+  if !testmir_flag_passed && !print_ast then begin
+    prerr_endline "Error: --testmir and --print are incompatible. (printing breaks the test protocol)";
+    Arg.usage speclist usage_msg;
+    exit 1
+  end;
+
+  if !testast_flag_passed && !testmir_flag_passed then begin
+    prerr_endline "Error: --testast and --testmir are incompatible. (printing breaks the test protocol)";
     Arg.usage speclist usage_msg;
     exit 1
   end;
@@ -78,16 +99,25 @@ let main () =
     Veccheck.veccheck_monotast monotast;
 
     (* Execute the interpreter *)
-    if !test_flag_passed then
+    if !testast_flag_passed then (
       for _ = 1 to !repeat_count do
         Interp.interp_monotast monotast;
         flush stdout;
       done
-    else
-      Interp.interp_monotast monotast;
+    );
+
 
     let b = Mirgen.lower_monotast monotast in
     Mirpipe.run_pipeline b;
+
+    (* Execute Mir Simulator *)
+    if !testmir_flag_passed then (
+      for _ = 1 to !repeat_count do
+        Simmir.simmir_program b.program;
+        flush stdout;
+      done
+    );
+
     if !print_ast then begin
       Printf.printf "%sMIR:\n%s" headerline (Printmir.string_of_program b.program); flush stdout;
     end;

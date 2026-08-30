@@ -49,15 +49,21 @@ and eval (e : tlexp) (env : env) : value =
     | LamT (x, param_uuid, body, _) -> VClosure (param_uuid, body, env)
     | LamUnitT (body, _) -> VClosureUnit (body, env)  (* -1 indicates no parameter *)
     | AppT (e1, e2, _) -> (
-            let v2 = eval e2 env in
+            (* left to right eval order because its more intuitive *)
             match eval e1 env with
-            | VClosure (param_uuid, body, c_env) -> 
+            | VClosure (param_uuid, body, c_env) -> (
+                let v2 = eval e2 env in
                 let param_env = ref ((param_uuid, v2) :: !c_env) in
                 eval body param_env
-            | VClosureUnit (body, c_env) -> 
+            )
+            | VClosureUnit (body, c_env) -> (
+                let v2 = eval e2 env in assert (v2 = VUnit);  (* Ensure that the argument is unit *)
                 let param_env = ref !c_env in
                 eval body param_env
-            | VBuiltin f -> f v2
+            )
+            | VBuiltin f -> (
+                let v2 = eval e2 env in f v2
+            )
             | _ -> raise (Errors.InterpError "Application of a non-function")
         )
     | SeqT (e1, e2, _) -> let _ = eval e1 env in eval e2 env
