@@ -7,8 +7,8 @@
           lexer parser include reccheck typecheck monomorph veccheck interp 
           mir analysis buildmir printmir
           calldirectopt tco dceopt compactcfgopt memopt funcdceopt
-          mirgen mirpipe
-          simmir
+          mirgen mirpipe simmir
+          llvmgen
           )) ;codegen
 
 (menhir

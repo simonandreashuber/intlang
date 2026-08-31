@@ -121,6 +121,12 @@ let main () =
     if !print_ast then begin
       Printf.printf "%sMIR:\n%s" headerline (Printmir.string_of_program b.program); flush stdout;
     end;
+
+    let llmod = Llvmgen.lower_mir b.program in
+
+    if !print_ast then begin
+      Printf.printf "%sLLVM IR:\n%s" headerline (Llvm.string_of_llmodule llmod); flush stdout;
+    end;
     
     exit 0
 

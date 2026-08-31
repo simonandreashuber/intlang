@@ -15,3 +15,4 @@ exception MirSimError of string
 
 (*Codegen*)
 exception CodegenError of string
+exception LlvmgenError of string
