@@ -8,8 +8,9 @@ open Tco
 open Dceopt
 open Compactcfgopt
 
-
 open Memopt
+
+open Funcdceopt
 
 (*
   One module to collect all the Passes
@@ -37,6 +38,9 @@ let run_pipeline (b : builder) : unit =
 
     (* 2. Ownership and Consumption Passes *)
     Memopt.mem_opt b aly;
+
+    (*3. Function DCE*)
+    Funcdceopt.funcdce_opt b aly
     
   with e ->
     let msg = Printexc.to_string e in
