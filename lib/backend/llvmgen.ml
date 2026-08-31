@@ -4,6 +4,13 @@ open Analysis (*process bbs in rpo *)
 open Llvm
 open Errors
 
+(*
+  TODO:
+    - impl lower mir op
+    - copy, init, drop codegen
+    - uninit globals in mir impl (just load global and then drop if mem object)
+*)
+
 type llfunc_info = {
   mir_funcid : Mir.funcid;
   func_t : lltype;
@@ -35,14 +42,17 @@ type proggen_ctx = {
   free_t : lltype;
   free_func : llvalue;
 
+  globals_env : (globalid, llvalue) Hashtbl.t;                    (* mir globalid -> llvm glob *)
   func_env : (funcid, llfunc_info) Hashtbl.t;                     (* mir func -> llvm func *)
   closhelper_env : (mirtyp list, clos_helper_info) Hashtbl.t;     (* closure data layout *)
+
+  miranalysis : analysis_info;
 }
 
 let ctx_add_llfunc_info (ctx : proggen_ctx) (funcid : funcid) (llfunc_info : llfunc_info) =
   Hashtbl.add ctx.func_env funcid llfunc_info
 
-type funcgen_ctx = {
+type fgen_ctx = {
   proggen_ctx : proggen_ctx;
   builder : llbuilder;
   ssa_env : Llvm.llvalue option array;
@@ -68,11 +78,25 @@ let find_llfunc_info (ctx : proggen_ctx) (funcid : funcid) : llfunc_info =
   try Hashtbl.find ctx.func_env funcid
   with Not_found -> raise (LlvmgenError ("find_llfunc: function not found in env: " ^ string_of_int funcid))
 
-let create_funcgen_ctx (ctx : proggen_ctx) (func : Mir.func) =
+let create_fgen_ctx (ctx : proggen_ctx) (func : Mir.func) =
   let builder = builder ctx.llcontext in
   let ssa_env = Array.make func.next_ssaid None in
   let bb_env = Hashtbl.create (BBMap.cardinal func.bbs) in
   { proggen_ctx = ctx; builder; ssa_env; bb_env }
+
+let get_llbb (fgen_ctx : fgen_ctx) (bbid : bbid) : llbasicblock =
+  try Hashtbl.find fgen_ctx.bb_env bbid
+  with Not_found -> raise (LlvmgenError ("get_llbb: bb not found in env: " ^ string_of_int bbid))
+
+let get_llssa (fgen_ctx : fgen_ctx) (ssaid : ssaid) : llvalue =
+  match fgen_ctx.ssa_env.(ssaid) with
+  | Some llval -> llval
+  | None -> raise (LlvmgenError ("get_llssa: ssa not found in env: " ^ string_of_int ssaid))
+
+let decl_global (ctx : proggen_ctx) (glob : Mir.global) : unit =
+  let glob_lltyp = mirtyp_get_lltyp ctx glob.typ in
+  let llglobal = declare_global glob_lltyp (string_of_int glob.globalid) ctx.llmodule in
+  Hashtbl.add ctx.globals_env glob.globalid llglobal
 
 
 let decl_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
@@ -84,12 +108,86 @@ let decl_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
   let llfunc = declare_function (string_of_int mirfunc.funcid) llfunc_t ctx.llmodule in
   ctx_add_llfunc_info ctx mirfunc.funcid { mir_funcid = mirfunc.funcid; func_t = llfunc_t; func = llfunc; closwrpr = None; }
 
+let lower_op (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
+  match mirop with
+  | _ -> raise (LlvmgenError "lower_op: not implemented yet")
+
 let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
-  let funcgen_ctx = create_funcgen_ctx ctx mirfunc in
+  let fgen_ctx = create_fgen_ctx ctx mirfunc in
   let llfunc_info = find_llfunc_info ctx mirfunc.funcid in
   let llfunc = llfunc_info.func in 
 
-  ignore (funcgen_ctx); ignore (llfunc); ()
+  (*create the entry bb*)
+  let entrybb = append_block ctx.llcontext "entry" llfunc in
+
+  (*create all llbbs and lower their ops*)
+  let rpo_info = get_rpo_info ctx.miranalysis mirfunc in  
+  List.iter (fun bbid ->
+    let mirbb = BBMap.find bbid mirfunc.bbs in
+    let llbb = append_block ctx.llcontext (string_of_int bbid) llfunc in
+
+    (*add to fgen_ctx*)
+    Hashtbl.add fgen_ctx.bb_env bbid llbb;
+    
+    (*phi node for all bb args*)
+    List.iter (fun ssaid ->
+      let mirtyp = get_mirtyp_func mirfunc ssaid in
+      let lltyp = mirtyp_get_lltyp ctx mirtyp in
+      let phi_node = build_empty_phi lltyp (string_of_int ssaid) fgen_ctx.builder in
+      fgen_ctx.ssa_env.(ssaid) <- Some phi_node
+    ) mirbb.args;
+
+    (*lower all ops*)
+    List.iter (fun mirop ->
+      ignore (lower_op ctx fgen_ctx mirop)
+    ) (List.rev mirbb.ops);    
+
+  ) rpo_info.rpo_lst;
+
+  (*patch bb branching*)
+  BBMap.iter (fun _ mirbb ->
+    let llbb = get_llbb fgen_ctx mirbb.bbid in
+    position_at_end llbb fgen_ctx.builder;
+    match mirbb.term with
+    | None -> raise (LlvmgenError "No term in llvmgen lower_func")
+    | Some (Br (target_bbid, mir_brargs)) -> (
+      (*put br*)
+      let target_llbb = get_llbb fgen_ctx target_bbid in
+      ignore (build_br target_llbb fgen_ctx.builder);
+
+      (*patch phi nodes*)
+      let target_mirbb = find_bb_func mirfunc target_bbid in
+      List.iter2 (fun mir_brarg mir_bbarg ->
+        let phi_node = get_llssa fgen_ctx mir_bbarg in
+        let passed_llval = get_llssa fgen_ctx mir_brarg.ssaid in
+        add_incoming (passed_llval, llbb) phi_node
+      ) mir_brargs target_mirbb.args 
+    )
+    | Some (Cbr (cond_ssaid, true_bbid, false_bbid)) -> (
+      (* transfor i32 cond into bool cond *)
+      let true_llbb = get_llbb fgen_ctx true_bbid in
+      let false_llbb = get_llbb fgen_ctx false_bbid in
+      let cond_llvalue = get_llssa fgen_ctx cond_ssaid in
+      let zero = const_int (ctx.i32_t) 0 in
+      let cond_bool = build_icmp Icmp.Ne cond_llvalue zero "cond_bool" fgen_ctx.builder in
+
+      (*put cbr*)
+      ignore (build_cond_br cond_bool true_llbb false_llbb fgen_ctx.builder)
+    )
+    | Some (Ret res_ssaid) -> (
+      let res_llvalue = get_llssa fgen_ctx res_ssaid in
+      ignore (build_ret res_llvalue fgen_ctx.builder)
+    )
+  ) mirfunc.bbs;
+
+  (*ll entry bb direct branch to lowered mir entry bb*)
+  position_at_end entrybb fgen_ctx.builder;
+  match mirfunc.entry_bb with
+  | None -> raise (LlvmgenError "No mir entry bb in llvmgen lower_func")
+  | Some mirentrybbid -> (
+      let mirentry_llbb = get_llbb fgen_ctx mirentrybbid in
+      ignore (build_br mirentry_llbb fgen_ctx.builder)
+  )
 
 let lower_mir ( p : Mir.program) : llmodule =
 
@@ -113,8 +211,11 @@ let lower_mir ( p : Mir.program) : llmodule =
   let free_t = Llvm.function_type (void_t) [| ptr_t |] in
   let free_func = Llvm.declare_function "free" free_t llmodule in
 
+  let globals_env = Hashtbl.create 32 in
   let func_env = Hashtbl.create 32 in
   let closhelper_env = Hashtbl.create 32 in
+
+  let miranalysis = create_analysis_info () in
 
   let ctx = {
     llcontext;
@@ -130,10 +231,17 @@ let lower_mir ( p : Mir.program) : llmodule =
     malloc_t;
     malloc_func;
     free_t;
+    globals_env;
     free_func;
     func_env;
     closhelper_env;
+    miranalysis;
   } in
+
+  (* Iterate all MIR globals and declare empty llvm equivalents *)
+  GlobalMap.iter (fun _ glob -> 
+    decl_global ctx glob
+  ) p.globals;
 
   (* Iterate all MIR functions and declare empty llvm equivalents *)
   FuncMap.iter (fun _  func -> 
