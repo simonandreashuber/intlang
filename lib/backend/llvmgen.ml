@@ -30,6 +30,7 @@ type proggen_ctx = {
 
   void_t : lltype;
   unit_t : lltype;
+  i1_t  : lltype;
   i8_t  : lltype;
   i32_t  : lltype;
   i64_t : lltype;
@@ -41,6 +42,8 @@ type proggen_ctx = {
   malloc_func : llvalue;
   free_t : lltype;
   free_func : llvalue;
+  memcpy_t : lltype;
+  memcpy_func : llvalue;
 
   globals_env : (globalid, llvalue) Hashtbl.t;                    (* mir globalid -> llvm glob *)
   func_env : (funcid, llfunc_info) Hashtbl.t;                     (* mir func -> llvm func *)
@@ -57,6 +60,7 @@ type fgen_ctx = {
   builder : llbuilder;
   ssa_env : Llvm.llvalue option array;
   bb_env  : (bbid, Llvm.llbasicblock) Hashtbl.t;
+  llfunc_info : llfunc_info;
 }
 
 let rec mirtyp_get_lltyp (ctx : proggen_ctx) (mirtyp : mirtyp) : lltype =
@@ -82,7 +86,11 @@ let create_fgen_ctx (ctx : proggen_ctx) (func : Mir.func) =
   let builder = builder ctx.llcontext in
   let ssa_env = Array.make func.next_ssaid None in
   let bb_env = Hashtbl.create (BBMap.cardinal func.bbs) in
-  { proggen_ctx = ctx; builder; ssa_env; bb_env }
+  let llfunc_info = find_llfunc_info ctx func.funcid in
+  { proggen_ctx = ctx; builder; ssa_env; bb_env ; llfunc_info }
+
+let get_llfunc (fgen_ctx : fgen_ctx) : llvalue =
+  fgen_ctx.llfunc_info.func
 
 let get_llbb (fgen_ctx : fgen_ctx) (bbid : bbid) : llbasicblock =
   try Hashtbl.find fgen_ctx.bb_env bbid
@@ -108,13 +116,107 @@ let decl_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
   let llfunc = declare_function (string_of_int mirfunc.funcid) llfunc_t ctx.llmodule in
   ctx_add_llfunc_info ctx mirfunc.funcid { mir_funcid = mirfunc.funcid; func_t = llfunc_t; func = llfunc; closwrpr = None; }
 
+let rec copy_vec (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirtyp : mirtyp) ( origvec : llvalue) : llvalue =
+  match mirtyp with
+  | TMIRUnit | TMIRI32 | TMIRI8 | TMIRClos _ | TMIRTup _ -> raise (LlvmgenError "copy_vec non vec mirtyp passed")
+  | TMIRVec (0, _) -> raise (LlvmgenError "copy_vec vec with dim 0")
+  | TMIRVec (1, inner_mirtyp) -> (
+    let origvec_ptr = Llvm.build_extractvalue origvec 0 "vellen" fgen_ctx.builder in
+    let origvec_len = Llvm.build_extractvalue origvec 1 "vellen" fgen_ctx.builder in
+    let len_i64 = Llvm.build_zext origvec_len ctx.i64_t "len_i64" fgen_ctx.builder in
+    let bytesz = 
+      match inner_mirtyp with
+      | TMIRVECI32 -> (
+        let i32_bytesz = Llvm.const_int ctx.i64_t 4 in 
+        build_mul len_i64 i32_bytesz "bytesz" fgen_ctx.builder )
+      | TMIRVECI8 -> len_i64
+    in
+
+    (*malloc new vec memory*)
+    let copyvec_ptr = build_call ctx.malloc_t ctx.malloc_func [| bytesz |] "copyvec_ptr" fgen_ctx.builder in
+    
+    (*do memcpy*)
+    let is_volatile = Llvm.const_int ctx.i1_t 0 in
+    ignore (build_call ctx.memcpy_t ctx.memcpy_func [| copyvec_ptr; origvec_ptr; bytesz; is_volatile |] "" fgen_ctx.builder);
+
+    (*build new vec struct*)
+    const_struct ctx.llcontext [| copyvec_ptr; origvec_len |]
+  )
+  | TMIRVec (n, inner_mirtyp) -> (
+    let origvec_ptr = Llvm.build_extractvalue origvec 0 "vellen" fgen_ctx.builder in
+    let origvec_len = Llvm.build_extractvalue origvec 1 "vellen" fgen_ctx.builder in
+    let len_i64 = Llvm.build_zext origvec_len ctx.i64_t "len_i64" fgen_ctx.builder in
+    let vec_bytesz = Llvm.size_of ctx.vec_t in
+    let bytesz = build_mul len_i64 vec_bytesz "bytesz" fgen_ctx.builder in
+
+    (*malloc new vec memory*)
+    let copyvec_ptr = build_call ctx.malloc_t ctx.malloc_func [| bytesz |] "copyvec_ptr" fgen_ctx.builder in
+
+    (*decl loop bbs*)
+    let header_bb = append_block ctx.llcontext ("copy_vec_header_dim_" ^ string_of_int n) (get_llfunc fgen_ctx) in
+    let loop_bb = append_block ctx.llcontext ("copy_vec_loop_dim_" ^ string_of_int n) (get_llfunc fgen_ctx) in
+    let exit_bb = append_block ctx.llcontext ("copy_vec_exit_dim_" ^ string_of_int n) (get_llfunc fgen_ctx) in
+    let current_bb = insertion_block fgen_ctx.builder in
+
+    (*branch to loop header*)
+    ignore (build_br header_bb fgen_ctx.builder);
+
+    (*loop header*)
+    position_at_end header_bb fgen_ctx.builder;
+    let i64_zero = Llvm.const_int ctx.i64_t 0 in
+    let phi_index = build_phi [(i64_zero, current_bb)] "copy_vec_index" fgen_ctx.builder in
+    let cond = build_icmp Icmp.Slt phi_index len_i64 "copy_vec_cond" fgen_ctx.builder in
+    ignore (build_cond_br cond loop_bb exit_bb fgen_ctx.builder);
+
+    (*loop body*)
+    position_at_end loop_bb fgen_ctx.builder;
+    let origvec_elm_ptr = build_in_bounds_gep ctx.vec_t origvec_ptr [| phi_index |] "origvec_elm_ptr" fgen_ctx.builder in
+    let orig_elm = build_load ctx.vec_t origvec_elm_ptr "elm" fgen_ctx.builder in
+    let copy_elm = copy_vec ctx fgen_ctx (TMIRVec (n-1, inner_mirtyp)) orig_elm in
+    let copyvec_elm_ptr = build_in_bounds_gep ctx.vec_t copyvec_ptr [| phi_index |] "copyvec_elm_ptr" fgen_ctx.builder in
+    ignore (build_store copy_elm copyvec_elm_ptr fgen_ctx.builder);
+    let next_index = build_add phi_index (Llvm.const_int ctx.i64_t 1) "next_index" fgen_ctx.builder in
+    ignore (add_incoming (next_index, loop_bb) phi_index);
+    ignore (build_br header_bb fgen_ctx.builder);
+
+    (*loop exit*)
+    position_at_end exit_bb fgen_ctx.builder;
+    const_struct ctx.llcontext [| copyvec_ptr; origvec_len |]
+  )
+
+let copy_clos (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirtyp : mirtyp) ( origclos : llvalue) : llvalue =
+  match mirtyp with
+  | TMIRUnit | TMIRI32 | TMIRI8 | TMIRVec _ | TMIRTup _ -> raise (LlvmgenError "copy_clos non vec mirtyp passed")
+  | TMIRClos _ -> (
+    let copy_llfunc = build_extractvalue origclos 2 "clos_copy_fptr" fgen_ctx.builder in
+    let clos_lltyp = mirtyp_get_lltyp ctx mirtyp in
+    let copy_func_t = Llvm.function_type (clos_lltyp) [| clos_lltyp |] in
+    build_call copy_func_t copy_llfunc [| origclos |] "clos_copy" fgen_ctx.builder
+  )
+
+let rec copy_tup (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirtyp : mirtyp) ( origclos : llvalue) : llvalue =
+  match mirtyp with
+  | TMIRUnit | TMIRI32 | TMIRI8 | TMIRClos _ | TMIRVec _ -> raise (LlvmgenError "copy_tup non vec mirtyp passed")
+  | TMIRTup elms -> (
+    let copy_elms = List.mapi (fun i elm_mirtyp ->
+      let orig_elm = build_extractvalue origclos i ("tup_elm_" ^ string_of_int i) fgen_ctx.builder in
+      match elm_mirtyp with
+      | TMIRUnit | TMIRI32 | TMIRI8 -> orig_elm
+      | TMIRTup _ -> copy_tup ctx fgen_ctx elm_mirtyp orig_elm
+      | TMIRClos _ -> copy_clos ctx fgen_ctx elm_mirtyp orig_elm
+      | TMIRVec _ -> copy_vec ctx fgen_ctx elm_mirtyp orig_elm
+    ) elms in
+    Llvm.const_struct ctx.llcontext (Array.of_list copy_elms)
+  )
+
+
 let lower_op (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
   match mirop with
   | _ -> raise (LlvmgenError "lower_op: not implemented yet")
 
 let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
   let fgen_ctx = create_fgen_ctx ctx mirfunc in
-  let llfunc_info = find_llfunc_info ctx mirfunc.funcid in
+  let llfunc_info = fgen_ctx.llfunc_info in
   let llfunc = llfunc_info.func in 
 
   (*create the entry bb*)
@@ -197,6 +299,7 @@ let lower_mir ( p : Mir.program) : llmodule =
 
   let void_t = void_type llcontext in
   let unit_t = Llvm.struct_type llcontext [||] in
+  let i1_t = i1_type llcontext in
   let i8_t = i8_type llcontext in
   let i32_t = i32_type llcontext in
   let i64_t = i64_type llcontext in
@@ -210,6 +313,8 @@ let lower_mir ( p : Mir.program) : llmodule =
   let malloc_func = Llvm.declare_function "malloc" malloc_t llmodule in
   let free_t = Llvm.function_type (void_t) [| ptr_t |] in
   let free_func = Llvm.declare_function "free" free_t llmodule in
+  let memcpy_t = Llvm.function_type (void_t) [| ptr_t; ptr_t; i64_t; i1_t |] in
+  let memcpy_func = Llvm.declare_function "llvm.memcpy.p0.p0.i64" memcpy_t llmodule in
 
   let globals_env = Hashtbl.create 32 in
   let func_env = Hashtbl.create 32 in
@@ -222,6 +327,7 @@ let lower_mir ( p : Mir.program) : llmodule =
     llmodule;
     void_t;
     unit_t;
+    i1_t;
     i8_t;
     i32_t;
     i64_t;
@@ -233,6 +339,8 @@ let lower_mir ( p : Mir.program) : llmodule =
     free_t;
     globals_env;
     free_func;
+    memcpy_t;
+    memcpy_func;
     func_env;
     closhelper_env;
     miranalysis;
