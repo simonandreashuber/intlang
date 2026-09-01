@@ -116,102 +116,277 @@ let decl_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
   let llfunc = declare_function (string_of_int mirfunc.funcid) llfunc_t ctx.llmodule in
   ctx_add_llfunc_info ctx mirfunc.funcid { mir_funcid = mirfunc.funcid; func_t = llfunc_t; func = llfunc; closwrpr = None; }
 
-let rec copy_vec (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirtyp : mirtyp) ( origvec : llvalue) : llvalue =
+let rec copy_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirtyp : mirtyp) ( origvec : llvalue) : llvalue =
   match mirtyp with
   | TMIRUnit | TMIRI32 | TMIRI8 | TMIRClos _ | TMIRTup _ -> raise (LlvmgenError "copy_vec non vec mirtyp passed")
   | TMIRVec (0, _) -> raise (LlvmgenError "copy_vec vec with dim 0")
   | TMIRVec (1, inner_mirtyp) -> (
-    let origvec_ptr = Llvm.build_extractvalue origvec 0 "vellen" fgen_ctx.builder in
-    let origvec_len = Llvm.build_extractvalue origvec 1 "vellen" fgen_ctx.builder in
-    let len_i64 = Llvm.build_zext origvec_len ctx.i64_t "len_i64" fgen_ctx.builder in
+    let origvec_ptr = Llvm.build_extractvalue origvec 0 "vellen" builder in
+    let origvec_len = Llvm.build_extractvalue origvec 1 "vellen" builder in
+    let len_i64 = Llvm.build_zext origvec_len ctx.i64_t "len_i64" builder in
     let bytesz = 
       match inner_mirtyp with
       | TMIRVECI32 -> (
         let i32_bytesz = Llvm.const_int ctx.i64_t 4 in 
-        build_mul len_i64 i32_bytesz "bytesz" fgen_ctx.builder )
+        build_mul len_i64 i32_bytesz "bytesz" builder )
       | TMIRVECI8 -> len_i64
     in
 
     (*malloc new vec memory*)
-    let copyvec_ptr = build_call ctx.malloc_t ctx.malloc_func [| bytesz |] "copyvec_ptr" fgen_ctx.builder in
+    let copyvec_ptr = build_call ctx.malloc_t ctx.malloc_func [| bytesz |] "copyvec_ptr" builder in
     
     (*do memcpy*)
     let is_volatile = Llvm.const_int ctx.i1_t 0 in
-    ignore (build_call ctx.memcpy_t ctx.memcpy_func [| copyvec_ptr; origvec_ptr; bytesz; is_volatile |] "" fgen_ctx.builder);
+    ignore (build_call ctx.memcpy_t ctx.memcpy_func [| copyvec_ptr; origvec_ptr; bytesz; is_volatile |] "" builder);
 
     (*build new vec struct*)
     const_struct ctx.llcontext [| copyvec_ptr; origvec_len |]
   )
   | TMIRVec (n, inner_mirtyp) -> (
-    let origvec_ptr = Llvm.build_extractvalue origvec 0 "vellen" fgen_ctx.builder in
-    let origvec_len = Llvm.build_extractvalue origvec 1 "vellen" fgen_ctx.builder in
-    let len_i64 = Llvm.build_zext origvec_len ctx.i64_t "len_i64" fgen_ctx.builder in
+    let origvec_ptr = Llvm.build_extractvalue origvec 0 "vellen" builder in
+    let origvec_len = Llvm.build_extractvalue origvec 1 "vellen" builder in
+    let len_i64 = Llvm.build_zext origvec_len ctx.i64_t "len_i64" builder in
     let vec_bytesz = Llvm.size_of ctx.vec_t in
-    let bytesz = build_mul len_i64 vec_bytesz "bytesz" fgen_ctx.builder in
+    let bytesz = build_mul len_i64 vec_bytesz "bytesz" builder in
 
     (*malloc new vec memory*)
-    let copyvec_ptr = build_call ctx.malloc_t ctx.malloc_func [| bytesz |] "copyvec_ptr" fgen_ctx.builder in
+    let copyvec_ptr = build_call ctx.malloc_t ctx.malloc_func [| bytesz |] "copyvec_ptr" builder in
 
     (*decl loop bbs*)
-    let header_bb = append_block ctx.llcontext ("copy_vec_header_dim_" ^ string_of_int n) (get_llfunc fgen_ctx) in
-    let loop_bb = append_block ctx.llcontext ("copy_vec_loop_dim_" ^ string_of_int n) (get_llfunc fgen_ctx) in
-    let exit_bb = append_block ctx.llcontext ("copy_vec_exit_dim_" ^ string_of_int n) (get_llfunc fgen_ctx) in
-    let current_bb = insertion_block fgen_ctx.builder in
+    (* TO DO Make nice placement *)
+    let header_bb = append_block ctx.llcontext ("copy_vec_header_dim_" ^ string_of_int n) llfunc in
+    let loop_bb = append_block ctx.llcontext ("copy_vec_loop_dim_" ^ string_of_int n) llfunc in
+    let exit_bb = append_block ctx.llcontext ("copy_vec_exit_dim_" ^ string_of_int n) llfunc in
+    let current_bb = insertion_block builder in
 
     (*branch to loop header*)
-    ignore (build_br header_bb fgen_ctx.builder);
+    ignore (build_br header_bb builder);
 
     (*loop header*)
-    position_at_end header_bb fgen_ctx.builder;
+    position_at_end header_bb builder;
     let i64_zero = Llvm.const_int ctx.i64_t 0 in
-    let phi_index = build_phi [(i64_zero, current_bb)] "copy_vec_index" fgen_ctx.builder in
-    let cond = build_icmp Icmp.Slt phi_index len_i64 "copy_vec_cond" fgen_ctx.builder in
-    ignore (build_cond_br cond loop_bb exit_bb fgen_ctx.builder);
+    let phi_index = build_phi [(i64_zero, current_bb)] "copy_vec_index" builder in
+    let cond = build_icmp Icmp.Slt phi_index len_i64 "copy_vec_cond" builder in
+    ignore (build_cond_br cond loop_bb exit_bb builder);
 
     (*loop body*)
-    position_at_end loop_bb fgen_ctx.builder;
-    let origvec_elm_ptr = build_in_bounds_gep ctx.vec_t origvec_ptr [| phi_index |] "origvec_elm_ptr" fgen_ctx.builder in
-    let orig_elm = build_load ctx.vec_t origvec_elm_ptr "elm" fgen_ctx.builder in
-    let copy_elm = copy_vec ctx fgen_ctx (TMIRVec (n-1, inner_mirtyp)) orig_elm in
-    let copyvec_elm_ptr = build_in_bounds_gep ctx.vec_t copyvec_ptr [| phi_index |] "copyvec_elm_ptr" fgen_ctx.builder in
-    ignore (build_store copy_elm copyvec_elm_ptr fgen_ctx.builder);
-    let next_index = build_add phi_index (Llvm.const_int ctx.i64_t 1) "next_index" fgen_ctx.builder in
+    position_at_end loop_bb builder;
+    let origvec_elm_ptr = build_in_bounds_gep ctx.vec_t origvec_ptr [| phi_index |] "origvec_elm_ptr" builder in
+    let orig_elm = build_load ctx.vec_t origvec_elm_ptr "elm" builder in
+    let copy_elm = copy_vec ctx builder llfunc (TMIRVec (n-1, inner_mirtyp)) orig_elm in
+    let copyvec_elm_ptr = build_in_bounds_gep ctx.vec_t copyvec_ptr [| phi_index |] "copyvec_elm_ptr" builder in
+    ignore (build_store copy_elm copyvec_elm_ptr builder);
+    let next_index = build_add phi_index (Llvm.const_int ctx.i64_t 1) "next_index" builder in
     ignore (add_incoming (next_index, loop_bb) phi_index);
-    ignore (build_br header_bb fgen_ctx.builder);
+    ignore (build_br header_bb builder);
 
     (*loop exit*)
-    position_at_end exit_bb fgen_ctx.builder;
+    position_at_end exit_bb builder;
     const_struct ctx.llcontext [| copyvec_ptr; origvec_len |]
   )
 
-let copy_clos (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirtyp : mirtyp) ( origclos : llvalue) : llvalue =
+let copy_clos (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirtyp : mirtyp) ( origclos : llvalue) : llvalue =
   match mirtyp with
   | TMIRUnit | TMIRI32 | TMIRI8 | TMIRVec _ | TMIRTup _ -> raise (LlvmgenError "copy_clos non vec mirtyp passed")
   | TMIRClos _ -> (
-    let copy_llfunc = build_extractvalue origclos 2 "clos_copy_fptr" fgen_ctx.builder in
-    let clos_lltyp = mirtyp_get_lltyp ctx mirtyp in
-    let copy_func_t = Llvm.function_type (clos_lltyp) [| clos_lltyp |] in
-    build_call copy_func_t copy_llfunc [| origclos |] "clos_copy" fgen_ctx.builder
+    let borr_llfunc = build_extractvalue origclos 0 "clos_borr_fptr" builder in
+    let own_llfunc = build_extractvalue origclos 1 "clos_own_fptr" builder in
+    let copy_llfunc = build_extractvalue origclos 2 "clos_copy_fptr" builder in
+    let drop_llfunc = build_extractvalue origclos 3 "clos_drop_fptr" builder in
+    let data_ptr = build_extractvalue origclos 4 "clos_data_ptr" builder in
+    let off = build_extractvalue origclos 5 "clos_off" builder in
+    let copy_func_t = Llvm.function_type (ctx.ptr_t) [| ctx.ptr_t; ctx.i64_t |] in
+    let datacopy_ptr = build_call copy_func_t copy_llfunc [| data_ptr; off |] "clos_copy" builder in
+    Llvm.const_struct ctx.llcontext [| borr_llfunc; own_llfunc; copy_llfunc; drop_llfunc; datacopy_ptr; off |]
   )
 
-let rec copy_tup (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirtyp : mirtyp) ( origclos : llvalue) : llvalue =
+let rec copy_tup (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirtyp : mirtyp) ( origclos : llvalue) : llvalue =
   match mirtyp with
   | TMIRUnit | TMIRI32 | TMIRI8 | TMIRClos _ | TMIRVec _ -> raise (LlvmgenError "copy_tup non vec mirtyp passed")
   | TMIRTup elms -> (
     let copy_elms = List.mapi (fun i elm_mirtyp ->
-      let orig_elm = build_extractvalue origclos i ("tup_elm_" ^ string_of_int i) fgen_ctx.builder in
+      let orig_elm = build_extractvalue origclos i ("tup_elm_" ^ string_of_int i) builder in
       match elm_mirtyp with
       | TMIRUnit | TMIRI32 | TMIRI8 -> orig_elm
-      | TMIRTup _ -> copy_tup ctx fgen_ctx elm_mirtyp orig_elm
-      | TMIRClos _ -> copy_clos ctx fgen_ctx elm_mirtyp orig_elm
-      | TMIRVec _ -> copy_vec ctx fgen_ctx elm_mirtyp orig_elm
+      | TMIRTup _ -> copy_tup ctx builder llfunc elm_mirtyp orig_elm
+      | TMIRClos _ -> copy_clos ctx builder llfunc elm_mirtyp orig_elm
+      | TMIRVec _ -> copy_vec ctx builder llfunc elm_mirtyp orig_elm
     ) elms in
     Llvm.const_struct ctx.llcontext (Array.of_list copy_elms)
   )
 
+let copy (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirtyp : mirtyp) ( origval : llvalue) : llvalue =
+  match mirtyp with
+  | TMIRUnit | TMIRI32 | TMIRI8 -> origval
+  | TMIRTup _ -> copy_tup ctx builder llfunc mirtyp origval
+  | TMIRClos _ -> copy_clos ctx builder llfunc mirtyp origval
+  | TMIRVec _ -> copy_vec ctx builder llfunc mirtyp origval
 
-let lower_op (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
+let get_clos_wrapper (ctx : proggen_ctx) (mirfuncid : funcid) : llvalue =
+  let llfunc_info = find_llfunc_info ctx mirfuncid in
+  match llfunc_info.closwrpr with
+  | Some closwrpr -> closwrpr
+  | None -> (
+    let closwrpr_func_t = function_type (return_type llfunc_info.func_t) [| ctx.clos_t |] in
+    let closwrpr_func = declare_function "closwrpr_func" closwrpr_func_t ctx.llmodule in
+    let bb = append_block ctx.llcontext "entry" closwrpr_func in
+    let builder = builder ctx.llcontext in
+    position_at_end bb builder;
+    let clos_dataptr = param closwrpr_func 0 in
+    let args_lltyps = param_types llfunc_info.func_t in
+    let clos_data_struct = Llvm.struct_type ctx.llcontext args_lltyps in
+    let args_llvalues = 
+      Array.init (Array.length args_lltyps) (fun i ->
+      let argptr = build_gep clos_data_struct clos_dataptr [| const_int ctx.i32_t 0; const_int ctx.i32_t i |] ("argptr_" ^ string_of_int i) builder in
+      build_load args_lltyps.(i) argptr ("arg_" ^ string_of_int i) builder ) 
+    in
+    let ret_val = build_call llfunc_info.func_t llfunc_info.func args_llvalues "ret_val" builder in
+    ignore (build_ret ret_val builder);
+    llfunc_info.closwrpr <- Some closwrpr_func;
+    closwrpr_func
+  )
+
+let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_helper_info =
+  
+    (*
+    creates the following llvm code
+
+    bbcurr:
+      ...
+      branch bb0
+
+    bb0:
+      cond0 = i64cmp gt off 0
+      cond_branch cond0 bb1 bbend
+
+    bb1:
+      effects of (fgen builder 0)
+      cond1 = i64cmp gt off 1
+      cond_branch cond1 bb2 bbend
+
+    ...
+
+    bbmaxoff:
+      effects of (fgen builder (maxoff-1))
+      branch bbend
+
+    bbend:
+
+  *)
+  let gen_ladder (builder : llbuilder) (llfunc : llvalue) (fgen : llbuilder -> int -> unit) (off : llvalue) (maxoff : int) =
+    assert (maxoff > 0); (* empty closures should not exits *)
+
+    (* Phase 1: create bbs and call f *)
+    let bbcurr = insertion_block builder in
+
+    let bb0 = append_block ctx.llcontext "bb0" llfunc in
+
+    let i = ref 1 in
+    let bblst = ref [bb0] in
+    while !i <= maxoff do
+      let bbi = append_block ctx.llcontext ("bb" ^ string_of_int !i) llfunc in
+      position_at_end bbi builder;
+      fgen builder (!i - 1);
+      i := !i + 1;
+      bblst := bbi :: !bblst;
+    done;
+
+    let bbmaxoff, bbs_wcondbranch = 
+      match !bblst with
+      | h :: tl -> h, List.rev tl
+      | [] -> raise (LlvmgenError "aux: empty bblst (internal should not happen)")
+    in
+
+    let condbranch_bbpairs = 
+      match List.rev !bblst with
+      | h :: tl -> List.combine bbs_wcondbranch tl
+      | [] -> raise (LlvmgenError "aux: empty bblst (internal should not happen)")
+    in
+
+    let bbend = append_block ctx.llcontext "bbend" llfunc in
+
+    (* Phase 2: add the terminators *)
+    position_at_end bbcurr builder;
+    ignore (build_br bb0 builder);
+
+    List.iteri (fun i (bb, next_bb) ->
+      position_at_end bb builder;
+      let cond = build_icmp Icmp.Sgt off (const_int ctx.i64_t i) ("cond_" ^ string_of_int i) builder in
+      ignore (build_cond_br cond next_bb bbend builder)
+    ) condbranch_bbpairs;
+
+    position_at_end bbmaxoff builder;
+    ignore (build_br bbend builder);
+
+    position_at_end bbend builder;
+    
+  in
+
+  match Hashtbl.find_opt ctx.closhelper_env args_mirtyp with
+  | Some clos_helpers -> clos_helpers
+  | None -> (
+
+    (*COPY FUNC*)
+    (*declare copy func*)
+    let copy_func_t = function_type ctx.ptr_t [| ctx.ptr_t ; ctx.i64_t |] in
+    let copy_func = declare_function "clos_copy_func" copy_func_t ctx.llmodule in
+    let builder = builder ctx.llcontext in
+    let entry_bb = append_block ctx.llcontext "entry" copy_func in
+    position_at_end entry_bb builder;
+
+    (*alloc new data memory*)
+    let args_mirtyp_arr = Array.of_list args_mirtyp in
+    let args_lltype_arr = Array.of_list @@ List.map (mirtyp_get_lltyp ctx) args_mirtyp in
+    let clos_data_struct = Llvm.struct_type ctx.llcontext args_lltype_arr in
+    let clos_data_size = Llvm.size_of clos_data_struct in
+    let clos_data_copy_ptr = build_call ctx.malloc_t ctx.malloc_func [| clos_data_size |] "clos_data_copy_ptr" builder in
+    let clos_data_ptr = param copy_func 0 in
+
+    let copy_arg_gen (builder : llbuilder) (i : int) =
+      let arg_orig_ptr = build_gep clos_data_struct clos_data_ptr [| const_int ctx.i32_t 0; const_int ctx.i32_t i |] ("argptr_" ^ string_of_int i) builder in
+      let arg_orig_val = build_load args_lltype_arr.(i) arg_orig_ptr ("arg_" ^ string_of_int i) builder in
+      let arg_copy_val = copy ctx builder copy_func args_mirtyp_arr.(i) arg_orig_val in
+      let arg_copy_ptr = build_gep clos_data_struct clos_data_copy_ptr [| const_int ctx.i32_t 0; const_int ctx.i32_t i |] ("argcopyptr_" ^ string_of_int i) builder in
+      ignore (build_store arg_copy_val arg_copy_ptr builder)
+    in
+    gen_ladder builder copy_func copy_arg_gen (param copy_func 1) (List.length args_mirtyp);
+
+    ignore (build_ret clos_data_copy_ptr builder);
+
+    (*DROP FUNC*)
+    (*declare drop func*)
+    {
+      signature = args_mirtyp;
+      copy_func;
+      drop_func = copy_func;
+    }
+  )
+
+let lower_op (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirfunc : func) (mirop : Mir.op) : unit =
   match mirop with
+  | Func (def_ssaid, borr_funcid_ref, own_funcid_opt_ref) -> (
+    (*gen on demand / get clos wrappers for funcs*)
+    let borr_closwrpr = get_clos_wrapper ctx !borr_funcid_ref in
+    if Option.is_none !own_funcid_opt_ref then raise (LlvmgenError "lower_op: own funcid not implemented yet");
+    let own_closwrpr = get_clos_wrapper ctx (Option.get !own_funcid_opt_ref) in
+
+    (*build closure struct*)
+    let clos_mirtyp = get_mirtyp_func mirfunc def_ssaid in
+    let args_mirtyp = 
+      match clos_mirtyp with
+      | TMIRClos (args, ret) -> args
+      | _ -> raise (LlvmgenError "mir ssa def has non clos type after func op")
+    in
+
+    (*gen copy and drop helpers *)
+    let clos_helpers = get_clos_helpers ctx args_mirtyp in
+    ignore (clos_helpers); ignore (borr_closwrpr); ignore (own_closwrpr);
+
+    (*alloc data memory*)
+
+    (* assemble closure *)
+    ()
+  )
   | _ -> raise (LlvmgenError "lower_op: not implemented yet")
 
 let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
@@ -241,7 +416,7 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
 
     (*lower all ops*)
     List.iter (fun mirop ->
-      ignore (lower_op ctx fgen_ctx mirop)
+      ignore (lower_op ctx fgen_ctx mirfunc mirop)
     ) (List.rev mirbb.ops);    
 
   ) rpo_info.rpo_lst;
