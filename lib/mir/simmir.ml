@@ -21,7 +21,10 @@ let i32val_unpack (v : value) = match v with | Vi32 i -> i | _ -> failwith "i32v
 let global_values : (globalid, value) Hashtbl.t = Hashtbl.create 32
 
 let store_global (globalid : globalid) (v : value) : unit =
-  Hashtbl.replace global_values globalid v
+    if not (Hashtbl.mem global_values globalid) then
+      Hashtbl.add global_values globalid v
+    else
+      failwith (Printf.sprintf "Simulator Error: second storeglobal for Global ID %d" globalid)
 
 let load_global (globalid : globalid) : value =
   try Hashtbl.find global_values globalid
@@ -62,7 +65,16 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
     else ( if sc.consume then failwith "consume: consumed a non memory value this should not happen" else v )
   in
 
-  let def (s : ssaid) (v : value) = Hashtbl.replace values s v in
+  let def (s : ssaid) (v : value) = 
+    if get_ownership_func func s = Owned then (
+        if not (Hashtbl.mem values s) then
+            Hashtbl.add values s v
+        else
+            failwith (Printf.sprintf "Simulator Error: SSA ID %d defined twice in %s" s func.name)
+    )
+    else
+        Hashtbl.replace values s v
+  in
 
   let copy_memvalue (v : value) : value =
     let rec copy_memvalue_aux (v : value) : value =
