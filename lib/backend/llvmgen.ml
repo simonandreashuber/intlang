@@ -98,6 +98,12 @@ let get_llssa (fgen_ctx : fgen_ctx) (ssaid : ssaid) : llvalue =
   | Some llval -> llval
   | None -> raise (LlvmgenError ("get_llssa: ssa not found in env: " ^ string_of_int ssaid))
 
+let set_llssa (fgen_ctx : fgen_ctx) (ssaid : ssaid) (llval : llvalue) : unit =
+  if Option.is_some fgen_ctx.ssa_env.(ssaid) then
+    raise (LlvmgenError ("set_llssa: ssa already set in env: " ^ string_of_int ssaid))
+  else
+  fgen_ctx.ssa_env.(ssaid) <- Some llval
+
 
 
   
@@ -533,27 +539,33 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
 let lower_op (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirfunc : func) (mirop : Mir.op) : unit =
   match mirop with
   | Func (def_ssaid, borr_funcid_ref, own_funcid_opt_ref) -> (
+    
     (*gen on demand / get clos wrappers for funcs*)
     let borr_closwrpr = get_clos_wrapper ctx !borr_funcid_ref in
     if Option.is_none !own_funcid_opt_ref then raise (LlvmgenError "lower_op: own funcid not implemented yet");
     let own_closwrpr = get_clos_wrapper ctx (Option.get !own_funcid_opt_ref) in
 
-    (*build closure struct*)
+    (*layout*)
     let clos_mirtyp = get_mirtyp_func mirfunc def_ssaid in
     let args_mirtyp = 
       match clos_mirtyp with
       | TMIRClos (args, ret) -> args
       | _ -> raise (LlvmgenError "mir ssa def has non clos type after func op")
     in
+    let args_lltype_arr = Array.of_list @@ List.map (mirtyp_get_lltyp ctx) args_mirtyp in
+    let clos_data_struct = Llvm.struct_type ctx.llcontext args_lltype_arr in
+    let clos_data_size = Llvm.size_of clos_data_struct in
 
     (*gen copy and drop helpers *)
     let clos_helpers = get_clos_helpers ctx args_mirtyp in
     ignore (clos_helpers); ignore (borr_closwrpr); ignore (own_closwrpr);
 
     (*alloc data memory*)
+    let clos_data_ptr = build_call ctx.malloc_t ctx.malloc_func [| clos_data_size |] "clos_data_ptr" fgen_ctx.builder in
 
     (* assemble closure *)
-    ()
+    let clos_val = Llvm.const_struct ctx.llcontext [| borr_closwrpr; own_closwrpr; clos_helpers.copy_func; clos_helpers.drop_func; clos_data_ptr; const_int ctx.i64_t 0 |] in
+    set_llssa fgen_ctx def_ssaid clos_val
   )
   | _ -> raise (LlvmgenError "lower_op: not implemented yet")
 
@@ -579,7 +591,7 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
       let mirtyp = get_mirtyp_func mirfunc ssaid in
       let lltyp = mirtyp_get_lltyp ctx mirtyp in
       let phi_node = build_empty_phi lltyp (string_of_int ssaid) fgen_ctx.builder in
-      fgen_ctx.ssa_env.(ssaid) <- Some phi_node
+      set_llssa fgen_ctx ssaid phi_node
     ) mirbb.args;
 
     (*lower all ops*)
