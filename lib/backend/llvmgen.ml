@@ -33,6 +33,7 @@ type clos_helper_info = {
 type proggen_ctx = {
   llcontext : llcontext;
   llmodule  : llmodule;
+  lldata_layout : DataLayout.t;
 
   void_t : lltype;
   unit_t : lltype;
@@ -367,7 +368,45 @@ let drop (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirtyp : 
   | TMIRClos _ -> drop_clos ctx builder llfunc mirtyp llval
   | TMIRVec _ -> drop_vec ctx builder llfunc mirtyp llval
 
+let rec init_vec (fgen_ctx : fgen_ctx) (defval_ssaid : ssaid) (dim_sizes : ssaid list) : llvalue =
+  let ctx = fgen_ctx.proggen_ctx in
+  let builder = fgen_ctx.builder in
+  let mirfunc = fgen_ctx.mirfunc in
+  let defval_mirtyp = get_mirtyp_func mirfunc defval_ssaid in
+  match dim_sizes with
+  | vec_size_ssaid :: rest_dim_sizes -> (
+    (* generic case => use loop over the init_vec of the rest dimensions *)
 
+    (*malloc new vec memory*)
+    let vec_size_llval = get_llssa fgen_ctx vec_size_ssaid in
+    let vec_size_i64 = build_zext vec_size_llval ctx.i64_t "vec_size_i64" builder in
+    let vec_elm_lltyp = 
+      match rest_dim_sizes, defval_mirtyp with
+      | [], TMIRI32 -> ctx.i32_t
+      | [], TMIRI8 -> ctx.i8_t
+      | [], TMIRVec _ -> ctx.vec_t
+      | h :: tl, _ -> ctx.vec_t 
+      | _ -> raise (LlvmgenError "init_vec: defval mirtyp not i32, i8 or vec")
+    in
+    let vec_elm_size = size_of vec_elm_lltyp in
+    let vec_bytesz = build_mul vec_size_i64 vec_elm_size "vec_bytesz" builder in
+    let vec_ptr = build_call ctx.malloc_t ctx.malloc_func [| vec_bytesz |] "vec_ptr" builder in
+
+    (*init each element of the vec*)
+    let init_elm (idx : llvalue) : unit =
+      let elm = init_vec fgen_ctx defval_ssaid rest_dim_sizes in
+      let elm_ptr = build_gep vec_elm_lltyp vec_ptr [| idx |] "vec_elm_ptr" builder in
+      ignore (build_store elm elm_ptr builder)
+    in
+    gen_loop ctx builder fgen_ctx.llfunc_info.func init_elm vec_size_i64;
+
+    (*build new vec struct*)
+    const_struct ctx.llcontext [| vec_ptr; vec_size_llval |]
+  )
+  | [] -> (
+    (* base case => copy the defval *)
+    copy ctx builder fgen_ctx.llfunc_info.func defval_mirtyp (get_llssa fgen_ctx defval_ssaid)
+  )
 
 (* ========================================================================= *)
 (* Create Closures                                                           *)
@@ -379,12 +418,11 @@ let get_clos_layout (ctx : proggen_ctx) (args_lltyps : lltype array) : int array
     simulates the offsets that the pack op is going to use
   *)
 
-  let lltarget_layout = Llvm_target.DataLayout.of_string (Llvm.data_layout ctx.llmodule) in
   let curr_off = ref 0 in (*current offset in bytes*)
 
   Array.map (fun arg_lltyp ->
-    let arg_size = Int64.to_int @@ Llvm_target.DataLayout.abi_size arg_lltyp lltarget_layout in
-    let arg_align = Llvm_target.DataLayout.abi_align arg_lltyp lltarget_layout in
+    let arg_size = Int64.to_int @@ Llvm_target.DataLayout.abi_size arg_lltyp ctx.lldata_layout in
+    let arg_align = Llvm_target.DataLayout.abi_align arg_lltyp ctx.lldata_layout in
     let off = (!curr_off + arg_align - 1) land (lnot (arg_align - 1)) in
     curr_off := off + arg_size;
     off
@@ -576,6 +614,7 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
   let ctx = fgen_ctx.proggen_ctx in
   let mirfunc = fgen_ctx.mirfunc in
   let builder = fgen_ctx.builder in
+  let get_lltyp_from_ssaid ssaid = mirtyp_get_lltyp ctx @@ get_mirtyp_func mirfunc ssaid in
   match mirop with
   | Func (def_ssaid, borr_funcid_ref, own_funcid_opt_ref) -> (
     
@@ -607,8 +646,7 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
   | Pack (def_ssaid, clos_consume, args_consume) -> (
     let clos_llval = consume_or_copy fgen_ctx clos_consume in
     let args_llval = List.map (consume_or_copy fgen_ctx) args_consume in
-    let args_lltyp = List.map (fun sc -> mirtyp_get_lltyp ctx @@ get_mirtyp_func mirfunc sc.ssaid) args_consume in
-    let lltarget_layout = Llvm_target.DataLayout.of_string (Llvm.data_layout ctx.llmodule) in
+    let args_lltyp = List.map (fun sc -> get_lltyp_from_ssaid sc.ssaid) args_consume in
 
     let borr_llfunc = build_extractvalue clos_llval 0 "clos_borr_fptr" builder in
     let own_llfunc = build_extractvalue clos_llval 1 "clos_own_fptr" builder in
@@ -618,13 +656,13 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     let clos_data_off_ref = ref (build_extractvalue clos_llval 5 "clos_data_off" fgen_ctx.builder) in
 
     List.iter2 (fun arg_llval arg_lltyp ->
-      let arg_align = Llvm_target.DataLayout.abi_align arg_lltyp lltarget_layout in
+      let arg_align = Llvm_target.DataLayout.abi_align arg_lltyp ctx.lldata_layout in
       let off_aligned_intermediate = build_add !clos_data_off_ref (const_int ctx.i64_t (arg_align - 1)) "off_aligned_intermediate" fgen_ctx.builder in
       let off_aligned_mask = build_not (const_int ctx.i64_t (arg_align - 1)) "off_aligned_mask" fgen_ctx.builder in
       let off_aligned = build_and off_aligned_intermediate off_aligned_mask "off_aligned" fgen_ctx.builder in
       let arg_ptr = build_gep ctx.i8_t clos_data_ptr [| off_aligned |] "argptr" fgen_ctx.builder in
       ignore (build_store arg_llval arg_ptr fgen_ctx.builder);
-      let arg_size = Int64.to_int (Llvm_target.DataLayout.abi_size arg_lltyp lltarget_layout) in
+      let arg_size = Int64.to_int (Llvm_target.DataLayout.abi_size arg_lltyp ctx.lldata_layout) in
       let off_aligned_plus_argsize = build_add off_aligned (const_int ctx.i64_t arg_size) "off_plus_argsize" fgen_ctx.builder in
       clos_data_off_ref := off_aligned_plus_argsize
     ) args_llval args_lltyp;
@@ -635,7 +673,7 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
   )
   | CallClosure (res_ssaid, clos_sc) -> (
     let clos_llval = get_llssa fgen_ctx clos_sc.ssaid in
-    let clos_wrprfunc_t = function_type (mirtyp_get_lltyp ctx @@ get_mirtyp_func mirfunc res_ssaid) [| ctx.ptr_t |] in
+    let clos_wrprfunc_t = function_type (get_lltyp_from_ssaid res_ssaid) [| ctx.ptr_t |] in
     let clos_data_ptr = build_extractvalue clos_llval 4 "clos_data_ptr" fgen_ctx.builder in
 
     if clos_sc.consume then
@@ -678,7 +716,7 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
   )
   | LoadGlobal (def_ssaid, globalid) -> (
     let global_llval = find_global ctx globalid in
-    let global_lltyp = (mirtyp_get_lltyp ctx @@ get_mirtyp_func mirfunc def_ssaid) in
+    let global_lltyp = (get_lltyp_from_ssaid def_ssaid) in
     let loaded_llval = build_load global_lltyp global_llval "load_global" builder in
     set_llssa fgen_ctx def_ssaid loaded_llval
   )
@@ -694,6 +732,138 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     let llval = const_struct ctx.llcontext [||] in
     set_llssa fgen_ctx def_ssaid llval
   )
+  | Uopi32 (def_ssaid, op, origin_ssaid) -> (
+    let origin_llval = get_llssa fgen_ctx origin_ssaid in
+    let llval =
+      match op with
+      | Negi32 -> build_neg origin_llval "neg" builder
+      | Noti32 -> build_not origin_llval "not" builder
+    in
+    set_llssa fgen_ctx def_ssaid llval
+  )
+  | Uopi8 (def_ssaid, op, origin_ssaid) -> (
+    let origin_llval = get_llssa fgen_ctx origin_ssaid in
+    let llval =
+      match op with
+      | Negi8 -> build_neg origin_llval "neg" builder
+      | Noti8 -> build_not origin_llval "not" builder
+    in
+    set_llssa fgen_ctx def_ssaid llval
+  )
+  | Bopi32 (def_ssaid, bop, left_ssaid, right_ssaid) -> (
+    let left_llval = get_llssa fgen_ctx left_ssaid in
+    let right_llval = get_llssa fgen_ctx right_ssaid in
+    let cmp_aux (icmp : Icmp.t) : llvalue =
+      let cmp_llval = build_icmp icmp left_llval right_llval "cmp" builder in
+      build_zext cmp_llval ctx.i32_t "cmp_i32" builder
+    in
+    let llval =
+      match bop with
+      | Eqi32 -> cmp_aux Icmp.Eq
+      | Neqi32  -> cmp_aux Icmp.Ne
+      | Lti32   -> cmp_aux Icmp.Slt
+      | Gti32   -> cmp_aux Icmp.Sgt
+      | LtEqi32 -> cmp_aux Icmp.Sle
+      | GtEqi32 -> cmp_aux Icmp.Sge
+
+      (* Comparisons (Unsigned) *)
+      | ULti32   -> cmp_aux Icmp.Ult
+      | UGti32   -> cmp_aux Icmp.Ugt
+      | ULtEqi32 -> cmp_aux Icmp.Ule
+      | UGtEqi32 -> cmp_aux Icmp.Uge
+
+      (* Arithmetic *)
+      | Addi32  -> build_add left_llval right_llval "add" builder
+      | Subi32  -> build_sub left_llval right_llval "sub" builder
+      | Muli32  -> build_mul left_llval right_llval "mul" builder
+      | Divi32  -> build_sdiv left_llval right_llval "sdiv" builder
+      | UDivi32 -> build_udiv left_llval right_llval "udiv" builder
+      | Modi32  -> build_srem left_llval right_llval "srem" builder
+      | UModi32 -> build_urem left_llval right_llval "urem" builder
+
+      (* Bitwise *)
+      | Andi32  -> build_and left_llval right_llval "and" builder
+      | Ori32   -> build_or left_llval right_llval "or" builder
+      | Xori32  -> build_xor left_llval right_llval "xor" builder
+
+      (* Shifts *)
+      | Shli32  -> build_shl left_llval right_llval "shl" builder
+      | Shri32  -> build_ashr left_llval right_llval "ashr" builder
+      | UShri32 -> build_lshr left_llval right_llval "lshr" builder
+    in
+    set_llssa fgen_ctx def_ssaid llval
+  )
+  | Bopi8 (def_ssaid, bop, left_ssaid, right_ssaid) -> (
+    let left_llval = get_llssa fgen_ctx left_ssaid in
+    let right_llval = get_llssa fgen_ctx right_ssaid in
+    let cmp_aux (icmp : Icmp.t) : llvalue =
+      let cmp_llval = build_icmp icmp left_llval right_llval "cmp" builder in
+      build_zext cmp_llval ctx.i32_t "cmp_i32" builder
+    in
+    let llval =
+      match bop with
+      (* Comparisons (Unsigned, Yield i32) *)
+      | Eqi8   -> cmp_aux Icmp.Eq
+      | Neqi8  -> cmp_aux Icmp.Ne
+      | Lti8   -> cmp_aux Icmp.Ult
+      | Gti8   -> cmp_aux Icmp.Ugt
+      | LtEqi8 -> cmp_aux Icmp.Ule
+      | GtEqi8 -> cmp_aux Icmp.Uge
+
+      (* Arithmetic (Yield i8) *)
+      | Addi8  -> build_add left_llval right_llval "add" builder
+      | Subi8  -> build_sub left_llval right_llval "sub" builder
+
+      (* Bitwise (Yield i8) *)
+      | Andi8  -> build_and left_llval right_llval "and" builder
+      | Ori8   -> build_or left_llval right_llval "or" builder
+      | Xori8  -> build_xor left_llval right_llval "xor" builder
+    in
+    set_llssa fgen_ctx def_ssaid llval
+  )
+  | Tupwrp (ssa_def, elms_consume) -> (
+    let elms_llval = List.map (consume_or_copy fgen_ctx) elms_consume in
+    let tup_llval = Llvm.const_struct ctx.llcontext (Array.of_list elms_llval) in
+    set_llssa fgen_ctx ssa_def tup_llval
+  )
+  | Tupuwrp (ssa_defs, tup_consume) -> (
+    let tup_llval = get_llssa fgen_ctx tup_consume.ssaid in
+    List.iteri (fun i ssa_def ->
+      let elm_llval = build_extractvalue tup_llval i ("tup_elm_" ^ string_of_int i) builder in
+      set_llssa fgen_ctx ssa_def elm_llval
+    ) ssa_defs
+  ) 
+  | Veclit (ssa_def, lits_consume) -> (
+    match lits_consume with
+    | [] -> (
+      let vec_llval = Llvm.const_struct ctx.llcontext [| const_null ctx.ptr_t; const_int ctx.i32_t 0 |] in
+      set_llssa fgen_ctx ssa_def vec_llval
+    )
+    | first_lit :: tl -> (
+      let lits_llval = List.map (consume_or_copy fgen_ctx) lits_consume in
+
+      let lit_lltyp = get_lltyp_from_ssaid first_lit.ssaid in
+      let lit_size = Int64.to_int (DataLayout.abi_size lit_lltyp ctx.lldata_layout) in
+      let vec_ptr = build_call ctx.malloc_t ctx.malloc_func [| const_int ctx.i64_t (lit_size * (List.length lits_llval)) |] "vec_ptr" builder in
+      List.iteri (fun i lit_llval ->
+        let lit_ptr = build_gep lit_lltyp vec_ptr [| const_int ctx.i32_t i |] ("litptr_" ^ string_of_int i) builder in
+        ignore (build_store lit_llval lit_ptr builder)
+      ) lits_llval;
+      let vec_len = const_int ctx.i32_t (List.length lits_llval) in
+      let vec_llval = Llvm.const_struct ctx.llcontext [| vec_ptr; vec_len |] in
+      set_llssa fgen_ctx ssa_def vec_llval
+    )
+  )
+  | Vecinit (ssa_def, defval_ssaid, dim_sizes) -> (
+    let vec_llval = init_vec fgen_ctx defval_ssaid dim_sizes in
+    set_llssa fgen_ctx ssa_def vec_llval
+  )
+  | Veclen (ssa_def, vec_ssaid) -> (
+    let vec_llval = get_llssa fgen_ctx vec_ssaid in
+    let vec_len_llval = build_extractvalue vec_llval 1 "vec_len" builder in
+    set_llssa fgen_ctx ssa_def vec_len_llval
+  )
+
   | _ -> raise (LlvmgenError "lower_op: not implemented yet")
 
 let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
@@ -788,10 +958,11 @@ let lower_mir ( p : Mir.program) : llmodule =
   (* Lookup the target and get its DataLayout *)
   let target = Target.by_triple triple in
   let target_machine = TargetMachine.create ~triple target in
-  let data_layout = TargetMachine.data_layout target_machine in
+  let lldata_layout = TargetMachine.data_layout target_machine in
   
   (* Embed the data layout string into the module *)
-  set_data_layout (DataLayout.as_string data_layout) llmodule;
+  set_data_layout (DataLayout.as_string lldata_layout) llmodule;
+
 
   let void_t = void_type llcontext in
   let unit_t = Llvm.struct_type llcontext [||] in
@@ -821,6 +992,7 @@ let lower_mir ( p : Mir.program) : llmodule =
   let ctx = {
     llcontext;
     llmodule;
+    lldata_layout;
     void_t;
     unit_t;
     i1_t;
