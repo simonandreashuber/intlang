@@ -65,6 +65,9 @@ let find_llfunc_info (ctx : proggen_ctx) (funcid : funcid) : llfunc_info =
   try Hashtbl.find ctx.func_env funcid
   with Not_found -> raise (LlvmgenError ("find_llfunc: function not found in env: " ^ string_of_int funcid))
   
+let find_global (ctx : proggen_ctx) (globalid : globalid) : llvalue =
+  try Hashtbl.find ctx.globals_env globalid
+  with Not_found -> raise (LlvmgenError ("find_global: global not found in env: " ^ string_of_int globalid))
 
 
 
@@ -393,7 +396,7 @@ let get_clos_wrapper (ctx : proggen_ctx) (mirfuncid : funcid) : llvalue =
   match llfunc_info.closwrpr with
   | Some closwrpr -> closwrpr
   | None -> (
-    let closwrpr_func_t = function_type (return_type llfunc_info.func_t) [| ctx.clos_t |] in
+    let closwrpr_func_t = function_type (return_type llfunc_info.func_t) [| ctx.ptr_t |] in
     let closwrpr_func = declare_function "closwrpr_func" closwrpr_func_t ctx.llmodule in
     let bb = append_block ctx.llcontext "entry" closwrpr_func in
     let builder = builder ctx.llcontext in
@@ -602,33 +605,94 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     set_llssa fgen_ctx def_ssaid clos_val
   )
   | Pack (def_ssaid, clos_consume, args_consume) -> (
-      let clos_llval = consume_or_copy fgen_ctx clos_consume in
-      let args_llval = List.map (consume_or_copy fgen_ctx) args_consume in
-      let args_lltyp = List.map (fun sc -> mirtyp_get_lltyp ctx @@ get_mirtyp_func mirfunc sc.ssaid) args_consume in
-      let lltarget_layout = Llvm_target.DataLayout.of_string (Llvm.data_layout ctx.llmodule) in
+    let clos_llval = consume_or_copy fgen_ctx clos_consume in
+    let args_llval = List.map (consume_or_copy fgen_ctx) args_consume in
+    let args_lltyp = List.map (fun sc -> mirtyp_get_lltyp ctx @@ get_mirtyp_func mirfunc sc.ssaid) args_consume in
+    let lltarget_layout = Llvm_target.DataLayout.of_string (Llvm.data_layout ctx.llmodule) in
 
-      let borr_llfunc = build_extractvalue clos_llval 0 "clos_borr_fptr" builder in
+    let borr_llfunc = build_extractvalue clos_llval 0 "clos_borr_fptr" builder in
+    let own_llfunc = build_extractvalue clos_llval 1 "clos_own_fptr" builder in
+    let copy_llfunc = build_extractvalue clos_llval 2 "clos_copy_fptr" builder in
+    let drop_llfunc = build_extractvalue clos_llval 3 "clos_drop_fptr" builder in
+    let clos_data_ptr = build_extractvalue clos_llval 4 "clos_data_ptr" fgen_ctx.builder in
+    let clos_data_off_ref = ref (build_extractvalue clos_llval 5 "clos_data_off" fgen_ctx.builder) in
+
+    List.iter2 (fun arg_llval arg_lltyp ->
+      let arg_align = Llvm_target.DataLayout.abi_align arg_lltyp lltarget_layout in
+      let off_aligned_intermediate = build_add !clos_data_off_ref (const_int ctx.i64_t (arg_align - 1)) "off_aligned_intermediate" fgen_ctx.builder in
+      let off_aligned_mask = build_not (const_int ctx.i64_t (arg_align - 1)) "off_aligned_mask" fgen_ctx.builder in
+      let off_aligned = build_and off_aligned_intermediate off_aligned_mask "off_aligned" fgen_ctx.builder in
+      let arg_ptr = build_gep ctx.i8_t clos_data_ptr [| off_aligned |] "argptr" fgen_ctx.builder in
+      ignore (build_store arg_llval arg_ptr fgen_ctx.builder);
+      let arg_size = Int64.to_int (Llvm_target.DataLayout.abi_size arg_lltyp lltarget_layout) in
+      let off_aligned_plus_argsize = build_add off_aligned (const_int ctx.i64_t arg_size) "off_plus_argsize" fgen_ctx.builder in
+      clos_data_off_ref := off_aligned_plus_argsize
+    ) args_llval args_lltyp;
+
+    (* assemble closure *)
+    let clos_val = Llvm.const_struct ctx.llcontext [| borr_llfunc; own_llfunc; copy_llfunc; drop_llfunc; clos_data_ptr; !clos_data_off_ref |] in
+    set_llssa fgen_ctx def_ssaid clos_val
+  )
+  | CallClosure (res_ssaid, clos_sc) -> (
+    let clos_llval = get_llssa fgen_ctx clos_sc.ssaid in
+    let clos_wrprfunc_t = function_type (mirtyp_get_lltyp ctx @@ get_mirtyp_func mirfunc res_ssaid) [| ctx.ptr_t |] in
+    let clos_data_ptr = build_extractvalue clos_llval 4 "clos_data_ptr" fgen_ctx.builder in
+
+    if clos_sc.consume then
       let own_llfunc = build_extractvalue clos_llval 1 "clos_own_fptr" builder in
-      let copy_llfunc = build_extractvalue clos_llval 2 "clos_copy_fptr" builder in
-      let drop_llfunc = build_extractvalue clos_llval 3 "clos_drop_fptr" builder in
-      let clos_data_ptr = build_extractvalue clos_llval 4 "clos_data_ptr" fgen_ctx.builder in
-      let clos_data_off_ref = ref (build_extractvalue clos_llval 5 "clos_data_off" fgen_ctx.builder) in
-
-      List.iter2 (fun arg_llval arg_lltyp ->
-        let arg_align = Llvm_target.DataLayout.abi_align arg_lltyp lltarget_layout in
-        let off_aligned_intermediate = build_add !clos_data_off_ref (const_int ctx.i64_t (arg_align - 1)) "off_aligned_intermediate" fgen_ctx.builder in
-        let off_aligned_mask = build_not (const_int ctx.i64_t (arg_align - 1)) "off_aligned_mask" fgen_ctx.builder in
-        let off_aligned = build_and off_aligned_intermediate off_aligned_mask "off_aligned" fgen_ctx.builder in
-        let arg_ptr = build_gep ctx.i8_t clos_data_ptr [| off_aligned |] "argptr" fgen_ctx.builder in
-        ignore (build_store arg_llval arg_ptr fgen_ctx.builder);
-        let arg_size = Int64.to_int (Llvm_target.DataLayout.abi_size arg_lltyp lltarget_layout) in
-        let off_aligned_plus_argsize = build_add off_aligned (const_int ctx.i64_t arg_size) "off_plus_argsize" fgen_ctx.builder in
-        clos_data_off_ref := off_aligned_plus_argsize
-      ) args_llval args_lltyp;
-
-      (* assemble closure *)
-      let clos_val = Llvm.const_struct ctx.llcontext [| borr_llfunc; own_llfunc; copy_llfunc; drop_llfunc; clos_data_ptr; !clos_data_off_ref |] in
-      set_llssa fgen_ctx def_ssaid clos_val
+      let res = build_call clos_wrprfunc_t own_llfunc [| clos_data_ptr |] "call_clos_owned_res" builder in
+      set_llssa fgen_ctx res_ssaid res;
+      (* if the closure is consumed, the data in the closure is freed or part of the
+         return value since the function called assumes all args owned but the memory
+         that stores the pointers to the data ie. the closure data is not taken care of
+         so one has to free it here *)
+      ignore (build_call ctx.free_t ctx.free_func [| clos_data_ptr |] "" builder);
+    else
+      let borr_llfunc = build_extractvalue clos_llval 0 "clos_borr_fptr" builder in
+      let res = build_call clos_wrprfunc_t borr_llfunc [| clos_data_ptr |] "call_clos_borrowed_res" builder in
+      set_llssa fgen_ctx res_ssaid res;
+  )
+  | CallDirect (res_ssaid, funcid_ref, args_consume) -> (
+    let llfunc_info = find_llfunc_info ctx !funcid_ref in
+    let args_llval_arr = Array.of_list @@ List.map (fun arg -> get_llssa fgen_ctx arg.ssaid) args_consume in
+    let res = build_call llfunc_info.func_t llfunc_info.func args_llval_arr "call_direct_res" builder in
+    set_llssa fgen_ctx res_ssaid res
+  )
+  | Copy (def_ssaid, origin_ssaid) -> (
+    let origin_llval = get_llssa fgen_ctx origin_ssaid in
+    let mirtyp = get_mirtyp_func mirfunc def_ssaid in
+    let copy_llval = copy ctx builder fgen_ctx.llfunc_info.func mirtyp origin_llval in
+    set_llssa fgen_ctx def_ssaid copy_llval
+  )
+  | Drop origin_ssaids_lst -> (
+    List.iter (fun origin_ssaid ->
+      let origin_llval = get_llssa fgen_ctx origin_ssaid in
+      let mirtyp = get_mirtyp_func mirfunc origin_ssaid in
+      drop ctx builder fgen_ctx.llfunc_info.func mirtyp origin_llval
+    ) origin_ssaids_lst
+  )
+  | StoreGlobal (globalid, origin_consume) -> (
+    let origin_llval = consume_or_copy fgen_ctx origin_consume in
+    let global_llval = find_global ctx globalid in
+    ignore (build_store origin_llval global_llval builder)
+  )
+  | LoadGlobal (def_ssaid, globalid) -> (
+    let global_llval = find_global ctx globalid in
+    let global_lltyp = (mirtyp_get_lltyp ctx @@ get_mirtyp_func mirfunc def_ssaid) in
+    let loaded_llval = build_load global_lltyp global_llval "load_global" builder in
+    set_llssa fgen_ctx def_ssaid loaded_llval
+  )
+  | Immi32 (def_ssaid, i32) -> (
+    let llval = const_int ctx.i32_t (Int32.to_int i32) in
+    set_llssa fgen_ctx def_ssaid llval
+  )
+  | Immi8 (def_ssaid, i8) -> (
+    let llval = const_int ctx.i8_t (int_of_char i8) in
+    set_llssa fgen_ctx def_ssaid llval
+  )
+  | ImmUnit def_ssaid -> (
+    let llval = const_struct ctx.llcontext [||] in
+    set_llssa fgen_ctx def_ssaid llval
   )
   | _ -> raise (LlvmgenError "lower_op: not implemented yet")
 
