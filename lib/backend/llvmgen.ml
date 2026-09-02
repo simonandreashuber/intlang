@@ -2,6 +2,8 @@ open Mir
 open Analysis (*process bbs in rpo *)
 
 open Llvm
+open Llvm_target
+open Llvm_executionengine
 open Errors
 
 (*
@@ -74,17 +76,18 @@ let find_llfunc_info (ctx : proggen_ctx) (funcid : funcid) : llfunc_info =
 type fgen_ctx = {
   proggen_ctx : proggen_ctx;
   builder : llbuilder;
+  mirfunc : func;
   ssa_env : Llvm.llvalue option array;
   bb_env  : (bbid, Llvm.llbasicblock) Hashtbl.t;
   llfunc_info : llfunc_info;
 }
 
-let create_fgen_ctx (ctx : proggen_ctx) (func : Mir.func) =
+let create_fgen_ctx (ctx : proggen_ctx) (mirfunc : Mir.func) =
   let builder = builder ctx.llcontext in
-  let ssa_env = Array.make func.next_ssaid None in
-  let bb_env = Hashtbl.create (BBMap.cardinal func.bbs) in
-  let llfunc_info = find_llfunc_info ctx func.funcid in
-  { proggen_ctx = ctx; builder; ssa_env; bb_env ; llfunc_info }
+  let ssa_env = Array.make mirfunc.next_ssaid None in
+  let bb_env = Hashtbl.create (BBMap.cardinal mirfunc.bbs) in
+  let llfunc_info = find_llfunc_info ctx mirfunc.funcid in
+  { proggen_ctx = ctx; builder; mirfunc; ssa_env; bb_env ; llfunc_info }
 
 let get_llfunc (fgen_ctx : fgen_ctx) : llvalue =
   fgen_ctx.llfunc_info.func
@@ -367,6 +370,24 @@ let drop (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirtyp : 
 (* Create Closures                                                           *)
 (* ========================================================================= *)
 
+let get_clos_layout (ctx : proggen_ctx) (args_lltyps : lltype array) : int array * int =
+
+  (*
+    simulates the offsets that the pack op is going to use
+  *)
+
+  let lltarget_layout = Llvm_target.DataLayout.of_string (Llvm.data_layout ctx.llmodule) in
+  let curr_off = ref 0 in (*current offset in bytes*)
+
+  Array.map (fun arg_lltyp ->
+    let arg_size = Int64.to_int @@ Llvm_target.DataLayout.abi_size arg_lltyp lltarget_layout in
+    let arg_align = Llvm_target.DataLayout.abi_align arg_lltyp lltarget_layout in
+    let off = (!curr_off + arg_align - 1) land (lnot (arg_align - 1)) in
+    curr_off := off + arg_size;
+    off
+  ) args_lltyps, !curr_off
+
+
 let get_clos_wrapper (ctx : proggen_ctx) (mirfuncid : funcid) : llvalue =
   let llfunc_info = find_llfunc_info ctx mirfuncid in
   match llfunc_info.closwrpr with
@@ -379,10 +400,10 @@ let get_clos_wrapper (ctx : proggen_ctx) (mirfuncid : funcid) : llvalue =
     position_at_end bb builder;
     let clos_dataptr = param closwrpr_func 0 in
     let args_lltyps = param_types llfunc_info.func_t in
-    let clos_data_struct = Llvm.struct_type ctx.llcontext args_lltyps in
+    let clos_data_offsets, _ = get_clos_layout ctx args_lltyps in
     let args_llvalues = 
       Array.init (Array.length args_lltyps) (fun i ->
-      let argptr = build_gep clos_data_struct clos_dataptr [| const_int ctx.i32_t 0; const_int ctx.i32_t i |] ("argptr_" ^ string_of_int i) builder in
+      let argptr = build_gep ctx.i8_t clos_dataptr [| const_int ctx.i32_t clos_data_offsets.(i) |] ("argptr_" ^ string_of_int i) builder in
       build_load args_lltyps.(i) argptr ("arg_" ^ string_of_int i) builder ) 
     in
     let ret_val = build_call llfunc_info.func_t llfunc_info.func args_llvalues "ret_val" builder in
@@ -474,9 +495,8 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
 
     (*layout*)
     let args_mirtyp_arr = Array.of_list args_mirtyp in
-    let args_lltype_arr = Array.of_list @@ List.map (mirtyp_get_lltyp ctx) args_mirtyp in
-    let clos_data_struct = Llvm.struct_type ctx.llcontext args_lltype_arr in
-    let clos_data_size = Llvm.size_of clos_data_struct in
+    let args_lltype_arr = Array.map (mirtyp_get_lltyp ctx) args_mirtyp_arr in
+    let clos_data_offsets, clos_data_size = get_clos_layout ctx args_lltype_arr in
 
 
     (*COPY FUNC*)
@@ -490,13 +510,14 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
     let off = param copy_func 1 in
 
     (*alloc new data memory*)
-    let clos_data_copy_ptr = build_call ctx.malloc_t ctx.malloc_func [| clos_data_size |] "clos_data_copy_ptr" builder in
+    let clos_data_copy_ptr = build_call ctx.malloc_t ctx.malloc_func [| const_int ctx.i64_t clos_data_size |] "clos_data_copy_ptr" builder in
 
+    (*copy closure contents*)
     let copy_arg_gen (builder : llbuilder) (i : int) =
-      let arg_orig_ptr = build_gep clos_data_struct clos_data_ptr [| const_int ctx.i32_t 0; const_int ctx.i32_t i |] ("argptr_" ^ string_of_int i) builder in
+      let arg_orig_ptr = build_gep ctx.i8_t clos_data_ptr [| const_int ctx.i32_t clos_data_offsets.(i) |] ("argptr_" ^ string_of_int i) builder in
       let arg_orig_val = build_load args_lltype_arr.(i) arg_orig_ptr ("arg_" ^ string_of_int i) builder in
       let arg_copy_val = copy ctx builder copy_func args_mirtyp_arr.(i) arg_orig_val in
-      let arg_copy_ptr = build_gep clos_data_struct clos_data_copy_ptr [| const_int ctx.i32_t 0; const_int ctx.i32_t i |] ("argcopyptr_" ^ string_of_int i) builder in
+      let arg_copy_ptr = build_gep ctx.i8_t clos_data_copy_ptr [| const_int ctx.i32_t clos_data_offsets.(i) |] ("argcopyptr_" ^ string_of_int i) builder in
       ignore (build_store arg_copy_val arg_copy_ptr builder)
     in
     gen_ladder builder copy_func copy_arg_gen off (List.length args_mirtyp);
@@ -513,12 +534,16 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
     let clos_data_ptr = param drop_func 0 in
     let off = param drop_func 1 in
 
+    (*drop closure contents*)
     let drop_arg_gen (builder : llbuilder) (i : int) =
-      let arg_ptr = build_gep clos_data_struct clos_data_ptr [| const_int ctx.i32_t 0; const_int ctx.i32_t i |] ("argptr_" ^ string_of_int i) builder in
+      let arg_ptr = build_gep ctx.i8_t clos_data_ptr [| const_int ctx.i32_t clos_data_offsets.(i) |] ("argptr_" ^ string_of_int i) builder in
       let arg_val = build_load args_lltype_arr.(i) arg_ptr ("arg_" ^ string_of_int i) builder in
       drop ctx builder drop_func args_mirtyp_arr.(i) arg_val 
     in
     gen_ladder builder drop_func drop_arg_gen off (List.length args_mirtyp);
+
+    (*free closure data memory*)
+    ignore (build_call ctx.free_t ctx.free_func [| clos_data_ptr |] "" builder);
 
     ignore (build_ret_void builder);
 
@@ -536,7 +561,18 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
 (* Lower Mir                                                                 *)
 (* ========================================================================= *)
 
-let lower_op (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirfunc : func) (mirop : Mir.op) : unit =
+let consume_or_copy (fgen_ctx : fgen_ctx) (sc : ssaconsume) : llvalue =
+  let orig_llvalue = get_llssa fgen_ctx sc.ssaid in
+  if sc.consume then 
+    orig_llvalue 
+  else
+    let mirtyp = get_mirtyp_func fgen_ctx.mirfunc sc.ssaid in 
+    copy fgen_ctx.proggen_ctx fgen_ctx.builder fgen_ctx.llfunc_info.func mirtyp orig_llvalue
+
+let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
+  let ctx = fgen_ctx.proggen_ctx in
+  let mirfunc = fgen_ctx.mirfunc in
+  let builder = fgen_ctx.builder in
   match mirop with
   | Func (def_ssaid, borr_funcid_ref, own_funcid_opt_ref) -> (
     
@@ -553,19 +589,46 @@ let lower_op (ctx : proggen_ctx) (fgen_ctx : fgen_ctx) (mirfunc : func) (mirop :
       | _ -> raise (LlvmgenError "mir ssa def has non clos type after func op")
     in
     let args_lltype_arr = Array.of_list @@ List.map (mirtyp_get_lltyp ctx) args_mirtyp in
-    let clos_data_struct = Llvm.struct_type ctx.llcontext args_lltype_arr in
-    let clos_data_size = Llvm.size_of clos_data_struct in
+    let _, clos_data_size = get_clos_layout ctx args_lltype_arr in
 
     (*gen copy and drop helpers *)
     let clos_helpers = get_clos_helpers ctx args_mirtyp in
-    ignore (clos_helpers); ignore (borr_closwrpr); ignore (own_closwrpr);
 
     (*alloc data memory*)
-    let clos_data_ptr = build_call ctx.malloc_t ctx.malloc_func [| clos_data_size |] "clos_data_ptr" fgen_ctx.builder in
+    let clos_data_ptr = build_call ctx.malloc_t ctx.malloc_func [| const_int ctx.i64_t clos_data_size |] "clos_data_ptr" fgen_ctx.builder in
 
     (* assemble closure *)
     let clos_val = Llvm.const_struct ctx.llcontext [| borr_closwrpr; own_closwrpr; clos_helpers.copy_func; clos_helpers.drop_func; clos_data_ptr; const_int ctx.i64_t 0 |] in
     set_llssa fgen_ctx def_ssaid clos_val
+  )
+  | Pack (def_ssaid, clos_consume, args_consume) -> (
+      let clos_llval = consume_or_copy fgen_ctx clos_consume in
+      let args_llval = List.map (consume_or_copy fgen_ctx) args_consume in
+      let args_lltyp = List.map (fun sc -> mirtyp_get_lltyp ctx @@ get_mirtyp_func mirfunc sc.ssaid) args_consume in
+      let lltarget_layout = Llvm_target.DataLayout.of_string (Llvm.data_layout ctx.llmodule) in
+
+      let borr_llfunc = build_extractvalue clos_llval 0 "clos_borr_fptr" builder in
+      let own_llfunc = build_extractvalue clos_llval 1 "clos_own_fptr" builder in
+      let copy_llfunc = build_extractvalue clos_llval 2 "clos_copy_fptr" builder in
+      let drop_llfunc = build_extractvalue clos_llval 3 "clos_drop_fptr" builder in
+      let clos_data_ptr = build_extractvalue clos_llval 4 "clos_data_ptr" fgen_ctx.builder in
+      let clos_data_off_ref = ref (build_extractvalue clos_llval 5 "clos_data_off" fgen_ctx.builder) in
+
+      List.iter2 (fun arg_llval arg_lltyp ->
+        let arg_align = Llvm_target.DataLayout.abi_align arg_lltyp lltarget_layout in
+        let off_aligned_intermediate = build_add !clos_data_off_ref (const_int ctx.i64_t (arg_align - 1)) "off_aligned_intermediate" fgen_ctx.builder in
+        let off_aligned_mask = build_not (const_int ctx.i64_t (arg_align - 1)) "off_aligned_mask" fgen_ctx.builder in
+        let off_aligned = build_and off_aligned_intermediate off_aligned_mask "off_aligned" fgen_ctx.builder in
+        let arg_ptr = build_gep ctx.i8_t clos_data_ptr [| off_aligned |] "argptr" fgen_ctx.builder in
+        ignore (build_store arg_llval arg_ptr fgen_ctx.builder);
+        let arg_size = Int64.to_int (Llvm_target.DataLayout.abi_size arg_lltyp lltarget_layout) in
+        let off_aligned_plus_argsize = build_add off_aligned (const_int ctx.i64_t arg_size) "off_plus_argsize" fgen_ctx.builder in
+        clos_data_off_ref := off_aligned_plus_argsize
+      ) args_llval args_lltyp;
+
+      (* assemble closure *)
+      let clos_val = Llvm.const_struct ctx.llcontext [| borr_llfunc; own_llfunc; copy_llfunc; drop_llfunc; clos_data_ptr; !clos_data_off_ref |] in
+      set_llssa fgen_ctx def_ssaid clos_val
   )
   | _ -> raise (LlvmgenError "lower_op: not implemented yet")
 
@@ -596,7 +659,7 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
 
     (*lower all ops*)
     List.iter (fun mirop ->
-      ignore (lower_op ctx fgen_ctx mirfunc mirop)
+      ignore (lower_op fgen_ctx mirop)
     ) (List.rev mirbb.ops);    
 
   ) rpo_info.rpo_lst;
@@ -648,9 +711,23 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
 
 let lower_mir ( p : Mir.program) : llmodule =
 
-  (*setup the codegen context*)
+  (* Wake up the native code generator *)
+  ignore (Llvm_executionengine.initialize ());
+
   let llcontext = global_context () in
   let llmodule = create_module llcontext "intlang_module" in
+
+  (* Get the host target triple *)
+  let triple = Target.default_triple () (* or specify a hardcoded triple string like "x86_64-pc-linux-gnu" *) in
+  set_target_triple triple llmodule;
+
+  (* Lookup the target and get its DataLayout *)
+  let target = Target.by_triple triple in
+  let target_machine = TargetMachine.create ~triple target in
+  let data_layout = TargetMachine.data_layout target_machine in
+  
+  (* Embed the data layout string into the module *)
+  set_data_layout (DataLayout.as_string data_layout) llmodule;
 
   let void_t = void_type llcontext in
   let unit_t = Llvm.struct_type llcontext [||] in

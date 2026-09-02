@@ -2,7 +2,7 @@
 
 (library
  (name intlang_lib)
- (libraries llvm)
+ (libraries llvm llvm.target llvm.executionengine)
  (modules ast errors printIntlang 
           lexer parser include reccheck typecheck monomorph veccheck interp 
           mir analysis buildmir printmir

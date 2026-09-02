@@ -231,9 +231,10 @@ let consume (opt : mem_optimizer) fn =
 
       let add_use ssaid = ul := SsaSet.add ssaid !ul in
 
-      let try_consume_lst scs = List.iter (try_consume) scs in
+      (*lists get reversed since the mir is left to right and we go backwards*)
+      let try_consume_lst scs = List.iter (try_consume) (List.rev scs) in
 
-      let add_uses ssaids = List.iter (add_use) ssaids in
+      let add_uses ssaids = List.iter (add_use) (List.rev ssaids) in
 
       let try_consume_br brbbid brargs = 
         let target_bb = match BBMap.find_opt brbbid fn.bbs with
@@ -243,7 +244,7 @@ let consume (opt : mem_optimizer) fn =
         List.iter2 (fun sc own -> 
             if own = Owned then try_consume sc (*only consume if the target bb arg is owned*)
             else add_use sc.ssaid
-          ) brargs bbargs_memsig
+          ) (List.rev brargs) (List.rev bbargs_memsig)
       in
 
 
@@ -258,7 +259,7 @@ let consume (opt : mem_optimizer) fn =
       List.iter (fun op ->
         match op with
         | Func _ -> ()
-        | Pack (_, sc, scs) -> try_consume sc; try_consume_lst scs
+        | Pack (_, sc, scs) -> try_consume_lst scs; try_consume sc
         | CallClosure (_, sc) -> try_consume sc
         | CallDirect (_, funcid_ref, scs) -> try_consume_lst scs
         | Copy (_, orig) -> add_use orig
@@ -267,7 +268,7 @@ let consume (opt : mem_optimizer) fn =
         | StoreGlobal (_, sc) -> try_consume sc
         | Immi32 _ | Immi8 _ | ImmUnit _ -> ()
         | Uopi32 (_, _, a) | Uopi8 (_, _, a) ->  add_use a
-        | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) ->  add_use a; add_use b
+        | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) -> add_use b; add_use a
         | Tupwrp (_, scs) ->  try_consume_lst scs
         | Tupuwrp (elms, sc) -> (
           if get_ownership_func fn sc.ssaid = Owned && (not sc.consume) then (
@@ -283,13 +284,13 @@ let consume (opt : mem_optimizer) fn =
           ul := SsaSet.add sc.ssaid !ul
         )
         | Veclit (_, scs) ->  try_consume_lst scs
-        | Vecinit (_, defval, dims) -> add_use defval; add_uses dims
+        | Vecinit (_, defval, dims) ->  add_uses dims; add_use defval
         | Veclen (_, vec) ->  add_use vec
-        | Vecread (_, vec, idxs) ->  add_use vec; add_uses idxs
-        | Vecwrite (_, sc, vec, idxs) -> add_use vec; try_consume sc; add_uses idxs
-        | Vecinsert (_, vec_sc, vecins_sc, idxs) -> try_consume vec_sc; try_consume vecins_sc; add_uses idxs
-        | Vecslice (_, vec, start, len) ->  add_use vec; add_use start; add_use len
-        | Vecextend (_, vec, lit, off) ->  add_use vec; add_use lit; add_use off
+        | Vecread (_, vec, idxs) -> add_uses idxs; add_use vec
+        | Vecwrite (_, sc, vec, idxs) -> add_uses idxs; add_use vec; try_consume sc;
+        | Vecinsert (_, vec_sc, vecins_sc, idxs) ->  add_uses idxs; try_consume vecins_sc; try_consume vec_sc
+        | Vecslice (_, vec, start, len) ->  add_use len; add_use start; add_use vec
+        | Vecextend (_, vec, lit, off) ->  add_use off; add_use lit; add_use vec
       )  bb.ops
     ) fn.bbs;
   done
