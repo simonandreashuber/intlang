@@ -46,6 +46,12 @@ type proggen_ctx = {
   memcpy_func : llvalue;
   trap_t : lltype;
   trap_func : llvalue;
+  getchar_t : lltype;
+  getchar_func : llvalue;
+  putchar_t : lltype;
+  putchar_func : llvalue;
+  fflush_t : lltype;
+  fflush_func : llvalue;
 
   globals_env : (globalid, llvalue) Hashtbl.t;                    (* mir globalid -> llvm glob *)
   func_env : (funcid, llfunc_info) Hashtbl.t;                     (* mir func -> llvm func *)
@@ -77,23 +83,41 @@ type fgen_ctx = {
   builder : llbuilder;
   mirfunc : func;
   ssa_env : Llvm.llvalue option array;
-  bb_env  : (bbid, Llvm.llbasicblock) Hashtbl.t;
+  bb_start_env  : (bbid, Llvm.llbasicblock) Hashtbl.t; (* mir bb -> llvm bb where the lowering starts *)
+  bb_end_env  : (bbid, Llvm.llbasicblock) Hashtbl.t;   (* mir bb -> llvm bb where the lowering ends *)
   llfunc_info : llfunc_info;
 }
 
 let create_fgen_ctx (ctx : proggen_ctx) (mirfunc : Mir.func) =
   let builder = builder ctx.llcontext in
   let ssa_env = Array.make mirfunc.next_ssaid None in
-  let bb_env = Hashtbl.create (BBMap.cardinal mirfunc.bbs) in
+  let bb_start_env = Hashtbl.create (BBMap.cardinal mirfunc.bbs) in
+  let bb_end_env = Hashtbl.create (BBMap.cardinal mirfunc.bbs) in
   let llfunc_info = find_llfunc_info ctx mirfunc.funcid in
-  { proggen_ctx = ctx; builder; mirfunc; ssa_env; bb_env ; llfunc_info }
+  { proggen_ctx = ctx; builder; mirfunc; ssa_env; bb_start_env; bb_end_env; llfunc_info }
 
 let get_llfunc (fgen_ctx : fgen_ctx) : llvalue =
   fgen_ctx.llfunc_info.func
 
-let get_llbb (fgen_ctx : fgen_ctx) (bbid : bbid) : llbasicblock =
-  try Hashtbl.find fgen_ctx.bb_env bbid
-  with Not_found -> raise (LlvmgenError ("get_llbb: bb not found in env: " ^ string_of_int bbid))
+let get_start_llbb (fgen_ctx : fgen_ctx) (bbid : bbid) : llbasicblock =
+  try Hashtbl.find fgen_ctx.bb_start_env bbid
+  with Not_found -> raise (LlvmgenError ("get_start_llbb: bb not found in env: " ^ string_of_int bbid))
+
+let get_end_llbb (fgen_ctx : fgen_ctx) (bbid : bbid) : llbasicblock =
+  try Hashtbl.find fgen_ctx.bb_end_env bbid
+  with Not_found -> raise (LlvmgenError ("get_end_llbb: bb not found in env: " ^ string_of_int bbid))
+
+let set_start_llbb (fgen_ctx : fgen_ctx) (bbid : bbid) (llbb : llbasicblock) : unit =
+  if Hashtbl.mem fgen_ctx.bb_start_env bbid then
+    raise (LlvmgenError ("set_start_llbb: bb already set in env: " ^ string_of_int bbid))
+  else
+    Hashtbl.add fgen_ctx.bb_start_env bbid llbb
+
+let set_end_llbb (fgen_ctx : fgen_ctx) (bbid : bbid) (llbb : llbasicblock) : unit =
+  if Hashtbl.mem fgen_ctx.bb_end_env bbid then
+    raise (LlvmgenError ("set_end_llbb: bb already set in env: " ^ string_of_int bbid))
+  else
+    Hashtbl.add fgen_ctx.bb_end_env bbid llbb
 
 let get_llssa (fgen_ctx : fgen_ctx) (ssaid : ssaid) : llvalue =
   match fgen_ctx.ssa_env.(ssaid) with
@@ -141,14 +165,22 @@ let decl_global (ctx : proggen_ctx) (glob : Mir.global) : unit =
   Hashtbl.add ctx.globals_env glob.globalid llglobal
 
 
-let decl_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
-  let args_mirtyps = List.map (fun (ssaid, _) -> get_mirtyp_func mirfunc ssaid) mirfunc.args in
-  let ret_mirtyp = mirfunc.rettyp in
-  let args_lltyps = mirtyplst_get_lltyparr ctx args_mirtyps in
-  let ret_lltyp = mirtyp_get_lltyp ctx ret_mirtyp in
-  let llfunc_t = function_type ret_lltyp args_lltyps in
-  let llfunc = declare_function (string_of_int mirfunc.funcid) llfunc_t ctx.llmodule in
-  ctx_add_llfunc_info ctx mirfunc.funcid { mir_funcid = mirfunc.funcid; func_t = llfunc_t; func = llfunc; closwrpr = None; }
+
+let decl_func (ctx : proggen_ctx) (builtin_table : (string, lltype * llvalue) Hashtbl.t) (mirfunc : Mir.func) : unit =
+  match mirfunc.extern_name with
+  | Some extern_name -> (
+    let builtin_t, builtin_func = try Hashtbl.find builtin_table extern_name
+      with Not_found -> raise (LlvmgenError ("decl_func: builtin function not found in env: " ^ extern_name)) in
+    ctx_add_llfunc_info ctx mirfunc.funcid { mir_funcid = mirfunc.funcid; func_t = builtin_t; func = builtin_func; closwrpr = None; }
+  )
+  | None ->
+    let args_mirtyps = List.map (fun (ssaid, _) -> get_mirtyp_func mirfunc ssaid) mirfunc.args in
+    let ret_mirtyp = mirfunc.rettyp in
+    let args_lltyps = mirtyplst_get_lltyparr ctx args_mirtyps in
+    let ret_lltyp = mirtyp_get_lltyp ctx ret_mirtyp in
+    let llfunc_t = function_type ret_lltyp args_lltyps in
+    let llfunc = declare_function (string_of_int mirfunc.funcid) llfunc_t ctx.llmodule in
+    ctx_add_llfunc_info ctx mirfunc.funcid { mir_funcid = mirfunc.funcid; func_t = llfunc_t; func = llfunc; closwrpr = None; }
 
 
 
@@ -1044,6 +1076,9 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
   )
 
 let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
+
+  if Option.is_some mirfunc.extern_name then () else
+
   let fgen_ctx = create_fgen_ctx ctx mirfunc in
   let llfunc_info = fgen_ctx.llfunc_info in
   let llfunc = llfunc_info.func in 
@@ -1058,7 +1093,7 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
     let llbb = append_block ctx.llcontext (string_of_int bbid) llfunc in
 
     (*add to fgen_ctx*)
-    Hashtbl.add fgen_ctx.bb_env bbid llbb;
+    set_start_llbb fgen_ctx bbid llbb;
     
     (*phi node for all bb args*)
     List.iter (fun ssaid ->
@@ -1070,20 +1105,22 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
 
     (*lower all ops*)
     List.iter (fun mirop ->
-      ignore (lower_op fgen_ctx mirop)
+      ignore (lower_op fgen_ctx mirop);
+      let curr_bb = insertion_block fgen_ctx.builder in
+      set_end_llbb fgen_ctx bbid curr_bb
     ) (List.rev mirbb.ops);    
 
   ) rpo_info.rpo_lst;
 
   (*patch bb branching*)
   BBMap.iter (fun _ mirbb ->
-    let llbb = get_llbb fgen_ctx mirbb.bbid in
-    position_at_end llbb fgen_ctx.builder;
+    let end_llbb = get_end_llbb fgen_ctx mirbb.bbid in
+    position_at_end end_llbb fgen_ctx.builder;
     match mirbb.term with
     | None -> raise (LlvmgenError "No term in llvmgen lower_func")
     | Some (Br (target_bbid, mir_brargs)) -> (
       (*put br*)
-      let target_llbb = get_llbb fgen_ctx target_bbid in
+      let target_llbb = get_start_llbb fgen_ctx target_bbid in
       ignore (build_br target_llbb fgen_ctx.builder);
 
       (*patch phi nodes*)
@@ -1091,13 +1128,13 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
       List.iter2 (fun mir_brarg mir_bbarg ->
         let phi_node = get_llssa fgen_ctx mir_bbarg in
         let passed_llval = get_llssa fgen_ctx mir_brarg.ssaid in
-        add_incoming (passed_llval, llbb) phi_node
+        add_incoming (passed_llval, end_llbb) phi_node
       ) mir_brargs target_mirbb.args 
     )
     | Some (Cbr (cond_ssaid, true_bbid, false_bbid)) -> (
       (* transfor i32 cond into bool cond *)
-      let true_llbb = get_llbb fgen_ctx true_bbid in
-      let false_llbb = get_llbb fgen_ctx false_bbid in
+      let true_llbb = get_start_llbb fgen_ctx true_bbid in
+      let false_llbb = get_start_llbb fgen_ctx false_bbid in
       let cond_llvalue = get_llssa fgen_ctx cond_ssaid in
       let zero = const_int (ctx.i32_t) 0 in
       let cond_bool = build_icmp Icmp.Ne cond_llvalue zero "cond_bool" fgen_ctx.builder in
@@ -1116,7 +1153,7 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
   match mirfunc.entry_bb with
   | None -> raise (LlvmgenError "No mir entry bb in llvmgen lower_func")
   | Some mirentrybbid -> (
-      let mirentry_llbb = get_llbb fgen_ctx mirentrybbid in
+      let mirentry_llbb = get_start_llbb fgen_ctx mirentrybbid in
       ignore (build_br mirentry_llbb fgen_ctx.builder)
   )
 
@@ -1161,6 +1198,12 @@ let lower_mir ( p : Mir.program) : llmodule =
   let memcpy_func = Llvm.declare_function "llvm.memcpy.p0.p0.i64" memcpy_t llmodule in
   let trap_t = Llvm.function_type (void_t) [||] in
   let trap_func = Llvm.declare_function "llvm.trap" trap_t llmodule in
+  let getchar_t = function_type i32_t [||] in
+  let getchar_func = declare_function "getchar" getchar_t llmodule in
+  let putchar_t = function_type i32_t [| i32_t |] in
+  let putchar_func = declare_function "putchar" putchar_t llmodule in
+  let fflush_t = function_type i32_t [| ptr_t |] in
+  let fflush_func = declare_function "fflush" fflush_t llmodule in
 
   let globals_env = Hashtbl.create 32 in
   let func_env = Hashtbl.create 32 in
@@ -1192,8 +1235,69 @@ let lower_mir ( p : Mir.program) : llmodule =
     closhelper_env;
     trap_t;
     trap_func;
+    getchar_t;
+    getchar_func;
+    putchar_t;
+    putchar_func;
+    fflush_t;
+    fflush_func;
     miranalysis;
   } in
+
+  (* all the builtins are lowered directly here and put in the builtin_table 
+     that gets passed to the function declaration pass*)
+  let builtin_table = Hashtbl.create 32 in
+
+  let readi8_t = function_type i8_t [| unit_t |] in
+  let readi8_func = declare_function "readi8" readi8_t llmodule in
+  let builder = Llvm.builder llcontext in
+  let entry_bb = append_block llcontext "entry" readi8_func in
+  position_at_end entry_bb builder;
+  let read_val_i32 = build_call getchar_t getchar_func [||] "read_val_i32" builder in
+  let read_val_i8 = build_trunc read_val_i32 i8_t "read_val_i8" builder in
+  ignore (build_ret read_val_i8 builder);
+  Hashtbl.add builtin_table "readi8" (readi8_t, readi8_func);
+
+  let writei8_t = function_type unit_t [| i8_t |] in
+  let writei8_func = declare_function "writei8" writei8_t llmodule in
+  let builder = Llvm.builder llcontext in
+  let entry_bb = append_block llcontext "entry" writei8_func in
+  position_at_end entry_bb builder;
+  let write_val_i8 = param writei8_func 0 in
+  let write_val_i32 = build_zext write_val_i8 i32_t "write_val_i32" builder in
+  ignore (build_call putchar_t putchar_func [| write_val_i32 |] "" builder);
+  ignore (build_ret (const_struct llcontext [||]) builder);
+  Hashtbl.add builtin_table "writei8" (writei8_t, writei8_func);
+
+  let flush_t = function_type unit_t [| unit_t |] in
+  let flush_func = declare_function "flush" flush_t llmodule in
+  let builder = Llvm.builder llcontext in
+  let entry_bb = append_block llcontext "entry" flush_func in
+  position_at_end entry_bb builder;
+  ignore (build_call fflush_t fflush_func [| const_null ptr_t |] "" builder);
+  ignore (build_ret (const_struct llcontext [||]) builder);
+  Hashtbl.add builtin_table "flush" (flush_t, flush_func);
+
+  let i32_to_i8_t = function_type i8_t [| i32_t |] in
+  let i32_to_i8_func = declare_function "i32_to_i8" i32_to_i8_t llmodule in
+  let builder = Llvm.builder llcontext in
+  let entry_bb = append_block llcontext "entry" i32_to_i8_func in
+  position_at_end entry_bb builder;
+  let i32_val = param i32_to_i8_func 0 in
+  let i8_val = build_trunc i32_val i8_t "i32_to_i8" builder in
+  ignore (build_ret i8_val builder);
+  Hashtbl.add builtin_table "i32_to_i8" (i32_to_i8_t, i32_to_i8_func);
+
+  let i8_to_i32_t = function_type i32_t [| i8_t |] in
+  let i8_to_i32_func = declare_function "i8_to_i32" i8_to_i32_t llmodule in
+  let builder = Llvm.builder llcontext in
+  let entry_bb = append_block llcontext "entry" i8_to_i32_func in
+  position_at_end entry_bb builder;
+  let i8_val = param i8_to_i32_func 0 in
+  let i32_val = build_zext i8_val i32_t "i8_to_i32" builder in
+  ignore (build_ret i32_val builder);
+  Hashtbl.add builtin_table "i8_to_i32" (i8_to_i32_t, i8_to_i32_func);
+  
 
   (* Iterate all MIR globals and declare empty llvm equivalents *)
   GlobalMap.iter (fun _ glob -> 
@@ -1202,7 +1306,7 @@ let lower_mir ( p : Mir.program) : llmodule =
 
   (* Iterate all MIR functions and declare empty llvm equivalents *)
   FuncMap.iter (fun _  func -> 
-    decl_func ctx func
+    decl_func ctx builtin_table func
   ) p.funcs;
 
   (* Second pass over MIR functions this time the function bodies are lowered *)
@@ -1214,7 +1318,7 @@ let lower_mir ( p : Mir.program) : llmodule =
   let main_type = function_type i32_t [||] in
   let main_fn = declare_function "main" main_type llmodule in
   let bb = append_block ctx.llcontext "entry" main_fn in
-  let main_builder = builder llcontext in
+  let main_builder = Llvm.builder llcontext in
   position_at_end bb main_builder;
   
   let call_unitfunc_opt unitfunc_opt = (
