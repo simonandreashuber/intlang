@@ -306,15 +306,12 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
         let litv = use lit in
         let offint = Int32.to_int @@ i32val_unpack (use off) in
         let oldoff, oldlen, arr = vecval_unpack (use vec) in
-        let newlen = oldlen + (abs offint) in
-        let new_arr = 
-            if 0 <= offint then
-                Array.init newlen (fun i -> 
-                    if oldlen <= i then copy_value litv else copy_value arr.(oldoff + i))
-            else 
-                Array.init newlen (fun i -> 
-                    if offint < -i then copy_value litv else copy_value arr.(oldoff + i + offint))
-            in
+        let prep_len = - (min 0 offint) in
+        let app_len = max 0 offint in
+        let newlen = prep_len + oldlen + app_len in
+        let new_arr = Array.init newlen 
+            (fun i -> if i < prep_len || prep_len + oldlen <= i then copy_value litv else copy_value arr.(i - prep_len))
+        in
         def res (Vvec (0, newlen, new_arr)) 
     )
   in
