@@ -1097,9 +1097,8 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
   List.iter (fun bbid ->
     let mirbb = BBMap.find bbid mirfunc.bbs in
     let llbb = append_block ctx.llcontext (string_of_int bbid) llfunc in
-
-    (*add to fgen_ctx*)
     set_start_llbb fgen_ctx bbid llbb;
+    ignore (position_at_end llbb fgen_ctx.builder);
     
     (*phi node for all bb args*)
     List.iter (fun ssaid ->
@@ -1111,10 +1110,10 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
 
     (*lower all ops*)
     List.iter (fun mirop ->
-      ignore (lower_op fgen_ctx mirop);
-      let curr_bb = insertion_block fgen_ctx.builder in
-      set_end_llbb fgen_ctx bbid curr_bb
+      ignore (lower_op fgen_ctx mirop)
     ) (List.rev mirbb.ops);    
+    let curr_bb = insertion_block fgen_ctx.builder in
+    set_end_llbb fgen_ctx bbid curr_bb
 
   ) rpo_info.rpo_lst;
 
