@@ -6,13 +6,6 @@ open Llvm_target
 open Llvm_executionengine
 open Errors
 
-(*
-  TODO:
-    - impl lower mir op
-    - copy, init, drop codegen
-    - uninit globals in mir impl (just load global and then drop if mem object)
-*)
-
 (* ========================================================================= *)
 (* Program Context                                                           *)
 (* ========================================================================= *)
@@ -627,17 +620,13 @@ let vec_access_lltyps (fgen_ctx : fgen_ctx) (vec_ssaid : ssaid) : lltype array =
       ctx.vec_t
   )
 
-let vec_checked_access (fgen_ctx : fgen_ctx) (vec : llvalue) (vec_inner_lltype : lltype) (idx : llvalue) : llvalue =
+let fault_on_cond_false (fgen_ctx : fgen_ctx) (cond : llvalue) : unit =
   let ctx = fgen_ctx.proggen_ctx in
   let builder = fgen_ctx.builder in
 
-  let vec_ptr = build_extractvalue vec 0 "vecptr" builder in
-  let vec_len = build_extractvalue vec 1 "veclen" builder in
+  let err_bb = append_block ctx.llcontext "fault_on_cond_false_err_bb" fgen_ctx.llfunc_info.func in
+  let ok_bb = append_block ctx.llcontext "fault_on_cond_false_ok_bb" fgen_ctx.llfunc_info.func in
 
-  let err_bb = append_block ctx.llcontext "vec_access_err_bb" fgen_ctx.llfunc_info.func in
-  let ok_bb = append_block ctx.llcontext "vec_access_ok_bb" fgen_ctx.llfunc_info.func in
-
-  let cond = build_icmp Icmp.Slt idx vec_len "vec_access_cond" builder in
   ignore (build_cond_br cond ok_bb err_bb builder);
 
   position_at_end err_bb builder;
@@ -645,6 +634,17 @@ let vec_checked_access (fgen_ctx : fgen_ctx) (vec : llvalue) (vec_inner_lltype :
   ignore (build_unreachable builder);
 
   position_at_end ok_bb builder;
+  ()
+
+let vec_checked_access (fgen_ctx : fgen_ctx) (vec : llvalue) (vec_inner_lltype : lltype) (idx : llvalue) : llvalue =
+  let builder = fgen_ctx.builder in
+
+  let vec_ptr = build_extractvalue vec 0 "vecptr" builder in
+  let vec_len = build_extractvalue vec 1 "veclen" builder in
+
+  let cond = build_icmp Icmp.Slt idx vec_len "vec_access_cond" builder in
+  fault_on_cond_false fgen_ctx cond;
+
   build_gep vec_inner_lltype vec_ptr [| idx |] "vec_elm_ptr" builder
   (*I dont do the load since then the helper can be used for the write ops too*)
   
@@ -954,7 +954,94 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
         curr_vec_llval := elm_llval
     ) idxs_ssaids
   )
-  | _ -> raise (LlvmgenError "lower_op: not implemented yet")
+  | Vecslice (ssa_def, vec_ssaid, start_ssaid, len_ssaid) -> (
+    let vec_llval = get_llssa fgen_ctx vec_ssaid in
+    let start_llval = get_llssa fgen_ctx start_ssaid in
+    let len_llval = get_llssa fgen_ctx len_ssaid in
+
+    let vec_ptr = build_extractvalue vec_llval 0 "vecptr" builder in
+    let vec_len = build_extractvalue vec_llval 1 "veclen" builder in
+
+    let cond1 = build_icmp Icmp.Slt start_llval vec_len "vecslice_cond1" builder in
+    fault_on_cond_false fgen_ctx cond1;
+
+    let end_idx = build_add start_llval len_llval "vecslice_endidx" builder in
+    let cond2 = build_icmp Icmp.Sle end_idx vec_len "vecslice_cond2" builder in
+    fault_on_cond_false fgen_ctx cond2;
+
+    let access_lltyps = vec_access_lltyps fgen_ctx vec_ssaid in
+    let slice_ptr = build_gep access_lltyps.(0) vec_ptr [| start_llval |] "vecslice_ptr" builder in
+    let slice_vec_llval = Llvm.const_struct ctx.llcontext [| slice_ptr; len_llval |] in
+    set_llssa fgen_ctx ssa_def slice_vec_llval
+  )
+  | Vecextend (ssa_def, old_vec_ssaid, lit_ssaid, off_ssaid) -> (
+    let old_vec_llval = get_llssa fgen_ctx old_vec_ssaid in
+    let lit_llval = get_llssa fgen_ctx lit_ssaid in
+    let off_llval = get_llssa fgen_ctx off_ssaid in
+
+    let old_vec_ptr = build_extractvalue old_vec_llval 0 "vecptr" builder in
+    let old_vec_len = build_extractvalue old_vec_llval 1 "veclen" builder in
+
+    let zeroi32 = const_int ctx.i32_t 0 in
+    let off_pos = build_icmp Icmp.Sle zeroi32 off_llval "is_gt" builder in
+    let prep_len = build_select off_pos zeroi32 (build_neg off_llval "neg_off" builder) "prep_len" builder in
+    let app_len = build_select off_pos off_llval zeroi32 "app_len" builder in
+    let prep_len_plus_vec_len = build_add prep_len old_vec_len "new_len_partial" builder in
+    let new_len = build_add prep_len_plus_vec_len app_len "new_len" builder in
+
+    let access_lltyps = vec_access_lltyps fgen_ctx old_vec_ssaid in
+    let vec_elm_size = size_of access_lltyps.(0) in
+    let new_vec_size = build_mul new_len vec_elm_size "new_vec_size" builder in
+    let new_vec_ptr = build_call ctx.malloc_t ctx.malloc_func [| new_vec_size |] "new_vec_ptr" builder in
+
+    let extend_elm (idx : llvalue) : unit =
+
+      (*calc condition*)
+      let prep_cond = build_icmp Icmp.Slt idx prep_len "prep_cond" builder in
+      let app_cond = build_icmp Icmp.Sle prep_len_plus_vec_len idx "app_cond" builder in
+      let lit_cond = build_or prep_cond app_cond "defval_cond" builder in
+      let curr_bb = insertion_block builder in
+
+      (*lower lit copy loading*)
+      let lit_bb = append_block ctx.llcontext "lit_bb" fgen_ctx.llfunc_info.func in
+      position_at_end lit_bb builder;
+      let lit_copy = copy ctx builder fgen_ctx.llfunc_info.func (get_mirtyp_func mirfunc lit_ssaid) lit_llval in
+      let lit_bb_end = insertion_block builder in
+
+      (*lower old vector loading*)
+      let old_vec_bb = append_block ctx.llcontext "old_vec_bb" fgen_ctx.llfunc_info.func in
+      position_at_end old_vec_bb builder;
+      let old_vec_idx = build_sub idx prep_len "old_vec_idx" builder in
+      let old_vec_elm_ptr = build_gep access_lltyps.(0) old_vec_ptr [| old_vec_idx |] "vec_elm_ptr" builder in
+      let old_vec_elm = build_load access_lltyps.(0) old_vec_elm_ptr "vec_elm" builder in
+      let old_vec_elm_copy = copy ctx builder fgen_ctx.llfunc_info.func (get_mirtyp_func mirfunc lit_ssaid) old_vec_elm in
+      let old_vec_bb_end = insertion_block builder in
+
+      (*cond branch to the lit or old vec bbs*)
+      position_at_end curr_bb builder;
+      ignore (build_cond_br lit_cond lit_bb old_vec_bb builder);
+
+      (*create merge bb*)
+      let merge_bb = append_block ctx.llcontext "merge_bb" fgen_ctx.llfunc_info.func in
+
+      (*put br to merge bb*)
+      position_at_end lit_bb_end builder;
+      ignore (build_br merge_bb builder);
+      position_at_end old_vec_bb_end builder;
+      ignore (build_br merge_bb builder);
+
+      (*put phi node and store in new vec*)
+      position_at_end merge_bb builder;
+      let new_vec_elm = build_phi [(lit_copy, lit_bb); (old_vec_elm_copy, old_vec_bb)] "phi_node" builder in
+      let new_vec_elm_ptr = build_gep access_lltyps.(0) new_vec_ptr [| idx |] "new_vec_elm_ptr" builder in
+      ignore (build_store new_vec_elm new_vec_elm_ptr builder)
+    in
+    let new_len_i64 = build_zext new_len ctx.i64_t "new_len_i64" builder in
+    gen_loop ctx builder fgen_ctx.llfunc_info.func extend_elm new_len_i64;
+
+    let new_vec_llval = Llvm.const_struct ctx.llcontext [| new_vec_ptr; new_len |] in
+    set_llssa fgen_ctx ssa_def new_vec_llval
+  )
 
 let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
   let fgen_ctx = create_fgen_ctx ctx mirfunc in
