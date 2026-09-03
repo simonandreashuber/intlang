@@ -51,6 +51,8 @@ type proggen_ctx = {
   free_func : llvalue;
   memcpy_t : lltype;
   memcpy_func : llvalue;
+  trap_t : lltype;
+  trap_func : llvalue;
 
   globals_env : (globalid, llvalue) Hashtbl.t;                    (* mir globalid -> llvm glob *)
   func_env : (funcid, llfunc_info) Hashtbl.t;                     (* mir func -> llvm func *)
@@ -610,6 +612,43 @@ let consume_or_copy (fgen_ctx : fgen_ctx) (sc : ssaconsume) : llvalue =
     let mirtyp = get_mirtyp_func fgen_ctx.mirfunc sc.ssaid in 
     copy fgen_ctx.proggen_ctx fgen_ctx.builder fgen_ctx.llfunc_info.func mirtyp orig_llvalue
 
+let vec_access_lltyps (fgen_ctx : fgen_ctx) (vec_ssaid : ssaid) : lltype array =
+  let ctx = fgen_ctx.proggen_ctx in
+  let mirfunc = fgen_ctx.mirfunc in
+  let dim, inner_vecmirtyp = 
+    match get_mirtyp_func mirfunc vec_ssaid with
+    | TMIRVec (dim, inner_vecmirtyp) -> dim, inner_vecmirtyp
+    | _ -> raise (LlvmgenError "vec_access_lltyps: vec ssa has non vec type")
+  in
+  Array.init dim ( fun i -> 
+    if i = (dim-1) then 
+      match inner_vecmirtyp with | TMIRVECI32 -> ctx.i32_t | TMIRVECI8 -> ctx.i8_t 
+    else 
+      ctx.vec_t
+  )
+
+let vec_checked_access (fgen_ctx : fgen_ctx) (vec : llvalue) (vec_inner_lltype : lltype) (idx : llvalue) : llvalue =
+  let ctx = fgen_ctx.proggen_ctx in
+  let builder = fgen_ctx.builder in
+
+  let vec_ptr = build_extractvalue vec 0 "vecptr" builder in
+  let vec_len = build_extractvalue vec 1 "veclen" builder in
+
+  let err_bb = append_block ctx.llcontext "vec_access_err_bb" fgen_ctx.llfunc_info.func in
+  let ok_bb = append_block ctx.llcontext "vec_access_ok_bb" fgen_ctx.llfunc_info.func in
+
+  let cond = build_icmp Icmp.Slt idx vec_len "vec_access_cond" builder in
+  ignore (build_cond_br cond ok_bb err_bb builder);
+
+  position_at_end err_bb builder;
+  ignore (build_call ctx.trap_t ctx.trap_func [||] "" builder);
+  ignore (build_unreachable builder);
+
+  position_at_end ok_bb builder;
+  build_gep vec_inner_lltype vec_ptr [| idx |] "vec_elm_ptr" builder
+  (*I dont do the load since then the helper can be used for the write ops too*)
+  
+
 let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
   let ctx = fgen_ctx.proggen_ctx in
   let mirfunc = fgen_ctx.mirfunc in
@@ -863,7 +902,58 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     let vec_len_llval = build_extractvalue vec_llval 1 "vec_len" builder in
     set_llssa fgen_ctx ssa_def vec_len_llval
   )
-
+  | Vecread (ssa_def, vec_ssaid, idxs_ssaids) -> (
+    let curr_vec_llval = ref (get_llssa fgen_ctx vec_ssaid) in
+    let access_lltyps = vec_access_lltyps fgen_ctx vec_ssaid in
+    List.iteri (fun i idx_ssaid ->
+      let idx_llval = get_llssa fgen_ctx idx_ssaid in
+      let vec_inner_lltyp = access_lltyps.(i) in
+      let elm_ptr = vec_checked_access fgen_ctx !curr_vec_llval vec_inner_lltyp idx_llval in
+      let elm_llval = build_load vec_inner_lltyp elm_ptr "vec_elm" builder in
+      if i = (List.length idxs_ssaids - 1) then
+        set_llssa fgen_ctx ssa_def elm_llval
+      else
+        curr_vec_llval := elm_llval
+    ) idxs_ssaids
+  )
+  | Vecwrite (ssa_def, vec_sc, val_ssaid, idxs_ssaids) -> (
+    let vec_llval = consume_or_copy fgen_ctx vec_sc in
+    let val_llval = get_llssa fgen_ctx val_ssaid in
+    let access_lltyps = vec_access_lltyps fgen_ctx vec_sc.ssaid in
+    let curr_vec_llval = ref vec_llval in
+    List.iteri (fun i idx_ssaid ->
+      let idx_llval = get_llssa fgen_ctx idx_ssaid in
+      let vec_inner_lltyp = access_lltyps.(i) in
+      let elm_ptr = vec_checked_access fgen_ctx !curr_vec_llval vec_inner_lltyp idx_llval in
+      if i = (List.length idxs_ssaids - 1) then (
+        (*vecwrite is supposed to store an i32 or i8 so nothing has to be dropped*)
+        ignore (build_store val_llval elm_ptr builder);
+        set_llssa fgen_ctx ssa_def vec_llval)
+      else
+        let elm_llval = build_load vec_inner_lltyp elm_ptr "vec_elm" builder in
+        curr_vec_llval := elm_llval
+    ) idxs_ssaids
+  )
+  | Vecinsert (ssa_def, vec_sc, val_sc, idxs_ssaids) -> (
+    let vec_llval = consume_or_copy fgen_ctx vec_sc in
+    let val_llval = consume_or_copy fgen_ctx val_sc in
+    let access_lltyps = vec_access_lltyps fgen_ctx vec_sc.ssaid in
+    let curr_vec_llval = ref vec_llval in
+    List.iteri (fun i idx_ssaid ->
+      let idx_llval = get_llssa fgen_ctx idx_ssaid in
+      let vec_inner_lltyp = access_lltyps.(i) in
+      let elm_ptr = vec_checked_access fgen_ctx !curr_vec_llval vec_inner_lltyp idx_llval in
+      let elm_llval = build_load vec_inner_lltyp elm_ptr "vec_elm" builder in
+      if i = (List.length idxs_ssaids - 1) then (
+        (*vecinsert is supposed to store a vector into another vector*)
+        (*a bit hacky to use the mirtyp of the inseted value for the old value but should be fine*)
+        drop ctx builder fgen_ctx.llfunc_info.func (get_mirtyp_func mirfunc val_sc.ssaid) elm_llval;
+        ignore (build_store val_llval elm_ptr builder);
+        set_llssa fgen_ctx ssa_def vec_llval)
+      else
+        curr_vec_llval := elm_llval
+    ) idxs_ssaids
+  )
   | _ -> raise (LlvmgenError "lower_op: not implemented yet")
 
 let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
@@ -982,6 +1072,8 @@ let lower_mir ( p : Mir.program) : llmodule =
   let free_func = Llvm.declare_function "free" free_t llmodule in
   let memcpy_t = Llvm.function_type (void_t) [| ptr_t; ptr_t; i64_t; i1_t |] in
   let memcpy_func = Llvm.declare_function "llvm.memcpy.p0.p0.i64" memcpy_t llmodule in
+  let trap_t = Llvm.function_type (void_t) [||] in
+  let trap_func = Llvm.declare_function "llvm.trap" trap_t llmodule in
 
   let globals_env = Hashtbl.create 32 in
   let func_env = Hashtbl.create 32 in
@@ -1011,6 +1103,8 @@ let lower_mir ( p : Mir.program) : llmodule =
     memcpy_func;
     func_env;
     closhelper_env;
+    trap_t;
+    trap_func;
     miranalysis;
   } in
 
