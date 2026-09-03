@@ -7,6 +7,7 @@ let main () =
   let repeat_count = ref 1 in
   let testast_flag_passed = ref false in
   let testmir_flag_passed = ref false in
+  let testbin_flag_passed = ref false in
   let print_ast = ref false in
   let filename = ref "" in
   
@@ -32,6 +33,14 @@ let main () =
          testmir_flag_passed := true
        end
      ), "<int> Number of times to execute the MIR Simulator (default: 1)");
+    ("--testbin", Arg.Int (fun i ->
+       if i <= 0 then
+         raise (Arg.Bad "must be greater than 0")
+       else begin
+         repeat_count := i;
+         testbin_flag_passed := true
+       end
+     ), "<int> Number of times to execute the compiled binary (default: 1)");
     ("--print", Arg.Set print_ast, "Print AST and MIR to stdout");
     ("--stdlibpath", Arg.Set_string stdlib_path, "<path> Custom path to the standard library");
   ] in
@@ -49,7 +58,7 @@ let main () =
     exit 1
   end;
 
-  (* Guard against incompatible flags *)
+  (* Guard against incompatible flags (need a cleaner way to handle this ...)*)
   if !testast_flag_passed && !print_ast then begin
     prerr_endline "Error: --testast and --print are incompatible. (printing breaks the test protocol)";
     Arg.usage speclist usage_msg;
@@ -62,8 +71,26 @@ let main () =
     exit 1
   end;
 
+  if !testbin_flag_passed && !print_ast then begin
+    prerr_endline "Error: --testbin and --print are incompatible. (printing breaks the test protocol)";
+    Arg.usage speclist usage_msg;
+    exit 1
+  end;
+
   if !testast_flag_passed && !testmir_flag_passed then begin
     prerr_endline "Error: --testast and --testmir are incompatible. (printing breaks the test protocol)";
+    Arg.usage speclist usage_msg;
+    exit 1
+  end;
+
+  if !testast_flag_passed && !testbin_flag_passed then begin
+    prerr_endline "Error: --testast and --testbin are incompatible. (printing breaks the test protocol)";
+    Arg.usage speclist usage_msg;
+    exit 1
+  end;
+
+  if !testmir_flag_passed && !testbin_flag_passed then begin
+    prerr_endline "Error: --testmir and --testbin are incompatible. (printing breaks the test protocol)";
     Arg.usage speclist usage_msg;
     exit 1
   end;
@@ -126,6 +153,11 @@ let main () =
 
     if !print_ast then begin
       Printf.printf "%sLLVM IR:\n%s" headerline (Llvm.string_of_llmodule llmod); flush stdout;
+    end;
+
+    if !testbin_flag_passed then begin
+      let clang_exit_code = Llvmgen.llvm_to_bin_clang llmod "out" in
+      if clang_exit_code <> 0 then failwith (Printf.sprintf "Clang failed with exit code %d" clang_exit_code)
     end;
     
     exit 0
