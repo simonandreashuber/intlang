@@ -1086,6 +1086,12 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
   (*create the entry bb*)
   let entrybb = append_block ctx.llcontext "entry" llfunc in
 
+  (*put all function args the env*)
+  List.iteri (fun i (ssaid, _) ->
+    let arg_llval = param llfunc i in
+    set_llssa fgen_ctx ssaid arg_llval
+  ) mirfunc.args;
+
   (*create all llbbs and lower their ops*)
   let rpo_info = get_rpo_info ctx.miranalysis mirfunc in  
   List.iter (fun bbid ->
