@@ -205,7 +205,7 @@ let decl_func (ctx : proggen_ctx) (builtin_table : (string, lltype * llvalue) Ha
     let args_lltyps = mirtyplst_get_lltyparr ctx args_mirtyps in
     let ret_lltyp = mirtyp_get_lltyp ctx ret_mirtyp in
     let llfunc_t = function_type ret_lltyp args_lltyps in
-    let llfunc = declare_function (string_of_int mirfunc.funcid) llfunc_t ctx.llmodule in
+    let llfunc = declare_function (mirfunc.name ^ "_" ^ string_of_int mirfunc.funcid) llfunc_t ctx.llmodule in
     ctx_add_llfunc_info ctx mirfunc.funcid { mir_funcid = mirfunc.funcid; func_t = llfunc_t; func = llfunc; closwrpr = None; }
 
 (* ========================================================================= *)
@@ -440,7 +440,7 @@ let drop_clos (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirt
     let data_ptr = build_extractvalue clos 4 "clos_data_ptr" builder in
     let off = build_extractvalue clos 5 "clos_off" builder in
     let drop_func_t = Llvm.function_type (ctx.void_t) [| ctx.ptr_t; ctx.i64_t |] in
-    ignore (build_call drop_func_t drop_llfunc [| data_ptr; off |] "clos_drop" builder)
+    ignore (build_call drop_func_t drop_llfunc [| data_ptr; off |] "" builder)
   )
 
 let rec drop_tup (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirtyp : mirtyp) ( tup : llvalue) : unit =
@@ -527,11 +527,12 @@ let get_clos_layout (ctx : proggen_ctx) (args_lltyps : lltype array) : int array
 
 let get_clos_wrapper (ctx : proggen_ctx) (mirfuncid : funcid) : llvalue =
   let llfunc_info = find_llfunc_info ctx mirfuncid in
+  assert (llfunc_info.mir_funcid = mirfuncid);
   match llfunc_info.closwrpr with
   | Some closwrpr -> closwrpr
   | None -> (
     let closwrpr_func_t = function_type (return_type llfunc_info.func_t) [| ctx.ptr_t |] in
-    let closwrpr_func = declare_function "closwrpr_func" closwrpr_func_t ctx.llmodule in
+    let closwrpr_func = declare_function ("closwrpr_func_" ^ string_of_int mirfuncid) closwrpr_func_t ctx.llmodule in
     let bb = append_block ctx.llcontext "entry" closwrpr_func in
     let builder = builder ctx.llcontext in
     position_at_end bb builder;
@@ -630,6 +631,9 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
   | Some clos_helpers -> clos_helpers
   | None -> (
 
+    (* used to make the llvm function names unique *)
+    let hash = Hashtbl.hash args_mirtyp in
+
     (*layout*)
     let args_mirtyp_arr = Array.of_list args_mirtyp in
     let args_lltype_arr = Array.map (mirtyp_get_lltyp ctx) args_mirtyp_arr in
@@ -639,7 +643,7 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
     (*COPY FUNC*)
     (*declare copy func*)
     let copy_func_t = function_type ctx.ptr_t [| ctx.ptr_t ; ctx.i64_t |] in
-    let copy_func = declare_function "clos_copy_func" copy_func_t ctx.llmodule in
+    let copy_func = declare_function ("clos_copy_func_" ^ string_of_int hash) copy_func_t ctx.llmodule in
     let builder = Llvm.builder ctx.llcontext in
     let entry_bb = append_block ctx.llcontext "entry" copy_func in
     position_at_end entry_bb builder;
@@ -663,8 +667,8 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
 
     (*DROP FUNC*)
     (*declare drop func*)
-    let drop_func_t = function_type ctx.ptr_t [| ctx.ptr_t ; ctx.i64_t |] in
-    let drop_func = declare_function "clos_drop_func" drop_func_t ctx.llmodule in
+    let drop_func_t = function_type ctx.void_t [| ctx.ptr_t ; ctx.i64_t |] in
+    let drop_func = declare_function ("clos_drop_func_" ^ string_of_int hash) drop_func_t ctx.llmodule in
     let builder = Llvm.builder ctx.llcontext in
     let entry_bb = append_block ctx.llcontext "entry" drop_func in
     position_at_end entry_bb builder;
@@ -684,11 +688,14 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
 
     ignore (build_ret_void builder);
 
-    {
+    let clos_helpers = {
       signature = args_mirtyp;
       copy_func;
       drop_func;
-    }
+    } in
+    Hashtbl.add ctx.closhelper_env args_mirtyp clos_helpers;
+    clos_helpers
+
   )
 
 
