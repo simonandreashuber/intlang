@@ -516,13 +516,14 @@ let get_clos_layout (ctx : proggen_ctx) (args_lltyps : lltype array) : int array
 
   let curr_off = ref 0 in (*current offset in bytes*)
 
-  Array.map (fun arg_lltyp ->
+  let args_offsets = Array.map (fun arg_lltyp ->
     let arg_size = Int64.to_int @@ Llvm_target.DataLayout.abi_size arg_lltyp ctx.lldata_layout in
     let arg_align = Llvm_target.DataLayout.abi_align arg_lltyp ctx.lldata_layout in
     let off = (!curr_off + arg_align - 1) land (lnot (arg_align - 1)) in
     curr_off := off + arg_size;
     off
-  ) args_lltyps, !curr_off
+  ) args_lltyps in
+  (args_offsets, !curr_off)
 
 
 let get_clos_wrapper (ctx : proggen_ctx) (mirfuncid : funcid) : llvalue =
