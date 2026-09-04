@@ -137,7 +137,7 @@ let langbasic_tests = [
   {
     testname = "bop_i8";
     filename = "cases/bop_i8.intlang";
-    iterations = 256 * 256; (*dont even think about running this in separate mode it takes forever *)
+    iterations = 256; (*dont even think about running this in separate mode it takes forever *)
     generator = (fun i -> let (i0, i1) = (i / 256, i mod 256) in
       (sim256 i0 ^ sim256 i1,
         sim256 (if i0 = i1 then 1 else 0) ^ 

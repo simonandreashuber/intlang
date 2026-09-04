@@ -152,6 +152,32 @@ let rec mirtyp_get_lltyp (ctx : proggen_ctx) (mirtyp : mirtyp) : lltype =
 let mirtyplst_get_lltyparr (ctx : proggen_ctx) (mirtyplst : mirtyp list) : lltype array =
   Array.of_list (List.map (mirtyp_get_lltyp ctx) mirtyplst)
 
+let rec gen_default_llvalue (ctx : proggen_ctx) (mirtyp : mirtyp) : llvalue =
+  let zero_i8 = const_int ctx.i8_t 0 in
+  let zero_i32 = const_int ctx.i32_t 0 in
+  let zero_i64 = const_int ctx.i64_t 0 in
+  let null_ptr = const_null ctx.ptr_t in
+  match mirtyp with
+  | TMIRUnit -> const_struct ctx.llcontext [||]
+  | TMIRI32 -> zero_i32
+  | TMIRI8 -> zero_i8
+  | TMIRClos _ ->
+    const_struct ctx.llcontext [| 
+            null_ptr; (*borr*)
+            null_ptr; (*own*)
+            null_ptr; (*copy*)
+            null_ptr; (*drop*)
+            null_ptr; (*data_ptr*)
+            zero_i64; (*off*)
+          |]
+  | TMIRVec _ -> const_struct ctx.llcontext [| 
+            null_ptr; (*vec_ptr*)
+            zero_i32; (*vec_len*)
+          |]
+  | TMIRTup elms_mirtyp -> (
+    let elms_def_llvals = Array.of_list @@ List.map (gen_default_llvalue ctx) elms_mirtyp in
+    const_struct ctx.llcontext elms_def_llvals
+  )
 
 
 
@@ -160,8 +186,8 @@ let mirtyplst_get_lltyparr (ctx : proggen_ctx) (mirtyplst : mirtyp list) : lltyp
 (* ========================================================================= *)
 
 let decl_global (ctx : proggen_ctx) (glob : Mir.global) : unit =
-  let glob_lltyp = mirtyp_get_lltyp ctx glob.typ in
-  let llglobal = declare_global glob_lltyp (string_of_int glob.globalid) ctx.llmodule in
+  let glob_default_llval = gen_default_llvalue ctx glob.typ in
+  let llglobal = define_global ("global_" ^ string_of_int glob.globalid) glob_default_llval ctx.llmodule in
   Hashtbl.add ctx.globals_env glob.globalid llglobal
 
 
@@ -1387,26 +1413,3 @@ let lower_mir ( p : Mir.program) : llmodule =
 
   ignore (build_ret (const_int ctx.i32_t 0) main_builder);
   llmodule
-
-
-(* ========================================================================= *)
-(* Compile Llvm                                                              *)
-(* ========================================================================= *)
-
-let llvm_to_bin_clang (llmod : llmodule) (binary_name : string) : int =
-
-  (*
-    For now this approach is the simplest as clang will nicely do all the linking :)
-  *)
-
-  let llvm_ir = string_of_llmodule llmod in
-  let ir_filename = binary_name ^ ".ll" in
-  
-  let oc = open_out ir_filename in
-  output_string oc llvm_ir;
-  close_out oc;
-  
-  let cmd = Printf.sprintf "clang-19 -Wno-override-module %s -o %s" ir_filename binary_name in
-  let exit_code = Sys.command cmd in
-  Sys.remove ir_filename;
-  exit_code

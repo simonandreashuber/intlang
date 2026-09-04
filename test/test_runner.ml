@@ -72,7 +72,7 @@ let execute_process cmd input_data =
     Error (Printf.sprintf "Exception during execution: %s" (Printexc.to_string e))
 
 (* BATCH MODE: Generates all data, runs once with --test N *)
-let run_batch interp_binary case =
+let run_interp_batch interpflag compiler_binary case =
   let input_buf = Buffer.create 4096 in
   let expect_buf = Buffer.create 4096 in
   
@@ -84,9 +84,10 @@ let run_batch interp_binary case =
 
   let all_input = Buffer.contents input_buf in
   let all_expected = Buffer.contents expect_buf in
-  let cmd = Printf.sprintf "%s --stdlibpath %s --testmir %d %s" 
-      (Filename.quote interp_binary) 
+  let cmd = Printf.sprintf "%s --stdlibpath %s %s %d %s" 
+      (Filename.quote compiler_binary) 
       (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/")) 
+      interpflag
       case.iterations 
       (Filename.quote case.filename) in
 
@@ -97,10 +98,11 @@ let run_batch interp_binary case =
   | Error msg -> Some (Printf.sprintf "Batch Execution Failed:\n%s" msg)
 
 (* SEPARATE MODE: Runs a new process for every iteration *)
-let run_separate interp_binary case =
-  let cmd = Printf.sprintf "%s --stdlibpath %s --testmir 1 %s" 
-      (Filename.quote interp_binary) 
+let run_interp_separate interpflag compiler_binary case =
+  let cmd = Printf.sprintf "%s --stdlibpath %s %s 1 %s" 
+      (Filename.quote compiler_binary) 
       (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/")) 
+      interpflag
       (Filename.quote case.filename) in
   
   let rec loop i =
@@ -115,31 +117,72 @@ let run_separate interp_binary case =
   in
   loop 0
 
+let run_bin compiler_binary case =
+  let testbin_name = "testbin" in
+  let compile_cmd = Printf.sprintf "%s --stdlibpath %s -o %s %s" 
+      (Filename.quote compiler_binary) 
+      (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/")) 
+      (Filename.quote testbin_name)
+      (Filename.quote case.filename) in
+  
+  let exit_code = Sys.command compile_cmd in
+  if exit_code <> 0 then Some (Printf.sprintf "Compilation failed for %s with exit code %d" case.filename exit_code)
+  else (
+    let cmd = "./" ^ testbin_name in
+    
+    let rec loop i =
+      if i >= case.iterations then None
+      else
+        let (in_str, exp_str) = case.generator i in
+        match execute_process cmd in_str with
+        | Ok actual ->
+            if actual = exp_str then loop (i + 1)
+            else Some (Printf.sprintf "Iteration %d mismatch:\n%s\nInput:\n%s\nOutput:\n%s\nExpected:\n%s" i (generate_diff exp_str actual) in_str actual exp_str)
+        | Error msg -> Some (Printf.sprintf "Iteration %d Execution Failed:\n%s" i msg)
+    in
+    let res = loop 0 in
+
+    (* Clean up the compiled binary after testing *)
+    Sys.remove testbin_name;
+    res
+  )
+
 let () =
   (* CLI Parsing *)
   let separate_mode = ref false in
-  let interp_binary = ref "" in
+  let test_interpast = ref false in
+  let test_intermir = ref false in
+  let compiler_binary = ref "" in
 
   let speclist = [
     ("--separate", Arg.Set separate_mode, "Run each test iteration in a separate process");
+    ("--interpast", Arg.Set test_interpast, "Run tests for the AST interpreter");
+    ("--intermir", Arg.Set test_intermir, "Run tests for the MIR simulator");
   ] in
-  let usage_msg = "Usage: test_runner [--separate] <interp_binary>" in
+  let usage_msg = "Usage: test_runner [--separate] <compiler_binary>" in
   
-  Arg.parse speclist (fun s -> interp_binary := s) usage_msg;
+  Arg.parse speclist (fun s -> compiler_binary := s) usage_msg;
 
-  if !interp_binary = "" then begin
-    Printf.eprintf "Error: Target interpreter binary path argument missing.\n%s\n" usage_msg;
+  if !compiler_binary = "" then begin
+    Printf.eprintf "Error: Target compiler binary path argument missing.\n%s\n" usage_msg;
     exit 1
   end;
 
-  let run_test = if !separate_mode then run_separate else run_batch in
+  let run_test =
+    match (!separate_mode, !test_interpast, !test_intermir) with
+    | (true, true, false) -> run_interp_separate "--testast" 
+    | (true, false, true) -> run_interp_separate "--testmir"
+    | (false, false, false) -> run_bin
+    | _ -> failwith "Invalid combination of flags."
+  in
+
   let global_failed = ref false in
 
   Printf.printf "=== Starting Tests (Mode: %s) ===\n" (if !separate_mode then "Separate" else "Batch");
 
   List.iter (fun (testgroupname, testcases) ->
     (* Evaluate all cases in the group first *)
-    let results = List.map (fun case -> (case, run_test !interp_binary case)) testcases in
+    let results = List.map (fun case -> (case, run_test !compiler_binary case)) testcases in
     
     let group_failed = List.exists (fun (_, res) -> res <> None) results in
 
