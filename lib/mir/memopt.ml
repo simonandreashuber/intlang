@@ -21,7 +21,16 @@ let get_memsig_func (func : func) : memsig =
   List.map (fun (ssaid, _) -> get_ownership_func func ssaid) func.args
 
 let get_memsig_calldirect_args (fn : func) (args : ssaconsume list) : memsig =
-  List.map (fun sc -> get_ownership_func fn sc.ssaid) args
+  List.map (fun sc -> 
+    match get_ownership_func fn sc.ssaid with
+    | Owned when sc.consume -> Owned
+    | Owned when not sc.consume -> Borrowed
+    | Borrowed when sc.consume -> failwith "get_memsig_calldirect_args: consuming borrowed arg"
+    | Borrowed when not sc.consume -> Borrowed
+    | NoMem when sc.consume -> failwith "get_memsig_calldirect_args: consumed NoMem arg"
+    | NoMem when not sc.consume -> NoMem
+    | _ -> failwith "get_memsig_calldirect_args: internal this should never happen"
+    ) args
 
 let cmp_memsig (sig1 : memsig) (sig2 : memsig) : bool =
   List.for_all2 (fun own1 own2 -> own1 = own2) sig1 sig2
