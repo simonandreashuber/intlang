@@ -366,7 +366,7 @@ let rec drop_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (m
     let vec_ptr = Llvm.build_extractvalue origvec 0 "vecptr" builder in
     let vec_len = Llvm.build_extractvalue origvec 1 "veclen" builder in
 
-    let free_bb = append_block ctx.llcontext "drop_vec_free_bb" llfunc in
+    let free_bb = append_block ctx.llcontext "drop_vec_free_bb1d" llfunc in
     let merge_bb = append_block ctx.llcontext "drop_vec_merge_bb" llfunc in
 
     let cond = build_icmp Icmp.Ne vec_len ((Llvm.const_int ctx.i32_t 0)) "drop_vec_len0_cond" builder in
@@ -383,12 +383,27 @@ let rec drop_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (m
     let vec_len = Llvm.build_extractvalue origvec 1 "veclen" builder in
     let len_i64 = Llvm.build_zext vec_len ctx.i64_t "len_i64" builder in
 
-    let copy_elm (idx : llvalue) : unit =
+    let cond = build_icmp Icmp.Ne vec_len ((Llvm.const_int ctx.i32_t 0)) "drop_vec_len0_cond" builder in
+    let curr_bb = insertion_block builder in
+
+    let free_bb = append_block ctx.llcontext "drop_vec_free_bb_nd" llfunc in
+    position_at_end free_bb builder;
+
+    let drop_elm (idx : llvalue) : unit =
       let vec_elm_ptr = build_in_bounds_gep ctx.vec_t vec_ptr [| idx |] "drop_vec_elm_ptr" builder in
       let elm = build_load ctx.vec_t vec_elm_ptr "drop_vec_elm" builder in
       drop_vec ctx builder llfunc (TMIRVec (n-1, inner_mirtyp)) elm
     in
-    gen_loop ctx builder llfunc copy_elm len_i64
+    gen_loop ctx builder llfunc drop_elm len_i64;
+    ignore(build_call ctx.free_t ctx.free_func [| vec_ptr |] "" builder);
+
+    let merge_bb = append_block ctx.llcontext "drop_vec_merge_bb" llfunc in
+    ignore(build_br merge_bb builder);
+
+    position_at_end curr_bb builder;
+    ignore(build_cond_br cond free_bb merge_bb builder);
+
+    position_at_end merge_bb builder
   )
 
 let drop_clos (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirtyp : mirtyp) ( clos : llvalue) : unit =
