@@ -309,9 +309,9 @@ let rec copy_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (m
     let bytesz = 
       match inner_mirtyp with
       | TMIRVECI32 -> (
-        let i32_bytesz = Llvm.const_int ctx.i64_t 4 in 
+        let i32_bytesz = const_int ctx.i64_t (Int64.to_int @@ DataLayout.abi_size ctx.i32_t ctx.lldata_layout) in
         build_mul len_i64 i32_bytesz "bytesz" builder )
-      | TMIRVECI8 -> len_i64
+      | TMIRVECI8 -> len_i64 (* is there a machine where a byte is not a byte ??? hope not *)
     in
 
     (*malloc new vec memory*)
@@ -582,7 +582,9 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
 
     bbend:
   *)
-  let gen_ladder (builder : llbuilder) (llfunc : llvalue) (fgen : llbuilder -> int -> unit) (off : llvalue) (maxoff : int) : unit =
+  let gen_ladder (builder : llbuilder) (llfunc : llvalue) (fgen : llbuilder -> int -> unit) (off : llvalue) (clos_data_offsets : int array) : unit =
+
+    let maxoff = Array.length clos_data_offsets in
     assert (maxoff > 0); (* empty closures should not exist *)
 
     (* Phase 1: create bbs and call fgen *)
@@ -618,7 +620,7 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
 
     List.iteri (fun i (bb, next_bb) ->
       position_at_end bb builder;
-      let cond = build_icmp Icmp.Sgt off (const_int ctx.i64_t i) ("cond_" ^ string_of_int i) builder in
+      let cond = build_icmp Icmp.Sgt off (const_int ctx.i64_t clos_data_offsets.(i)) ("cond_" ^ string_of_int i) builder in
       ignore (build_cond_br cond next_bb bbend builder)
     ) bbpairs;
 
@@ -662,7 +664,7 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
       let arg_copy_ptr = build_gep ctx.i8_t clos_data_copy_ptr [| const_int ctx.i32_t clos_data_offsets.(i) |] ("argcopyptr_" ^ string_of_int i) builder in
       ignore (build_store arg_copy_val arg_copy_ptr builder)
     in
-    gen_ladder builder copy_func copy_arg_gen off (List.length args_mirtyp);
+    gen_ladder builder copy_func copy_arg_gen off clos_data_offsets;
 
     ignore (build_ret clos_data_copy_ptr builder);
 
@@ -682,7 +684,7 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
       let arg_val = build_load args_lltype_arr.(i) arg_ptr ("arg_" ^ string_of_int i) builder in
       drop ctx builder drop_func args_mirtyp_arr.(i) arg_val 
     in
-    gen_ladder builder drop_func drop_arg_gen off (List.length args_mirtyp);
+    gen_ladder builder drop_func drop_arg_gen off clos_data_offsets;
 
     (*free closure data memory*)
     ignore (build_call ctx.free_t ctx.free_func [| clos_data_ptr |] "" builder);
