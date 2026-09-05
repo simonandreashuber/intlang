@@ -191,8 +191,6 @@ let decl_global (ctx : proggen_ctx) (glob : Mir.global) : unit =
   let llglobal = define_global ("global_" ^ string_of_int glob.globalid) glob_default_llval ctx.llmodule in
   Hashtbl.add ctx.globals_env glob.globalid (glob.typ, llglobal)
 
-
-
 let decl_func (ctx : proggen_ctx) (builtin_table : (string, lltype * llvalue) Hashtbl.t) (mirfunc : Mir.func) : unit =
   match mirfunc.extern_name with
   | Some extern_name -> (
@@ -208,6 +206,9 @@ let decl_func (ctx : proggen_ctx) (builtin_table : (string, lltype * llvalue) Ha
     let llfunc_t = function_type ret_lltyp args_lltyps in
     let llfunc = declare_function (mirfunc.name ^ "_" ^ string_of_int mirfunc.funcid) llfunc_t ctx.llmodule in
     ctx_add_llfunc_info ctx mirfunc.funcid { mir_funcid = mirfunc.funcid; func_t = llfunc_t; func = llfunc; closwrpr = None; }
+
+
+
 
 (* ========================================================================= *)
 (* Llvm struct helpers                                                       *)
@@ -244,6 +245,34 @@ let build_tup_struct (ctx : proggen_ctx) (builder : llbuilder) (mirtyp : mirtyp)
 (* ========================================================================= *)
 (* Copy, Drop and Init Helpers                                               *)
 (* ========================================================================= *)
+
+let build_malloc_safe (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (bytesz : llvalue) : llvalue =
+  (*create and get all bb*)
+  let current_bb = insertion_block builder in
+  let malloc_bb = append_block ctx.llcontext "malloc_bb" llfunc in
+  let malloc_fault_bb = append_block ctx.llcontext "malloc_fault_bb" llfunc in
+  let malloc_merge_bb = append_block ctx.llcontext "malloc_merge_bb" llfunc in
+
+  (* check for zero bytes request *)
+  let null_ptr = const_null ctx.ptr_t in
+  let is_zerobytes = build_icmp Icmp.Eq bytesz (Llvm.const_int ctx.i64_t 0) "build_malloc_safe_zerobytes" builder in
+  ignore (build_cond_br is_zerobytes malloc_merge_bb malloc_bb builder);
+
+  (* call malloc and check for null *)
+  position_at_end malloc_bb builder;
+  let malloc_ptr = build_call ctx.malloc_t ctx.malloc_func [| bytesz |] "build_malloc_safe_malloc_ptr" builder in
+  let is_null = build_icmp Icmp.Eq malloc_ptr null_ptr "build_malloc_safe_is_null" builder in
+  ignore (build_cond_br is_null malloc_fault_bb malloc_merge_bb builder);
+
+  (* fault on null *)
+  position_at_end malloc_fault_bb builder;
+  ignore (build_call ctx.trap_t ctx.trap_func [||] "" builder);
+  ignore (build_unreachable builder);
+
+  (* merge the malloc retunred ptr or null *)
+  position_at_end malloc_merge_bb builder;
+  build_phi [(malloc_ptr, malloc_bb); (null_ptr, current_bb)] "build_malloc_safe_malloc_ptr_phi" builder
+
 
 (*
   gen_loop generates the following llvm code
@@ -307,7 +336,7 @@ let rec copy_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (m
     let origvec_ptr = Llvm.build_extractvalue origvec 0 "vecptr" builder in
     let origvec_len = Llvm.build_extractvalue origvec 1 "veclen" builder in
     let len_i64 = Llvm.build_zext origvec_len ctx.i64_t "len_i64" builder in
-    let bytesz = 
+    let vec_bytesz = 
       match inner_mirtyp with
       | TMIRVECI32 -> (
         let i32_bytesz = const_int ctx.i64_t (Int64.to_int @@ DataLayout.abi_size ctx.i32_t ctx.lldata_layout) in
@@ -316,11 +345,11 @@ let rec copy_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (m
     in
 
     (*malloc new vec memory*)
-    let copyvec_ptr = build_call ctx.malloc_t ctx.malloc_func [| bytesz |] "copyvec_ptr" builder in
+    let copyvec_ptr = build_malloc_safe ctx builder llfunc vec_bytesz in
     
     (*do memcpy*)
     let is_volatile = Llvm.const_int ctx.i1_t 0 in
-    ignore (build_call ctx.memcpy_t ctx.memcpy_func [| copyvec_ptr; origvec_ptr; bytesz; is_volatile |] "" builder);
+    ignore (build_call ctx.memcpy_t ctx.memcpy_func [| copyvec_ptr; origvec_ptr; vec_bytesz; is_volatile |] "" builder);
 
     (*build new vec struct*)
     build_vec_struct ctx builder copyvec_ptr origvec_len
@@ -329,11 +358,11 @@ let rec copy_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (m
     let origvec_ptr = Llvm.build_extractvalue origvec 0 "vecptr" builder in
     let origvec_len = Llvm.build_extractvalue origvec 1 "veclen" builder in
     let len_i64 = Llvm.build_zext origvec_len ctx.i64_t "len_i64" builder in
-    let vec_bytesz = Llvm.size_of ctx.vec_t in
-    let bytesz = build_mul len_i64 vec_bytesz "bytesz" builder in
+    let vec_struct_bytesz = Llvm.size_of ctx.vec_t in
+    let vec_bytesz = build_mul len_i64 vec_struct_bytesz "bytesz" builder in
 
     (*malloc new vec memory*)
-    let copyvec_ptr = build_call ctx.malloc_t ctx.malloc_func [| bytesz |] "copyvec_ptr" builder in
+    let copyvec_ptr = build_malloc_safe ctx builder llfunc vec_bytesz in
 
     let copy_elm (idx : llvalue) : unit =
       let origvec_elm_ptr = build_in_bounds_gep ctx.vec_t origvec_ptr [| idx |] "origvec_elm_ptr" builder in
@@ -487,7 +516,7 @@ let rec init_vec (fgen_ctx : fgen_ctx) (defval_ssaid : ssaid) (dim_sizes : ssaid
     in
     let vec_elm_size = size_of vec_elm_lltyp in
     let vec_bytesz = build_mul vec_size_i64 vec_elm_size "vec_bytesz" builder in
-    let vec_ptr = build_call ctx.malloc_t ctx.malloc_func [| vec_bytesz |] "vec_ptr" builder in
+    let vec_ptr = build_malloc_safe ctx builder fgen_ctx.llfunc_info.func vec_bytesz in
 
     (*init each element of the vec*)
     let init_elm (idx : llvalue) : unit =
@@ -654,8 +683,12 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
     let clos_data_ptr = param copy_func 0 in
     let off = param copy_func 1 in
 
-    (*alloc new data memory*)
-    let clos_data_copy_ptr = build_call ctx.malloc_t ctx.malloc_func [| const_int ctx.i64_t clos_data_size |] "clos_data_copy_ptr" builder in
+    (*alloc new data memory
+      a closure the contains just unit types will have bytesize 0
+      thus a the malloc is checked
+    *)
+    let clos_data_bytesz = const_int ctx.i64_t clos_data_size in
+    let clos_data_copy_ptr = build_malloc_safe ctx builder copy_func clos_data_bytesz in
 
     (*copy closure contents*)
     let copy_arg_gen (builder : llbuilder) (i : int) =
@@ -687,7 +720,10 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
     in
     gen_ladder builder drop_func drop_arg_gen off clos_data_offsets;
 
-    (*free closure data memory*)
+    (*free closure data memory
+      quick note free(null) is a safe nop so even if the closure data memory
+      has size 0 and is thus null the free is safe
+    *)
     ignore (build_call ctx.free_t ctx.free_func [| clos_data_ptr |] "" builder);
 
     ignore (build_ret_void builder);
@@ -788,7 +824,8 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     let clos_helpers = get_clos_helpers ctx args_mirtyp in
 
     (*alloc data memory*)
-    let clos_data_ptr = build_call ctx.malloc_t ctx.malloc_func [| const_int ctx.i64_t clos_data_size |] "clos_data_ptr" builder in
+    let clos_data_bytesz = const_int ctx.i64_t clos_data_size in
+    let clos_data_ptr = build_malloc_safe ctx builder fgen_ctx.llfunc_info.func clos_data_bytesz in
 
     (* assemble closure *)
     let clos_val = build_clos_struct ctx builder borr_closwrpr own_closwrpr clos_helpers.copy_func clos_helpers.drop_func clos_data_ptr (const_int ctx.i64_t 0) in
@@ -874,6 +911,10 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     let global_mirtyp, global_llval = find_global ctx globalid in
     let loaded_llval = build_load (mirtyp_get_lltyp ctx global_mirtyp) global_llval "load_global" builder in
     drop ctx builder fgen_ctx.llfunc_info.func global_mirtyp loaded_llval;
+    (* overwriting this here makes the droped stuff fully unreachable 
+       which can avoid bugs and uncover memory leaks with then LeakSanitizer *)
+    let glob_default_llval = gen_default_llvalue ctx global_mirtyp in
+    ignore (build_store glob_default_llval global_llval builder)
   )
   | Immi32 (def_ssaid, i32) -> (
     let llval = const_int ctx.i32_t (Int32.to_int i32) in
@@ -999,7 +1040,8 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
 
       let lit_lltyp = get_lltyp_from_ssaid first_lit.ssaid in
       let lit_size = Int64.to_int (DataLayout.abi_size lit_lltyp ctx.lldata_layout) in
-      let vec_ptr = build_call ctx.malloc_t ctx.malloc_func [| const_int ctx.i64_t (lit_size * (List.length lits_llval)) |] "vec_ptr" builder in
+      let vec_bytesz = const_int ctx.i64_t (lit_size * (List.length lits_llval)) in
+      let vec_ptr = build_malloc_safe ctx builder fgen_ctx.llfunc_info.func vec_bytesz in
       List.iteri (fun i lit_llval ->
         let lit_ptr = build_gep lit_lltyp vec_ptr [| const_int ctx.i32_t i |] ("litptr_" ^ string_of_int i) builder in
         ignore (build_store lit_llval lit_ptr builder)
@@ -1111,7 +1153,7 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     let access_lltyps = vec_access_lltyps fgen_ctx old_vec_ssaid in
     let vec_elm_size = const_int ctx.i64_t (Int64.to_int @@ DataLayout.abi_size access_lltyps.(0) ctx.lldata_layout) in
     let new_vec_size = build_mul new_len_i64 vec_elm_size "new_vec_size" builder in
-    let new_vec_ptr = build_call ctx.malloc_t ctx.malloc_func [| new_vec_size |] "new_vec_ptr" builder in
+    let new_vec_ptr = build_malloc_safe ctx builder fgen_ctx.llfunc_info.func new_vec_size in
 
     let extend_elm (idx : llvalue) : unit =
 

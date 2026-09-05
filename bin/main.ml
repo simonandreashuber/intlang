@@ -12,6 +12,7 @@ let main () =
   let print_mir = ref false in
   let print_llvm = ref false in
   let emit_llvm = ref false in
+  let address_sanitizer = ref false in
   let outputfile_passed = ref false in
   let outputfilename = ref "" in
   let inputfilename = ref "" in
@@ -44,6 +45,7 @@ let main () =
     ("--printllvm", Arg.Set print_llvm, "Print LLVM IR to stdout");
     ("--printall", Arg.Unit (fun () -> print_ast := true; print_monotast := true; print_mir := true; print_llvm := true), "Print all intermediate representations to stdout");
     ("--emitllvm", Arg.Set emit_llvm, "Emit LLVM IR to file out.ll");
+    ("--asan", Arg.Set address_sanitizer, "Enable AddressSanitizer for the generated binary");
     ("-o", Arg.String (fun s -> outputfilename := s; outputfile_passed := true), "<filename> Specify output filename (default: out / out.ll)");
     ("--stdlibpath", Arg.Set_string stdlib_path, "<path> Custom path to the standard library");
   ] in
@@ -156,6 +158,8 @@ let main () =
     else (
       let ll_name = "temp.ll" in
       let bin_name = if !outputfile_passed then !outputfilename else "out" in
+      let clang_flags = if !address_sanitizer then "-fsanitize=address" else "" in
+
       let llvm_ir = Llvm.string_of_llmodule llmod in
 
       (
@@ -170,7 +174,7 @@ let main () =
       );
 
       (* Compile the LLVM IR to a binary using clang *)
-      let clang_cmd = Printf.sprintf "clang-19 %s -o %s" ll_name bin_name in
+      let clang_cmd = Printf.sprintf "clang-19 %s %s -o %s" ll_name clang_flags bin_name in
       let exit_code = Sys.command clang_cmd in
       if exit_code <> 0 then (
         prerr_endline ("Error: clang failed to compile LLVM IR to binary. Exit code: " ^ string_of_int exit_code);

@@ -119,7 +119,7 @@ let run_interp_separate interpflag compiler_binary case =
 
 let run_bin compiler_binary case =
   let testbin_name = "testbin" in
-  let compile_cmd = Printf.sprintf "%s --stdlibpath %s -o %s %s" 
+  let compile_cmd = Printf.sprintf "%s --stdlibpath %s --asan -o %s %s" 
       (Filename.quote compiler_binary) 
       (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/")) 
       (Filename.quote testbin_name)
