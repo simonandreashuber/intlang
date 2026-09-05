@@ -1,6 +1,6 @@
 # Intlang
 
-This is an informal but hopefully useful guide to the language. It is written from the point of view of how the parser, typechecker, interpreter, and tests actually behave.
+This is an informal but hopefully useful guide to the language.
 
 ## What Intlang Is
 
@@ -59,7 +59,8 @@ Useful expression forms are:
 - vector literals: `vec[1, 2, 3]`
 - vector constructors and accessors: `vecmk[...]`, `veclen[...]`, `vecget[...]`, `vecset[...]`, `vecslice[...]`, `vecextend[...]`
 
-Application is eager: function arguments are evaluated before the call happens.
+Application is eager and left to right ie. given some Application a b first a is evaluated to eval(a) then b is evaluated to eval(b) and finally eval(b) is applied to eval(a).
+
 ## Functions
 
 Functions are curried by default. Multiple parameters are just nested lambdas written in a compact form:
@@ -82,7 +83,7 @@ You can also annotate the final result with `=>`:
 let id_i32 = \x : i32 => i32. x
 ```
 
-The special form `\() expr` is used for nullary functions. That is the common shape of `main`.
+The special form `\() expr` is used for a lambda that expects the unit type as its argument.
 
 ## Literals And Small Values
 
@@ -140,7 +141,9 @@ let swap = \p : i32 * i8. let (x, y) = p in (y, x)
 
 ## Vectors
 
-Vectors are immutable.
+Vectors are memory contiguous sequences of values, with dynamic size, where all contained values are of the exact same type. Vectors are immutable just like the rest of the language. Vectors can contain other vectors (multidimensional vectors), `i32` or `i8`.
+
+All indices in vector operations are evaluated eagerly left to right and each one must be an `i32`.
 
 ### Vector Literals
 
@@ -149,7 +152,7 @@ let v = vec['\x00', '\x01', '\x02']
 let empty = vec[]
 ```
 
-Strings are lexed as vectors of `i8`, so string literals behave like byte vectors. The empty string is treated specially and becomes an empty byte vector.
+Strings are lexed as vectors of `i8`, so string literals behave like `i8` vectors. The empty string is treated specially and becomes an empty `i8` vector.
 
 ### Vector Construction
 
@@ -165,7 +168,7 @@ Multiple size arguments are allowed, so `vecmk` can build nested vectors too.
 
 `veclen[v]` returns the length of a vector.
 
-`vecget[v, i, j, ...]` indexes into nested vectors. The indices are evaluated eagerly and each one must be an `i32`.
+`vecget[v, i, j, ...]` indexes into nested vectors.
 
 `vecget[v]` is accepted and simply returns the vector unchanged.
 
@@ -181,13 +184,13 @@ let v2 = vecset[v, 99, 3]
 
 `vecslice[v, start, len]` returns a slice of the vector.
 
-`vecextend[v, lit, off]` extends the vector with a fill value. Positive offsets extend on the right, negative offsets extend on the left.
+`vecextend[v, lit, off]` extends the vector with a fill value. Positive offsets append, negative offsets prepend.
 
 ## Operators
 
 Intlang has separate operator families for `i32` and `i8`.
 
-### i32 Operators
+### i32 Bops and Uops
 
 ```intlang
 ==  !=  <  >  <=  >=
@@ -198,10 +201,12 @@ Intlang has separate operator families for `i32` and `i8`.
 <<  >>  >>u
 ~
 ```
+- All `i32` Bops and Uops return `i32`
+- Unary `-` and `~` are unary operators.
+- Shifts must be between `0` and `31`.
+- Unsigned operations (trailing u) use the 32-bit unsigned versions of the underlying integer operations.
 
-Unary `-` and `~` are the main i32 unary operators.
-
-### i8 Operators
+### i8 Bops and Uops
 
 ```intlang
 ==i8  !=i8  <i8  >i8  <=i8  >=i8
@@ -210,16 +215,11 @@ Unary `-` and `~` are the main i32 unary operators.
 ~i8
 ```
 
-Comparisons return `i32` results, not a boolean type.
+- Comparisons return `i32` results, all other Bops and Uops `i8` type.
+- Unary `-i8` and `~i8` are unary operators.
 
-### Runtime Notes
 
-- Division and modulo by zero raise errors.
-- Shifts must be between `0` and `31`.
-- Unsigned operations use the 32-bit unsigned versions of the underlying integer operations.
-- `i8` arithmetic wraps mod 256.
-
-## Control Flow
+## If
 
 `if` expects an `i32` condition:
 
@@ -229,13 +229,6 @@ if n = 0 then 1 else 0 end
 
 Zero means false, any nonzero value means true.
 
-Sequence is written with `;` and is often used inside `main`:
-
-```intlang
-writei8 'a';
-writei8 'b';
-flush ()
-```
 
 ## Includes
 
@@ -248,14 +241,16 @@ include "includetest"
 
 There are two forms:
 
-- `include name` for global/module-style includes
+- `include name` for global-style includes
 - `include "path"` for relative includes
 
-Included modules are used through a module prefix, for example `io.writei8`, `math.gcd`, or `vector.veclen`.
+Included modules/files are used through a module prefix, for example `io.writei8`, `math.gcd`, or `vector.veclen`.
 
-The realtive includes require a path from the including files dir to the to be included file. Global includes just include from the intlang std library.
+The realtive includes require a path from the including file dir to the to be included file. The name used as module prefix for relative includes is the stem of the included .intlang file ie. top level expressions from `include "subfldr/somecode"` can be used like `somecode.sometoplvlexpression` if `sometoplvlexpression` is a top level expression in `./subfldr/somecode.intlang`.
 
-Both from leave out the .intlang.
+Global includes just include from the intlang std library.
+
+Both from leave out the .intlang for the module prefix.
 
 ## Typing
 
@@ -274,7 +269,7 @@ Function arrows are right-associative, so `i32 -> i32 -> i32` means `i32 -> (i32
 
 Vectors are written as `[T]` in annotations. Tuples are writen as `T0 * T1`
 
-The language is inferred where possible, but top-level bindings can be polymorphic. That is why helpers like `map`, `left_fold`, and many library functions can stay generic.
+Top-level bindings can be polymorphic. That is why helpers like `map`, `left_fold`, and many library functions can stay generic.
 
 ## Builtins
 
@@ -286,9 +281,7 @@ The core builtins are:
 - `i32_to_i8 : i32 -> i8`
 - `i8_to_i32 : i8 -> i32`
 
-## How To Read The Test Suite
+## Examples
 
-The tests `test/cases/` and std lib `test/intlangstdlib` are a good source of inspiration.
-
-The general style is small, eager, curried functions with lots of composition and lightweight data encoding. Booleans are integers, strings are byte vectors, and recursive data is often represented with vectors or tuples.
+The code in `test/cases/*` and std lib `test/intlangstdlib/*` is a good source of inspiration. In `test/tests.ml` is the reference / "ground truth" on which the test are based.
 
