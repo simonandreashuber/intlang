@@ -10,7 +10,7 @@ A small eager functional language with
 ## How to Run
 
 - To build `dune build`
-- To run some program (here fib.intlang): `dune exec bin/main.exe -- fib.intlang`
+- To compile some program (here fib.intlang): `dune exec bin/main.exe -- fib.intlang` (use `dune exec bin/main.exe -- --help` to see all options)
 - To run the tests: `dune test`
 
 ## Dependencies
