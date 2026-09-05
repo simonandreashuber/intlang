@@ -203,6 +203,7 @@ let compute_live (aly : analysis_info) (f : func) =
       | Drop mems -> apply_uses mems
       | StoreGlobal (_, sc) -> apply_use sc.ssaid
       | LoadGlobal (res, _) -> apply_def res
+      | DropGlobal _ -> ()
       | Immi32 (res, _) | Immi8 (res, _) | ImmUnit res -> apply_def res
       | Uopi32 (res, _, a) | Uopi8 (res, _, a) -> apply_def res; apply_use a
       | Bopi32 (res, _, a, b) | Bopi8 (res, _, a, b) -> apply_def res; apply_uses [a; b]
@@ -288,6 +289,7 @@ let compute_live (aly : analysis_info) (f : func) =
       | Drop mems -> add_uses mems op_index
       | StoreGlobal (_, sc) -> add_use sc.ssaid op_index
       | LoadGlobal (res, _) -> add_def res op_index
+      | DropGlobal _ -> ()
       | Immi32 (res, _) | Immi8 (res, _) | ImmUnit res -> add_def res op_index
       | Uopi32 (res, _, a) | Uopi8 (res, _, a) -> add_def res op_index; add_use a op_index
       | Bopi32 (res, _, a, b) | Bopi8 (res, _, a, b) -> add_def res op_index; add_uses [a; b] op_index
@@ -375,7 +377,7 @@ let compute_borrow (fn : func) =
       | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
       | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
-      | Veclit _ | Vecinit _
+      | Veclit _ | Vecinit _ | DropGlobal _
       | Veclen _ | Vecwrite _ | Vecinsert _
       | Vecextend _ -> ()
     ) bb.ops;

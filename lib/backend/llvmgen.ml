@@ -53,7 +53,7 @@ type proggen_ctx = {
   fflush_t : lltype;
   fflush_func : llvalue;
 
-  globals_env : (globalid, llvalue) Hashtbl.t;                    (* mir globalid -> llvm glob *)
+  globals_env : (globalid, (mirtyp * llvalue)) Hashtbl.t;                    (* mir globalid -> llvm glob *)
   func_env : (funcid, llfunc_info) Hashtbl.t;                     (* mir func -> llvm func *)
   closhelper_env : (mirtyp list, clos_helper_info) Hashtbl.t;     (* closure data layout *)
 
@@ -67,9 +67,10 @@ let find_llfunc_info (ctx : proggen_ctx) (funcid : funcid) : llfunc_info =
   try Hashtbl.find ctx.func_env funcid
   with Not_found -> raise (LlvmgenError ("find_llfunc: function not found in env: " ^ string_of_int funcid))
   
-let find_global (ctx : proggen_ctx) (globalid : globalid) : llvalue =
-  try Hashtbl.find ctx.globals_env globalid
-  with Not_found -> raise (LlvmgenError ("find_global: global not found in env: " ^ string_of_int globalid))
+let find_global (ctx : proggen_ctx) (globalid : globalid) : mirtyp * llvalue =
+  let global_mirtyp, global_llval = try Hashtbl.find ctx.globals_env globalid
+  with Not_found -> raise (LlvmgenError ("find_global: global not found in env: " ^ string_of_int globalid)) in
+  (global_mirtyp, global_llval)
 
 
 
@@ -188,7 +189,7 @@ let rec gen_default_llvalue (ctx : proggen_ctx) (mirtyp : mirtyp) : llvalue =
 let decl_global (ctx : proggen_ctx) (glob : Mir.global) : unit =
   let glob_default_llval = gen_default_llvalue ctx glob.typ in
   let llglobal = define_global ("global_" ^ string_of_int glob.globalid) glob_default_llval ctx.llmodule in
-  Hashtbl.add ctx.globals_env glob.globalid llglobal
+  Hashtbl.add ctx.globals_env glob.globalid (glob.typ, llglobal)
 
 
 
@@ -861,14 +862,18 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
   )
   | StoreGlobal (globalid, origin_consume) -> (
     let origin_llval = consume_or_copy fgen_ctx origin_consume in
-    let global_llval = find_global ctx globalid in
+    let _, global_llval = find_global ctx globalid in
     ignore (build_store origin_llval global_llval builder)
   )
   | LoadGlobal (def_ssaid, globalid) -> (
-    let global_llval = find_global ctx globalid in
-    let global_lltyp = (get_lltyp_from_ssaid def_ssaid) in
-    let loaded_llval = build_load global_lltyp global_llval "load_global" builder in
+    let global_mirtyp, global_llval = find_global ctx globalid in
+    let loaded_llval = build_load (mirtyp_get_lltyp ctx global_mirtyp) global_llval "load_global" builder in
     set_llssa fgen_ctx def_ssaid loaded_llval
+  )
+  | DropGlobal globalid -> (
+    let global_mirtyp, global_llval = find_global ctx globalid in
+    let loaded_llval = build_load (mirtyp_get_lltyp ctx global_mirtyp) global_llval "load_global" builder in
+    drop ctx builder fgen_ctx.llfunc_info.func global_mirtyp loaded_llval;
   )
   | Immi32 (def_ssaid, i32) -> (
     let llval = const_int ctx.i32_t (Int32.to_int i32) in

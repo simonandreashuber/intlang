@@ -691,10 +691,19 @@ let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t
   let bbentry = create_bb b "entry" [] in
   set_entry_bb b bbentry.bbid;
   switch_bb b bbentry;
+  let init_global_cp = ref (cp_set b) in
   b.program.init_globals_funcid <- Some init_globals_func.funcid;
 
+  (*setup @uninit_globals*)
+  let uninit_globals_func = create_func b "uninit_globals" [(0, None, TMIRUnit)] TMIRUnit None in
+  switch_func b uninit_globals_func;
+  let bbentry = create_bb b "entry" [] in
+  set_entry_bb b bbentry.bbid;
+  switch_bb b bbentry;
+  let uninit_global_cp = ref (cp_set b) in
+  b.program.uninit_globals_funcid <- Some uninit_globals_func.funcid;
+
   (*lower all the declarations*)
-  let init_global_cp = ref (cp_set b) in
   List.iter (fun decl ->
     match decl with
     | FuncDecl (func, l_body, env_func) -> (
@@ -707,6 +716,7 @@ let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t
         emit_term b (Ret res_ssaid)
       )
     | GlobalDecl (global, l_init) -> (
+        (*calulate and store global*)
         cp_ret b !init_global_cp;
         let res_ssaid = lower_body b toplvl_env l_init in
         let sat_res_ssaid = 
@@ -720,11 +730,24 @@ let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t
         in
         emit_op b (StoreGlobal (global.globalid, ssac sat_res_ssaid));
         init_global_cp := cp_set b;
+
+        (*if global is of memtyp drop it*)
+        if is_memtyp global.typ then (
+          cp_ret b !uninit_global_cp;
+          emit_op b (DropGlobal global.globalid);
+          uninit_global_cp := cp_set b
+        )
       )
   ) decls;
   
   (*emit return on @init_globals*)
   cp_ret b !init_global_cp;
+  let unit_ssaid = fresh_ssaid b in
+  emit_op b (ImmUnit unit_ssaid);
+  emit_term b (Ret unit_ssaid);
+
+  (*emit return on @uninit_globals*)
+  cp_ret b !uninit_global_cp;
   let unit_ssaid = fresh_ssaid b in
   emit_op b (ImmUnit unit_ssaid);
   emit_term b (Ret unit_ssaid)

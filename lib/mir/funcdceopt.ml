@@ -37,7 +37,7 @@ let funcdce_opt (b : builder) (_ : analysis_info) : unit =
     | None -> ()
   )
   | CallDirect (_, funcid_ref, _) -> mark !funcid_ref
-  | Pack _ | CallClosure _ | Tupuwrp _
+  | Pack _ | CallClosure _ | Tupuwrp _ | DropGlobal _
   | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _
   | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
   | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _

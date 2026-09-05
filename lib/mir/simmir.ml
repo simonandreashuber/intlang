@@ -30,6 +30,12 @@ let load_global (globalid : globalid) : value =
   try Hashtbl.find global_values globalid
   with Not_found -> failwith (Printf.sprintf "Simulator Error: Global ID %d not found" globalid)
 
+let drop_global (globalid : globalid) : unit =
+  if not (Hashtbl.mem global_values globalid) then
+    failwith (Printf.sprintf "Simulator Error: DropGlobal for Global ID %d which has not been stored yet" globalid)
+  else
+    Hashtbl.remove global_values globalid
+
 let reset_globals () =
   Hashtbl.clear global_values
 
@@ -139,6 +145,7 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
         store_global gid (consume_or_copy sc)
     | LoadGlobal (res, gid) -> 
         def res (load_global gid)
+    | DropGlobal gid -> drop_global gid
     | Immi32 (res, i) -> def res (Vi32 i)
     | Immi8 (res, c) -> def res (Vi8 c)
     | ImmUnit res -> def res Vunit

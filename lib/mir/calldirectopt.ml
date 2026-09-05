@@ -25,7 +25,7 @@ let calldirect_opt_func (aly : analysis_info) (fn : func) : unit =
           Hashtbl.add defs dst (DefFunc !fid_ref)
       | Pack (dst, oldclos, newargs) ->
           Hashtbl.add defs dst (DefPack (oldclos, newargs))
-      | CallClosure _ | CallDirect _
+      | CallClosure _ | CallDirect _ | DropGlobal _
       | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
       | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _

@@ -15,7 +15,7 @@ let extract_op_defs = function
   | Vecextend (res, _, _, _) | LoadGlobal (res, _) -> [res]
   | Tupuwrp (res_list, _) -> res_list
   | Copy (res, _) -> [res]
-  | StoreGlobal _ | Drop _ -> []
+  | StoreGlobal _ | Drop _ | DropGlobal _ -> []
 
 (* Extract all SSA IDs used by an operation *)
 let extract_op_uses = function
@@ -36,12 +36,18 @@ let extract_op_uses = function
   | Vecinsert (_, vec, vecins, idxs) -> vec.ssaid :: vecins.ssaid :: idxs
   | Vecslice (_, vec, start, len) -> [vec; start; len]
   | Vecextend (_, vec, lit, off) -> [vec; lit; off]
-  | Func _ | LoadGlobal _ | Immi32 _ | Immi8 _ | ImmUnit _ -> []
+  | Func _ | LoadGlobal _ | DropGlobal _ | Immi32 _ | Immi8 _ | ImmUnit _ -> []
 
 (* Operations that cannot be deleted even if their results are ignored *)
 let is_critical_op = function
-  | CallClosure _ | CallDirect _ | StoreGlobal _ | Drop _ -> true
-  | _ -> false
+  | CallClosure _ | CallDirect _ | StoreGlobal _ | Drop _ | DropGlobal _ -> true
+  | Func _ | Pack _ | Tupuwrp _ | Vecread _ | Vecslice _
+  | Copy _ | LoadGlobal _
+  | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
+  | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
+  | Veclit _ | Vecinit _ 
+  | Veclen _ | Vecwrite _ | Vecinsert _
+  | Vecextend _  -> false
 
 (* Helper to filter a list using a boolean mask *)
 let rec filter_mask mask lst =

@@ -175,6 +175,15 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
                                   ^ Printmir.string_of_typ (get_mirtyp b loc.ssaid)
                                   ))
   )
+  | DropGlobal gid -> (
+        let global = find_global b gid in
+        if is_memtyp global.typ then
+          []
+        else
+          raise (Errors.MirError ("DropGlobal operation requires the global to be a memory type. globaltyp: " 
+                                  ^ (Printmir.string_of_typ (global.typ))
+                                  ))
+  )
   | LoadGlobal (ssaid, gid) -> 
       let global = find_global b gid in
       [(ssaid, global.typ)]
@@ -353,6 +362,7 @@ let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
   | Drop _ -> []
   | StoreGlobal _ -> []
   | LoadGlobal (ssaid, _) -> if_memtyp_then Borrowed
+  | DropGlobal _ -> []
   | Immi32 (ssaid, _) -> [(ssaid, NoMem)]
   | Immi8 (ssaid, _) -> [(ssaid, NoMem)]
   | ImmUnit ssaid -> [(ssaid, NoMem)]
@@ -507,6 +517,7 @@ let rec copy_op (o : op) : op =
   | CallClosure (res, sc) -> CallClosure (res, copy_ssaconsume sc)
   | CallDirect (res, fid_ref, scs) -> CallDirect (res, ref !fid_ref, List.map copy_ssaconsume scs)
   | StoreGlobal (gid, sc) -> StoreGlobal (gid, copy_ssaconsume sc)
+  | DropGlobal gid -> DropGlobal gid
   | Tupwrp (res, scs) -> Tupwrp (res, List.map copy_ssaconsume scs)
   | Tupuwrp (res, sc) -> Tupuwrp (res, copy_ssaconsume sc)
   | Veclit (res, scs) -> Veclit (res, List.map copy_ssaconsume scs)
@@ -630,6 +641,7 @@ let sub_ops_uses submap ops =
     match op with
     | Func _ 
     | LoadGlobal _ 
+    | DropGlobal _
     | Immi32 _ 
     | Immi8 _ 
     | ImmUnit _ -> op

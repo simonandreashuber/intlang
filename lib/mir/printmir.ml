@@ -110,6 +110,8 @@ let string_of_op (fn : func) = function
       Printf.sprintf "storeglobal %s %s" (string_of_globalid gid) (string_of_ssaconsume v)
   | LoadGlobal (dst, gid) ->
       Printf.sprintf "%s = loadglobal %s" (string_of_ssa_def fn dst) (string_of_globalid gid)
+  | DropGlobal gid ->
+      Printf.sprintf "dropglobal %s" (string_of_globalid gid)
   | Immi32 (dst, v) ->
       Printf.sprintf "%s = immi32 %s" (string_of_ssa_def fn dst) (Int32.to_string v)
   | Immi8 (dst, c) ->

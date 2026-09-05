@@ -274,6 +274,7 @@ let consume (opt : mem_optimizer) fn =
         | Copy (_, orig) -> add_use orig
         | Drop mems -> add_uses mems
         | LoadGlobal _ -> ()
+        | DropGlobal _ -> ()
         | StoreGlobal (_, sc) -> try_consume sc
         | Immi32 _ | Immi8 _ | ImmUnit _ -> ()
         | Uopi32 (_, _, a) | Uopi8 (_, _, a) ->  add_use a
@@ -342,7 +343,7 @@ let monofunc (opt : mem_optimizer) (fn : func) =
         with e -> 
           failwith (Printf.sprintf "monofunc: in func %d bb %d calldirect to func %d" fn.funcid bbid !funcid_ref)
       )
-      | Pack _ | CallClosure _ 
+      | Pack _ | CallClosure _ | DropGlobal _
       | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
       | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
@@ -417,7 +418,7 @@ let collect_consumed_ssaids (ops : op list) : SsaSet.t =
     | Vecwrite (_, sc, _, _)     -> check acc sc
     | Vecinsert (_, sc1, sc2, _) -> check (check acc sc1) sc2
     | Drop _ -> failwith "collect_consumed_ssaids: drop op should not be in the ops list"
-    | Func _ | Copy _ | LoadGlobal _
+    | Func _ | Copy _ | LoadGlobal _ | DropGlobal _
     | Immi32 _ | Immi8 _ | ImmUnit _
     | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
     | Vecinit _ | Veclen _ | Vecread _
