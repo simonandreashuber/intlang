@@ -39,12 +39,12 @@ let main () =
          interpmir_flag_passed := true
        end
      ), "<int> Number of times to execute the MIR Simulator (default: 1)");
-    ("--printast", Arg.Set print_ast, "Print AST and MIR to stdout");
-    ("--printmonotast", Arg.Set print_monotast, "Print Monomorphized AST to stdout");
+    ("--printast", Arg.Set print_ast, "Print AST to stdout");
+    ("--printmonotast", Arg.Set print_monotast, "Print Monomorphized TAST to stdout");
     ("--printmir", Arg.Set print_mir, "Print MIR to stdout");
     ("--printllvm", Arg.Set print_llvm, "Print LLVM IR to stdout");
     ("--printall", Arg.Unit (fun () -> print_ast := true; print_monotast := true; print_mir := true; print_llvm := true), "Print all intermediate representations to stdout");
-    ("--emitllvm", Arg.Set emit_llvm, "Emit LLVM IR to file out.ll");
+    ("--emitllvm", Arg.Set emit_llvm, "Emit LLVM IR");
     ("--asan", Arg.Set address_sanitizer, "Enable AddressSanitizer for the generated binary");
     ("-o", Arg.String (fun s -> outputfilename := s; outputfile_passed := true), "<filename> Specify output filename (default: out / out.ll)");
     ("--stdlibpath", Arg.Set_string stdlib_path, "<path> Custom path to the standard library");
