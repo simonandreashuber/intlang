@@ -1,5 +1,12 @@
 # intlang v4
 
+A small eager functional language with 
+- Immutable n dimensional vectors accelerated by a functional but in place optimization
+- No Garbage Collector just compile time known allocation and freeing manged by the compiler
+- N ary Tuples
+- i32 and i8 basic data types
+- A stdlib with basics like IO or typical functional programming helpers like fold
+
 A small functional language called intlang, that I came up with (wow super original, I know) to get some experience with writing a Parser. This is about trying and probably getting a bunch of things wrong but learn from the mistakes. The project a evolved a bit past what I originally imagined. 
 
 As of now it has Lexer, Parser, Include Resolver, Typechecker, Monomorphization, Interpreter and some Tests :)
