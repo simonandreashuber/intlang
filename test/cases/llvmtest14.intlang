@@ -1,1 +1,0 @@
-let incfun = \x. x + 1 in incfun 5

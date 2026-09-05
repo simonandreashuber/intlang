@@ -1,0 +1,45 @@
+include err
+include io
+include math
+include vector
+
+
+let main = \() (
+    let vi32 = io.readln_i32vec () in
+
+    let double = vector.map (\x. 2*x) vi32 in
+    let reverse = vector.rev vi32 in
+    let quotient_res = vector.map2 (\a b. a / (if b == 0 then 1 else b end)) vi32 reverse in
+    let quotient = if err.ok quotient_res then err.uwrp quotient_res else vi32 end in
+    let addreduce_left = vector.left_fold (\x. \y. x+y) 0 vi32 in
+    let addreduce_quotient_res = vector.left_fold2 (\acc a b. acc + (b / (if a == 0 then 1 else a end))) 0 vi32 reverse in
+    let addreduce_quotient = if err.ok addreduce_quotient_res then err.uwrp addreduce_quotient_res else 0 end in
+    let addreduce_right = vector.right_fold (\x. \y. x+y) vi32 0 in
+    let copied = vector.concat vi32 vi32 in
+
+    let middle = veclen[vi32]/2 in
+    let vi32larger = vecset[vi32, vecget[vi32, middle]+1, middle] in
+
+    let eqcmp = vector.cmp math.cmp_i32 vi32 vi32 in
+    let ltcmp = vector.cmp math.cmp_i32 vi32 vi32larger in
+    let gtcmp = vector.cmp math.cmp_i32 vi32larger vi32 in
+    let ltlencmp = vector.cmp math.cmp_i32 vi32 copied in
+    let gtlencmp = vector.cmp math.cmp_i32 copied vi32 in
+    (
+    io.writeln_i32vec double;
+    io.writeln_i32vec reverse;
+    io.writeln_i32vec quotient;
+    io.writeln_i32vec copied;
+    io.writeln_i32 addreduce_left;
+    io.writeln_i32 addreduce_quotient;
+    io.writeln_i32 addreduce_right;
+    io.writeln_i32 eqcmp;
+    io.writeln_i32 ltcmp;
+    io.writeln_i32 gtcmp;
+    io.writeln_i32 ltlencmp;
+    io.writeln_i32 gtlencmp;
+
+    vector.iter (\x. (io.write_str (io.i32_to_str x); io.write_str ",")) vi32;
+    io.write_str "\n"
+    )
+)

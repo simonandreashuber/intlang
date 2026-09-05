@@ -1,0 +1,27 @@
+-- to systematically test i32 uop and bop, the str lib is needed but
+-- the main idea of these basic lang tests is to test basic language futures
+-- without relaying on the str lib, which intern relies on most of these
+-- basic language futures. So here I test just some basics, ie. more of
+-- a sanity test rather than a systematic testing approach
+
+let main = \() ( 
+    (
+    writei8 (i32_to_i8 (1 == 2)); -- 0
+    writei8 (i32_to_i8 (5 == 5)); -- 1
+    writei8 (i32_to_i8 (7 < 7)); -- 0
+    writei8 (i32_to_i8 (8 < 9)); -- 1
+    writei8 (i32_to_i8 ((-3) < 0 )); -- 1
+    writei8 (i32_to_i8 (1 <= 0)); --0
+    writei8 (i32_to_i8 (8 <= 12)); --1
+    writei8 (i32_to_i8 (3 <= 3)); --1
+    writei8 (i32_to_i8 (4+9)); -- 13
+    writei8 (i32_to_i8 (10-8)); --2
+    writei8 (i32_to_i8 (0*7)); --0
+    writei8 (i32_to_i8 (4*3)); --12
+    writei8 (i32_to_i8 ((-4) * (-5))); --20
+    writei8 (i32_to_i8 (6/4)); --1
+    writei8 (i32_to_i8 (9/3)); --3
+    writei8 (i32_to_i8 (9/10)); --0
+    flush ()
+    )
+    )

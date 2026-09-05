@@ -1,7 +1,15 @@
+(include_subdirs unqualified)
+
 (library
  (name intlang_lib)
- (libraries llvm)
- (modules ast lexer parser errors printIntlang include typecheck monomorph interp interp_tast codegen))
+ (libraries llvm llvm.target llvm.executionengine)
+ (modules ast errors printIntlang 
+          lexer parser include reccheck typecheck monomorph veccheck interp 
+          mir analysis buildmir printmir
+          calldirectopt tco dceopt compactcfgopt memopt funcdceopt
+          mirgen mirpipe simmir
+          llvmgen
+          )) ;codegen
 
 (menhir
  (modules parser))

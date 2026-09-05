@@ -1,0 +1,6 @@
+include io
+
+let main = \() (
+    let s = io.read_ln () in
+    io.write_ln s; flush ()
+)

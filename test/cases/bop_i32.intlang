@@ -1,0 +1,35 @@
+include io
+
+let main = \() (
+    let wout = io.writeln_i32 in
+    let i0 = io.readln_i32 () in
+    let i1 = io.readln_i32 () in
+    let i1_nonzero = if i1 == 0 then 1 else i1 end in
+    let i1_shift = i1 %u 32 in
+    (
+    wout (i0 == i1);
+    wout (i0 != i1);
+    wout (i0 < i1);
+    wout (i0 > i1);
+    wout (i0 <= i1);
+    wout (i0 >= i1);
+    wout (i0 <u i1);
+    wout (i0 >u i1);
+    wout (i0 <=u i1);
+    wout (i0 >=u i1);
+    wout (i0 * i1);
+    wout (i0 - i1);
+    wout (i0 + i1);
+    wout (i0 / i1_nonzero);
+    wout (i0 % i1_nonzero);
+    wout (i0 /u i1_nonzero);
+    wout (i0 %u i1_nonzero);
+    wout (i0 & i1);
+    wout (i0 | i1);
+    wout (i0 ^ i1);
+    wout (i0 << i1_shift);
+    wout (i0 >> i1_shift);
+    wout (i0 >>u i1_shift);
+    flush ()
+    )
+    )

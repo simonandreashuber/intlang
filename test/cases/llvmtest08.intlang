@@ -1,1 +1,0 @@
-let v = vec[44,6,3,7] in vecget[v,3] + veclen[v]

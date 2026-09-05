@@ -1,0 +1,61 @@
+include io
+
+let swap = \itup : i32 * i8 => i8 * i32.
+            let (int, char) = itup in (char, int)
+
+let special_read = \()
+            readi8 ()
+
+let endswbreak = \ istr : [i8] => i32.
+            let endpos = veclen[istr]-1 in
+            vecget[istr, endpos] ==i8 '\n'
+
+let somestr = "hello world\n"
+
+let uppercase = \c.
+    if (c >=i8 'a') & (c <=i8 'z') then
+        c -i8 (i32_to_i8 32)
+    else
+        c
+    end
+
+let multilam = \x y z. x + y + z
+
+let multilamanot = \ x (y : i32) (z : [i8]). y
+let multilamanotoutT = \ x (y : i32) (z : [i8]) => i32. y
+
+let emptyvecget = \v : [i32]. vecget[v]
+let emptyvecget = \v : [[i32]]. vecget[v,0,0]
+
+
+let rec countup = \ x. if x < 10 then countup2 (x+1) else x end
+and countup2 = \ x. if x < 10 then countup (x+1) else x end
+
+let tupignore = \itup : i32 * i8 => i8.
+            let (_, char) = itup in char
+
+let swapweird = \itup : i32 * i8 => i8 * i32.
+            let (int, _) = itup in (i32_to_i8 int, int)
+
+let rec somerecfunc = \ x. if x < 10 then somerecfunc (x+1) else x end
+
+let seqtest =   if 0 < 10 then () else () end;
+                if 0 < 10 then () else () end 
+
+-- let rec evilrec = vecset[evilrec, 0, 0]
+
+-- let notevil = let rec otherevilrec = vecset[otherevilrec, 0, 0] in 0
+
+let map = \f : i32 -> i32. \v : [i32] => [i32].
+            let rec aux = \v. \i.
+                if i < veclen[v] then
+                    aux vecset[v, f (vecget[v, i]), i] (i+1)
+                else
+                    v
+                end
+    in
+    aux v 0
+
+let parity = map (\x. x % 2)
+
+let main = \() io.writeln_i32 9

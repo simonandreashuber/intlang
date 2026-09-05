@@ -1,6 +1,0 @@
--- Expect: 45
-include vector
-
-let v = vec[1,2,3,4,5,6,7,8,9];
-let vsum = vector.vec_left_fold (\acc. \x. acc+x) 0 v;
-vsum

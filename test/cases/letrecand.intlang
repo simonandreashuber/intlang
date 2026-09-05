@@ -1,0 +1,9 @@
+let rec collatz = \n cnt. if n == 1 then cnt else if n % 2 == 0 then collatz_even n cnt else collatz_odd n cnt end end
+and collatz_even = \n cnt. collatz (n / 2) (cnt + 1)
+and collatz_odd = \n cnt. collatz (3*n + 1) (cnt + 1)
+let main = \() (
+    let n = i8_to_i32 (readi8 ()) in
+    let cnt = collatz n 0 in
+    let cout = i32_to_i8 cnt in
+    writei8 cout; flush ()
+    )

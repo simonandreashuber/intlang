@@ -1,0 +1,14 @@
+-- basic Result Type Simulation
+-- main downsides of doing this library side are: 
+            -- 1. to return an error one still needs a value of the type that is returned when computation
+            --    runs normally
+            -- 2. No enforcement, that the value is checked with ok before its unwrapped
+            -- 3. No nice shorthands like ? in Rust
+            -- 4. Problems with language futures can not cleanly make use of the error system
+-- the main upside is that its 4 lines instead of 100's
+
+let res = \v. (0,v)
+let err = \v. (1,v)
+
+let ok = \res. let (tag, value) = res in tag == 0
+let uwrp = \res. let (tag, value) = res in value

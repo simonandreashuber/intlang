@@ -1,0 +1,1 @@
+let main = \() ( writei8 (readi8 ()); flush ())

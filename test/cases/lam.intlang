@@ -1,0 +1,6 @@
+let main = \() ( 
+    let c0 = readi8 () in
+    let c1 = readi8 () in
+    let o = (\x x. x) c0 c1 in
+    writei8 o; flush ()
+    )

@@ -1,3 +1,0 @@
-let v = vec[1,2,3] in 
-let v1 = vecset[v, 1, 10] in
-vecget[v1, 1] 

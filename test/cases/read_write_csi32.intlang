@@ -1,0 +1,5 @@
+include io
+
+let main = \()
+    let i32vec = io.readln_i32vec () in
+    (io.writeln_i32vec i32vec; flush ())

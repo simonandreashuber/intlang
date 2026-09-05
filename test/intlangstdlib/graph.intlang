@@ -1,0 +1,95 @@
+include math
+include vector
+include search
+include sort
+
+--make empty assoc vector of size n
+let genGraph = \n. vecmk[-1,n,0] 
+
+-- if g has edge from v to u return 1 else 0, UNSAFE, does not check if v or u are a valid vertices
+let _checkEdgeUnsave = \g v u. if (search.linearsearch_i32 vecget[g,v] u) == -1 then 0 else 1 end
+
+-- if g has edge from v to u return 1 else 0
+let checkEdge = \g v u. 
+            let validverts = math.inbounds 0 (veclen[g]) in
+            if (validverts v) & (validverts u) then
+                _checkEdgeUnsave g v u
+            else 
+                0
+            end
+
+-- adds edge from v to u
+let addEdge = \g v u. 
+            let validverts = math.inbounds 0 (veclen[g]) in
+            if (validverts v) & (validverts u) then
+                if _checkEdgeUnsave g v u then
+                    g
+                else
+                    let oldneighbors = vecget[g,v] in
+                    let m1idx = search.linearsearch_i32 oldneighbors (-1) in
+                    let newneighbors = 
+                        if m1idx == -1 then
+                            vecextend[oldneighbors, u, 1]
+                        else
+                            vecset[oldneighbors, u, m1idx]
+                        end
+                    in 
+                    vecset[g, newneighbors, v]
+                end                
+            else 
+                g
+            end
+
+-- removes edge from v to u
+let removeEdge = \g v u. 
+            let validverts = math.inbounds 0 (veclen[g]) in
+            if (validverts v) & (validverts u) then
+                if _checkEdgeUnsave g v u then
+                    let oldneighbors = vecget[g,v] in
+                    let uidx = search.linearsearch_i32 oldneighbors u in
+                    let newneighbors = vecset[oldneighbors, -1, uidx] in
+                    vecset[g, newneighbors, v]
+                else
+                    g
+                end                
+            else 
+                g
+            end
+
+-- dfs: 
+    -- assumes that all the entries in the graph and start are in [0,n-1] where n is veclen[g]
+    -- and that ord only permutes
+    -- ord is used to define the traversal order of neighbors
+    -- g is the graph
+    -- start is the starting vertex
+    -- returned the discover time, finish time, and parent vectors
+let dfs = \ (ord : [i32] -> [i32]) (g : [[i32]]) (start : i32) => [i32]*[i32]*[i32]. 
+    let n = veclen[g] in
+    let rec dfsaux = \p acc v.
+        let (t, disct, fint, par) = acc in
+        if vecget[disct, v] >= 0 then 
+            --already visited case
+            (t, disct, fint, par)
+        else
+            -- not yet visited
+            let ndisct = vecset[disct, t, v] in
+            let npar = vecset[par, p, v] in
+            let nacc = (t+1, ndisct, fint, npar) in
+            let neigh_unord = vecget[g, v] in
+            let neigh = ord neigh_unord in
+            let nnacc = vector.left_fold (\acc vloc. if vloc >= 0 then dfsaux v acc vloc else acc end) nacc neigh in
+            let (t2, disct2, fint2, par2) = nnacc in
+            let nfint = vecset[fint2, t2, v] in
+            (t2+1, disct2, nfint, par2)
+        end
+    in
+    let (_, disct, fint, par) = dfsaux (-1) (0, vecmk[-1,n], vecmk[-1, n],  vecmk[-1, n]) start in
+    (disct, fint, par)
+
+let dfs_canonicalord = dfs (sort.bubblesort_i32)
+
+let dfs_defaultord = dfs (\x. x)
+
+-- More ideas:
+    -- BFS, shortest path and bipartite check
+    -- Topsort, SCC, cycle detection with DFS

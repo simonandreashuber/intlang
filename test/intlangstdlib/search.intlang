@@ -1,33 +1,49 @@
 -- searching things in vectors
--- Note: for now I implemented things to only work on vectors of ints
+include math
 
-let linearsearch = \arr. \target.
-    let linearsearchaux = \arr. \target. \i.
+-- should do as a left fold
+let linearsearch = \cmpf arr target.
+    let rec linearsearchaux = \i.
         if i < veclen[arr] then
-            if vecget[arr, i] == target then
-                i
+            if cmpf vecget[arr, i] target then
+                linearsearchaux (i+1)   -- cmpf yields -1 or 1
             else
-                linearsearchaux arr target (i+1)
+                i                       -- cmpf yields 0
             end
         else
-            0-1
+            -1
         end
     in
-    linearsearchaux arr target 0;
+    linearsearchaux 0
 
-let binarysearch = \arr. \target.
-    let binarysearchaux = \arr. \target. \left. \right.
+let linearsearch_i32 = linearsearch math.cmp_i32
+
+let binarysearch = \cmpf arr target.
+    let rec binarysearchaux = \left right.
         if left < right then
             let mid = (left + right) / 2 in
-            if vecget[arr, mid] == target then
-                mid
-            else if vecget[arr, mid] < target then
-                binarysearchaux arr target (mid+1) right
+            let cmpresult = cmpf vecget[arr, mid] target in
+            if cmpresult == 0 then
+                let rec findleft = \i. -- makes the binary search O(n) in the worst case (while one could do the findleft as binary search too, I am simply too lazy to optimize this edge case)
+                    if (0 < i) then
+                        if cmpf vecget[arr, (i-1)] target == 0 then -- no logic shortcutting as of now :(
+                            findleft (i-1)
+                        else 
+                            i
+                        end
+                    else
+                        i
+                    end
+                in findleft mid
+            else if cmpresult < 0 then
+                binarysearchaux (mid+1) right
             else
-                binarysearchaux arr target left mid
+                binarysearchaux left mid
             end end
         else
-            0-1
+            -1
         end
     in
-    binarysearchaux arr target 0 veclen[arr];
+    binarysearchaux 0 veclen[arr]
+
+let binarysearch_i32 = binarysearch math.cmp_i32

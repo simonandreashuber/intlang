@@ -1,0 +1,15 @@
+let main = \() ( 
+    let c0 = readi8 () in
+    let c1 = readi8 () in
+    let c2 = readi8 () in
+    let c3 = readi8 () in
+    let tup = (c0, c1, c2, c3) in
+    let (a0, a1, a2, a3) = tup in
+    (
+        writei8 a0;
+        writei8 a1;
+        writei8 a2;
+        writei8 a3;
+        flush ()
+    )
+    )

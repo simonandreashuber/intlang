@@ -1,0 +1,5 @@
+let main = \() ( 
+    let c = readi8 () in
+    let c = readi8 () in
+    writei8 c; flush ()
+    )

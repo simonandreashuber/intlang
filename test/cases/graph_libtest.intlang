@@ -1,0 +1,23 @@
+include io
+include vector
+include graph
+
+let main = \() (
+    let g = graph.genGraph (io.readln_i32 ()) in
+    let g_res = vector.left_fold2 (graph.addEdge) g (io.readln_i32vec ()) (io.readln_i32vec ()) in
+    let g = if err.ok g_res then err.uwrp g_res else g end in
+    let checks0_res = vector.map2 (graph.checkEdge g) (io.readln_i32vec ()) (io.readln_i32vec ()) in
+    let checks0 = if err.ok checks0_res then err.uwrp checks0_res else vec[] end in
+    let g_res = vector.left_fold2 (graph.removeEdge) g (io.readln_i32vec ()) (io.readln_i32vec ()) in
+    let g = if err.ok g_res then err.uwrp g_res else g end in
+    let checks1_res = vector.map2 (graph.checkEdge g) (io.readln_i32vec ()) (io.readln_i32vec ()) in
+    let checks1 = if err.ok checks1_res then err.uwrp checks1_res else vec[] end in
+    let (disct, fint, part) = graph.dfs_canonicalord g (io.readln_i32 ()) in
+    (
+        io.writeln_i32vec checks0;
+        io.writeln_i32vec checks1;
+        io.writeln_i32vec disct;
+        io.writeln_i32vec fint;
+        io.writeln_i32vec part
+    )
+)

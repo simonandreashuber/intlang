@@ -1,0 +1,8 @@
+let x = 5
+let x = 10
+let inc = \x. x + 1
+let main = \() (
+    writei8 (i32_to_i8 x);
+    writei8 (i32_to_i8 (inc x));
+    flush ()
+    )

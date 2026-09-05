@@ -1,0 +1,18 @@
+let main = \() ( 
+    let c0 = readi8 () in
+    let c1 = readi8 () in
+    (
+    writei8 (if c0 ==i8 c1 then '\x01' else '\x00' end);
+    writei8 (if c0 !=i8 c1 then '\x01' else '\x00' end);
+    writei8 (if c0 <i8 c1 then '\x01' else '\x00' end);
+    writei8 (if c0 >i8 c1 then '\x01' else '\x00' end);
+    writei8 (if c0 <=i8 c1 then '\x01' else '\x00' end);
+    writei8 (if c0 >=i8 c1 then '\x01' else '\x00' end);
+    writei8 (c0 +i8 c1);
+    writei8 (c0 -i8 c1);
+    writei8 (c0 &i8 c1);
+    writei8 (c0 |i8 c1);
+    writei8 (c0 ^i8 c1);
+    flush ()
+    )
+    )

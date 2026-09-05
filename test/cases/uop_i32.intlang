@@ -1,0 +1,10 @@
+include io
+
+let main = \() (
+    let x = io.readln_i32 () in
+    (
+    io.write_ln (io.i32_to_str (-x));
+    io.write_ln (io.i32_to_str (~x));
+    flush ()
+    )
+    )

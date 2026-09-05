@@ -1,8 +1,15 @@
 (executable
- (name test_intlang)
- (libraries intlang_lib str)) ;(enabled_if false)
+ (name test_runner)
+ (libraries intlang_lib str unix threads ocamlgraph)
+ (modules test_runner tests)) ;(enabled_if false)
 
 (rule
  (alias runtest)
- (deps (glob_files cases/*.intlang) (glob_files cases/inclfoldr/*.intlang))
- (action (run %{exe:test_intlang.exe} cases)))
+ (deps (glob_files cases/*.intlang) (glob_files cases/inclfoldr/*.intlang) (glob_files intlangstdlib/*.intlang) ../bin/main.exe)
+ (action (run %{exe:test_runner.exe} %{exe:../bin/main.exe})))
+
+ ; Separate mode: runs with `dune build @test-separate
+(rule
+ (alias test-separate)
+ (deps (glob_files cases/*.intlang) (glob_files cases/inclfoldr/*.intlang) (glob_files intlangstdlib/*.intlang) ../bin/main.exe)
+ (action (run %{exe:test_runner.exe} --separate %{exe:../bin/main.exe})))

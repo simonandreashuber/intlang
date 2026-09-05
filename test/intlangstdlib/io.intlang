@@ -1,0 +1,190 @@
+include err
+
+-- READING
+let read_str = \ (len : i32) => [i8].
+    let rec read_str_aux = \ (len : i32) (i : i32) (acc : [i8]) => [i8].
+        if i < len then
+            let c = readi8 () in
+            let next_acc = vecset[acc, c, i] in
+            read_str_aux len (i+1) next_acc
+        else
+            acc
+        end
+    in
+    read_str_aux len 0 (vecmk['\x00', len])
+
+-- \() => [i8]. unit lambda annotation might be nice
+let read_ln = \()
+    let rec read_ln_aux = \ (acc : [i8]) (i : i32) => [i8].
+        let acc_w_space = if i < veclen[acc] then acc else vecextend[acc, '\x00', veclen[acc]] end in
+        let c = readi8 () in
+        if c ==i8 '\n' then
+            vecslice[acc_w_space, 0, i] --resize to use the valid part of the buffer
+        else
+            read_ln_aux vecset[acc_w_space, c, i] (i+1)
+        end
+    in
+    read_ln_aux (vecmk['\x00', 128]) 0
+
+
+-- WRITING
+let write_str = \s : [i8] => unit.
+    let rec write_str_aux = \ (s : [i8]) (i : i32) => unit.
+        if i < veclen[s] then
+            (writei8 vecget[s, i];
+            write_str_aux s (i+1))
+        else
+            ()
+        end
+    in
+    write_str_aux s 0
+
+let write_ln = \s : [i8] => unit.
+    let rec write_ln_aux = \ (s : [i8]) (i : i32) => unit.
+        if i < veclen[s] then
+            (writei8 vecget[s, i];
+            write_ln_aux s (i+1))
+        else
+            writei8 '\n'
+        end
+    in
+    write_ln_aux s 0
+
+
+-- HANDLING I32
+let ascii_is_dig = \c : i8 => i32. ('\x30' <=i8 c) & (c <=i8 '\x39')
+
+let ascii_dig_to_i32 = \c : i8 => i32. i8_to_i32 c - 48
+
+let i32_dig_to_ascii = \i : i32 => i8. i32_to_i8 (i + 48)
+
+let str_to_i32 = \s : [i8] => i32 * i32.
+    let rec strtoi32aux = \ (s : [i8]) (i : i32) (acc : i32) => i32 * i32.
+        if i < veclen[s] then
+            let c = vecget[s, i] in
+            if ascii_is_dig c then
+                let digit = ascii_dig_to_i32 c in
+                strtoi32aux s (i+1) (acc * 10 + digit)
+            else
+                err.err acc
+            end
+        else
+            err.res acc
+        end
+    in
+    if (0 < veclen[s]) & (vecget[s, 0] ==i8 '-') then 
+        let res = strtoi32aux s 1 0 in
+        if err.ok res then err.res (-(err.uwrp res)) else err.err 0 end
+    else 
+        strtoi32aux s 0 0 
+    end
+
+-- one could add error handling (or automatic buffer extension) here but it is a method that 
+-- should only be called form inside the io lib so I trust that the acc buffer that is passed is long enough
+let i32_to_str_buff = \ (i : i32) -- i32 to convert
+                        (idx : i32) -- buffer index to count down from
+                        (acc : [i8]) -- buffer
+                        => (i32 * [i8]). -- updated buffer index and buffer
+
+    let rec _get_digits = \ (i : i32) -- the rest of the i32
+                            (idx : i32) -- index into acc to use for the next char
+                            (acc : [i8]) -- accumulator to make the thing tail recursive
+                            => i32 * [i8]. -- return the vector and the next usable index
+        let dig = i32_dig_to_ascii (i % 10) in
+        let next_i = i / 10 in -- think some weird shift and mutl can do this faster
+        let next_acc = vecset[acc, dig, idx] in
+        let next_idx = idx - 1 in
+        if next_i == 0 then
+            (next_idx, next_acc)
+        else
+            _get_digits next_i next_idx next_acc
+        end
+    in
+
+    -- range is +2147483647 to -2147483648
+    -- so we need 10 chars for the digits, on negative numbers 1 for the sign
+    if i == -2147483648 then --special case where we cant flip, we just "unroll" once and then flip
+        let acc = vecset[acc, '8', idx] in
+        let idx = idx - 1 in
+        let (idx, acc) = _get_digits (214748364) idx acc in
+        let acc = vecset[acc, '-', idx] in
+        let idx = idx - 1 in
+        (idx, acc)
+    else if 0 <= i then
+        let (idx, acc) = _get_digits i idx acc in
+        (idx, acc)
+    else 
+        let (idx, acc) = _get_digits (-i) idx acc in
+        let acc = vecset[acc, '-', idx] in
+        let idx = idx - 1 in
+        (idx, acc)
+    end end
+
+let i32_to_str = \i : i32 => [i8].
+    let (idx, acc) = i32_to_str_buff i 11 (vecmk['\x00', 12]) in
+    vecslice[acc, idx+1, veclen[acc]-(idx+1)] -- resize to the valid part of the buffer
+
+
+-- COMMA SEPARATED I32
+let csi32str_to_i32vec = \s : [i8] => i32 * [i32].
+    let n = veclen[s] in
+    let rec aux = \ (l : i32) (r : i32) (idx : i32) (acc : [i32]) => i32 * [i32].
+        if r < n then
+            let c = vecget[s, r] in
+            if c ==i8 ',' then
+                let num_str = vecslice[s, l, r-l] in
+                let num_res = str_to_i32 num_str in
+                if err.ok num_res then
+                    aux (r+1) (r+1) (idx+1) vecset[acc, err.uwrp num_res, idx]
+                else
+                    err.err vec[]
+                end
+            else
+                aux l (r+1) idx acc
+            end
+        else
+            let num_str = vecslice[s, l, n-l] in
+            let num_res = str_to_i32 num_str in
+            if err.ok num_res then
+                err.res vecslice[vecset[acc, err.uwrp num_res, idx], 0, idx+1]
+            else
+                err.err vec[]
+            end
+        end
+    in
+    aux 0 0 0 vecmk[0, n/2 + 1] -- there are at most veclen[s]/2 numbers in the string (only 0 to 9 for all numbers)
+
+let i32vec_to_csi32str = \v : [i32] => [i8].
+    let n = veclen[v] in
+    let rec aux = \ (i : i32) 
+                    (idx : i32) 
+                    (acc : [i8]) 
+                    => [i8].
+        if 0 <= i then
+            let (idx, acc) = i32_to_str_buff (vecget[v, i]) idx acc in
+            let acc = vecset[acc, ',', idx] in
+            let idx = idx - 1 in
+            aux (i-1) idx acc
+        else
+            vecslice[acc, idx+2, veclen[acc]-(idx+2)] --also remove the last comma that was added
+        end
+    in
+    if n == 0 then
+        vecmk['\x00', 0]
+    else    
+        aux (n-1) (n * 12 - 1) (vecmk['\x00', n * 12]) -- the max string size is 12 characters (10 digits + 1 sign + 1 comma per number)
+    end
+
+-- Some shorthands for convenience
+-- the read short hands do use functions that can return errors
+-- but for the sake of simplicity they will return a default value on fail
+-- but not 0 or similar since these small numbers might appear in the test sometimes
+-- so just some big random number, it is a bit dirty but just makes the code in the test
+-- so much more readable. This would be different if the Result Type was builtin
+-- and well integrated
+let readln_i32 = \() let res = str_to_i32 (read_ln ()) in if err.ok res then err.uwrp res else 987654 end
+let readln_i32vec = \() let res = csi32str_to_i32vec (read_ln ()) in if err.ok res then err.uwrp res else vec[987654] end
+
+let writeln_i32 = \i : i32 => unit. write_ln (i32_to_str i)
+let write_i32 = \i : i32 => unit. write_str (i32_to_str i)
+let writeln_i32vec = \v. write_ln (i32vec_to_csi32str v)

@@ -1,0 +1,51 @@
+-- a queue is (front, back, vec) where
+-- the actual elements start at index front and end at index back-1 (all in the mod n group)
+
+include err
+include math
+
+
+let mkQueue = \() (0,0, vec[])
+
+let sizeQueue = \q. 
+            let (front, back, v) = q in
+            if front <= back then back - front else veclen[v] - front + back end
+
+let isemptyQueue = \q. sizeQueue q == 0
+
+let isfullQueue = \q.
+            let (_, _, v) = q in
+            sizeQueue q >= veclen[v]-1 -- >= is for the zero edge case
+
+let extendQueue = \q x. 
+            let (front, back, oldvec) = q in
+            let oldlen = veclen[oldvec] in
+            let newvec = vecextend[oldvec, x, math.max oldlen 32] in -- the main reason to pass x and use it here is to keep the polymorphism
+            let rec aux = \acc i.
+                if i < back then
+                    aux vecset[acc, vecget[oldvec, i], oldlen + i] (i+1)
+                else 
+                    (front, oldlen + i, acc)
+                end
+            in
+            if front > back then
+                aux newvec 0
+            else 
+                (front, back, newvec)
+            end
+
+let enQueue = \q x. 
+            let (front, back, v) = if isfullQueue q then extendQueue q x else q end in
+            let newback = (back + 1) % veclen[v] in
+            (front, newback, vecset[v, x, back])
+
+
+let deQueue = \q. 
+            let (front, back, v) = q in
+            if isemptyQueue q then
+                err.err (vecget[v, 0], q)
+            else
+                let elm = vecget[v, front] in
+                let newfront = (front + 1) % veclen[v] in
+                err.res (elm, (newfront, back, v))
+            end

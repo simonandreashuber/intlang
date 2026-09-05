@@ -1,0 +1,11 @@
+let main = \() ( 
+    let vmk = vecmk['\xaa', 5] in
+    (
+    writei8 (vecget[vmk, 0]); 
+    writei8 (vecget[vmk, 1]); 
+    writei8 (vecget[vmk, 2]); 
+    writei8 (vecget[vmk, 3]); 
+    writei8 (vecget[vmk, 4]); 
+    flush ()
+    )
+    )

@@ -1,2 +1,2 @@
-include math
-let folderincl2func = \x. x - 1;
+include io
+let folderincl2func = \x. x - 1

@@ -1,5 +1,0 @@
--- Expect: 21
-
-include math
-
-math.gcd 1071 462

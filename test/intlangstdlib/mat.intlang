@@ -1,86 +1,87 @@
 -- lib for row major matrices
-
+include math
 include vector
 
 -- create an identity matrix of size n x n
 let matid = \n. 
-    let matidaux = \n. \i. \A.
-        let updtA = vecset[A, i*n+i, 1] in
+    let n = math.abs n in
+    let rec matidaux = \i A.
+        let updtA = vecset[A, 1, i*n+i] in
         if i < (n-1) then 
-            matidaux n (i+1) updtA 
+            matidaux (i+1) updtA 
         else 
             updtA 
         end
     in
-    matidaux n 0 vecmk[0,n*n];
+    matidaux 0 vecmk[0,n*n]
 
 -- "classic triple loop untiled" matmul
 -- A is a nxl mat
 -- B is a lxm mat
-let matmul = \n. \l. \m. \A. \B.
+let matmul = \n l m A B.
     -- C is a nxm mat (in here for tail recursion, the initial call must pass it as 0)
     -- i,j,k are the loop/recursion vars
     -- i is in [0,n]
     -- j is in [0,m]
     -- k is in [0,l]
-    let matmulaux = \n. \l. \m. \A. \B. \C. \i. \j. \k.
+    let rec matmulaux = \C i j k.
                 let updtC = vecset[C, 
-                                   i*m+j, 
-                                   vecget[C, i*m+j] + vecget[A,i*l+k]*vecget[B,k*m+j]
+                                   vecget[C, i*m+j] + vecget[A,i*l+k]*vecget[B,k*m+j],
+                                   i*m+j
                                   ] in
                 if k < (l-1) then 
-                    matmulaux n l m A B updtC i j (k+1)
+                    matmulaux updtC i j (k+1)
                 else if j < (m-1) then
-                    matmulaux n l m A B updtC i (j+1) 0
+                    matmulaux updtC i (j+1) 0
                 else if i < (n-1) then
-                    matmulaux n l m A B updtC (i+1) 0 0
+                    matmulaux updtC (i+1) 0 0
                 else 
                     updtC
                 end end end 
     in
     if (veclen[A] == n*l)*(veclen[B] == l*m) then
-        matmulaux n l m A B vecmk[0,n*m] 0 0 0
+        err.res (matmulaux vecmk[0,n*m] 0 0 0)
     else 
-        vecmk[0,n*m]
-    end;
+        err.err vec[]
+    end
 
-let matadd = \A. \B.
-    let mataddaux = \A. \B. \C. \i.
+let matadd = \A B.
+    let rec mataddaux = \C i.
                 let updtC = vecset[C, 
-                                   i, 
-                                   vecget[A,i] + vecget[B,i]
+                                   vecget[A,i] + vecget[B,i],
+                                   i
                                   ] in
                 if i < (veclen[A]-1) then 
-                    mataddaux A B updtC (i+1)
+                    mataddaux updtC (i+1)
                 else 
                     updtC
                 end 
     in
     if (veclen[A] == veclen[B]) then
-        mataddaux A B vecmk[0,veclen[A]] 0
+        err.res (mataddaux vecmk[0,veclen[A]] 0)
     else 
-        vecmk[0,veclen[A]]
-    end;
+        err.err vec[]
+    end
 
-let matsmul = \A. \s. vector.vecmap (\x. x*s) A;
+let matsmul = \A s. vector.map (\x. x*s) A
 
-let matsub = \A. \B. matadd A (matsmul B (0-1)); --haha mb I should add negative int literals 
+let matsub = \A B. matadd A (matsmul B (-1)) --haha mb I should add negative int literals, haha I did
 
-let sqmattrans = \n. \A.
-    let sqmattransaux = \n. \A. \i. \j.
+let sqmattrans = \n A.
+    let rec sqmattransaux = \A i j.
         let tmp = vecget[A, i*n+j] in
-        let partA = vecset[A, i*n+j, vecget[A,j*n+i]] in
-        let updtA = vecset[partA, j*n+i, tmp] in
+        let partA = vecset[A, vecget[A,j*n+i], i*n+j] in
+        let updtA = vecset[partA, tmp, j*n+i] in
         if j < (n-1) then
-            sqmattransaux n updtA i (j+1)
+            sqmattransaux updtA i (j+1)
         else if i < (n-2) then
-            sqmattransaux n updtA (i+1) (i+2)
+            sqmattransaux updtA (i+1) (i+2)
         else
             updtA
         end end
     in
     if veclen[A] == n*n then
-        sqmattransaux n A 0 1
+        err.res (sqmattransaux A 0 0)
     else 
-        vecmk[0,n*n]
-    end;
+        err.err vec[]
+    end

@@ -1,0 +1,1 @@
+let main = \() ( writei8 (i32_to_i8 (i8_to_i32 (readi8 ()))); flush ())

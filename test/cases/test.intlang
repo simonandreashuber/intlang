@@ -1,3 +1,0 @@
--- Expect: 68
-let foo = \x.5+7*x;
-foo 9

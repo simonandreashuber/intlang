@@ -1,0 +1,8 @@
+let main = \() ( 
+    let c = readi8 () in
+    let n = i8_to_i32 c in
+    let rec fib = \n. if 1 < n then (fib (n-1) + fib (n-2)) else (n==1) end in
+    let fibn = fib n in
+    let cout = i32_to_i8 fibn in
+    writei8 cout; flush ()
+    )
