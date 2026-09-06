@@ -1,3 +1,36 @@
+(*
+
+  Lower a Monomorphized TAST to MIR
+
+  The MIR output is NOT correct/complete since explicit copies at the terminators
+  and drops are absent. I am personally critical of this idea to have "invalid"
+  code that only becomes "valid" with passes, but it is simpler to implement.
+  If for example explicit copies at terms would be inserted by default
+  some of them would have to just be removed again when some bb args are promoted
+  to borrowed or the origin of the copy can be consumed outright. That is why I 
+  decided to do it as I did.
+
+  Captured variables are Lambda Lifted. Also Lambdas are seem as "chains" ie. 
+  The functions stop being fully curried. A function is created when needed ie.
+  when there is some delayed computation. So for example: \x. \y. x+y lowers to
+  one MIR function taking two i32 values. But \x. if x then \y. x+y else \y. x*y end
+  is lowered to three functions. One Taking x and returning a closure for one of the
+  two others.
+
+  This examples shows that the intlang type i32 -> i32 -> i32 can look different in the
+  MIR depending the actual definition (clos(i32,i32->i32) or clos(i32->clos(i32->i32))).
+  This is not practical in some places particularly if closures are "passed" 
+  (arguments of functions or bbs, put into tuples or stored as globals). To solve this 
+  an eta expansion is created in such places. If the reader is not familiar with
+  eta expansions here is a short intro. Basically an eta expansion function takes 
+  all arguments and returns the final non function return type on call. Internally
+  the eta expansion function does all the intermediate calls. So coming back to:
+  \x. if x then \y. x+y else \y. x*y end, the eta expansion here would: Take x and y as 
+  arguments put x into the function taking x and get a closure back. Then call the 
+  returned closure getting an i32 back and finally return this i32.
+
+*)
+
 open Errors
 open Ast
 open PrintIntlang

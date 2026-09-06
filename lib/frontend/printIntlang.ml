@@ -1,3 +1,10 @@
+(*
+
+  Generate Strings of the AST and TAST
+
+*)
+
+
 open Ast
 
 let rec sprint_typ (t : typ) : string =
@@ -34,11 +41,9 @@ let sprint_env (env : typenv) : string =
 let sprint_constraint ((t1, t2) : typ*typ) : string =
   sprint_typ t1 ^ "==" ^ sprint_typ t2
 
-(* Helper to generate indentation string *)
 let indent (level : int) : string =
   String.make (level * 4) ' '
 
-(* Sprint binary operator for i32 *)
 let sprint_bopi32 (bop : bopi32) : string =
   match bop with
   | Eqi32 -> "=="
@@ -65,7 +70,6 @@ let sprint_bopi32 (bop : bopi32) : string =
   | Shri32 -> ">>"
   | UShri32 -> ">>u"
 
-(* Sprint binary operator for i8 *)
 let sprint_bopi8 (bop : bopi8) : string =
   match bop with
   | Eqi8 -> "==i8"
@@ -80,19 +84,17 @@ let sprint_bopi8 (bop : bopi8) : string =
   | Ori8 -> "|i8"
   | Xori8 -> "^i8"
 
-(* Sprint unary operator for i32 *)
 let sprint_uopi32 (uop : uopi32) : string =
   match uop with
   | Negi32 -> "-"
   | Noti32 -> "~"
 
-(* Sprint unary operator for i8 *)
 let sprint_uopi8 (uop : uopi8) : string =
   match uop with
   | Negi8 -> "-i8"
   | Noti8 -> "~i8"
 
-(* Note on the tab level: we use indent tab for each newline *)
+(* note on the tab level: indent tab is used for each newline *)
 let rec sprint_lexp_wdepth (d_opt : int option) (tab : int) (l : lexp) : string =
   match d_opt with
   | Some d when d <= 0 -> "..."
@@ -168,7 +170,6 @@ let rec sprint_lexp_wdepth (d_opt : int option) (tab : int) (l : lexp) : string 
 
 let sprint_lexp (tab : int) (l : lexp) : string = sprint_lexp_wdepth None tab l
 
-(* Sprint statements with proper indentation *)
 let sprint_stmt (tab : int) (st : stmt) : string =
   let ind = indent tab in
   match st with
@@ -273,85 +274,3 @@ let sprint_monotletbnd ((name, uuid, lexpt) : monotletbnd) : string =
 
 let sprint_monotast (tast : monotast) : string =
   (String.concat "\n" (List.map sprint_monotletbnd tast)) ^ "\n"
-
-(*
-let sprint_schema (Forall (vars, t) : schema) : string =
-  let vars_str = if vars = [] then "" else "forall " ^ String.concat " " (List.map (fun v -> "t" ^ string_of_int v) vars) ^ ". " in
-  vars_str ^ sprint_typ t
-
-let sprint_env (env : typenv) : string =
-  let bindings = List.map (fun (name, (Forall (vars, t), uuid)) -> 
-    let vars_str = if vars = [] then "" else "forall " ^ String.concat " " (List.map (fun v -> "t" ^ string_of_int v) vars) ^ ". " in
-    name ^ "(uuid=" ^ string_of_int uuid ^ ")" ^ " : " ^ vars_str ^ sprint_typ t
-  ) env in
-  String.concat "\n" bindings
-
-let sprint_constraints (cs : constraints) : string =
-  let cs_strs = List.map (fun (t1, t2) -> sprint_typ t1 ^ "==" ^ sprint_typ t2) cs in
-  String.concat "\n" cs_strs
-
-let sprint_constraint ((t1, t2) : typ*typ) : string =
-  sprint_typ t1 ^ "==" ^ sprint_typ t2
-
-let sprint_scc (topord : letblk list) : string =
-  let scc_strs = List.mapi (fun i blk -> 
-    let blk_str = String.concat ", " (List.map (fun (name, lexp) -> name) blk) in
-    Printf.sprintf "SCC %d:[%s]" i blk_str
-  ) topord in
-  String.concat "\n" scc_strs
-
-let rec sprint_lexpt (e : lexpt) : string =
-  match e with
-  | VarT (sref, _, _) -> !sref
-  | LamT (s, _, body, _) -> Printf.sprintf "\\%s.(%s)" s (sprint_lexpt body)
-  | AppT (e1, e2, _) -> Printf.sprintf "(%s)(%s)" (sprint_lexpt e1) (sprint_lexpt e2)
-  | IntT (i, _) -> Printf.sprintf "%d" i
-  | BopT (bop, e1, e2, _) -> Printf.sprintf "(%s)%s(%s)" (sprint_lexpt e1) (sprint_bop bop) (sprint_lexpt e2)
-  | IfT (c, t, e, _) -> Printf.sprintf "if %s then %s else %s end" (sprint_lexpt c) (sprint_lexpt t) (sprint_lexpt e)
-  | LetinT (s, _, e, b, _) -> Printf.sprintf "let %s = %s in %s" s (sprint_lexpt e) (sprint_lexpt b)
-  | VeclitT (ls, _) -> Printf.sprintf "vec[%s]" (String.concat ", " (List.map sprint_lexpt ls))
-  | VecmkT (defval, count, _) -> Printf.sprintf "vecmk[%s, %s]" (sprint_lexpt defval) (sprint_lexpt count)
-  | VeclenT (v, _) -> Printf.sprintf "veclen[%s]" (sprint_lexpt v)
-  | VecgetT (v, i, _) -> Printf.sprintf "vecget[%s, %s]" (sprint_lexpt v) (sprint_lexpt i)
-  | VecsetT (v, i, value, _) -> Printf.sprintf "vecset[%s, %s, %s]" (sprint_lexpt v) (sprint_lexpt i) (sprint_lexpt value)
-
-let sprint_progmonot letblk : string =
-  List.fold_left (fun acc (name, uuid, lexpt) -> 
-      acc ^ (Printf.sprintf "let %s (uuid=%d) = (%s);\n" name uuid (sprint_lexpt lexpt))
-  ) "" letblk
-let rec sprint_lexpt_wtyp (e : lexpt) : string =
-  let rec sprint_lexpt_wtyp_aux (e : lexpt) : string =
-    match e with
-    | VarT (sref, uref, t) -> Printf.sprintf "\027[1;31m%s\027[0m{uuid=%d,%s}\027[1;31m" !sref !uref (sprint_typ t)
-    | LamT (s, _, body, t) -> Printf.sprintf "\027[1;31m\\%s.(%s)\027[0m{%s}\027[1;31m" s (sprint_lexpt_wtyp_aux body) (sprint_typ t)
-    | AppT (e1, e2, t) -> Printf.sprintf "\027[1;31m(%s)(%s)\027[0m{%s}\027[1;31m" (sprint_lexpt_wtyp_aux e1) (sprint_lexpt_wtyp_aux e2) (sprint_typ t)
-    | IntT (i, t) -> Printf.sprintf "\027[1;31m%d\027[0m{%s}\027[1;31m" i (sprint_typ t)
-    | BopT (bop, e1, e2, t) -> Printf.sprintf "\027[1;31m(%s)%s(%s)\027[0m{%s}\027[1;31m" (sprint_lexpt_wtyp_aux e1) (sprint_bop bop) (sprint_lexpt_wtyp_aux e2) (sprint_typ t)
-    | IfT (c, t_branch, e_branch, t) -> Printf.sprintf "\027[1;31mif %s then %s else %s end\027[0m{%s}\027[1;31m" (sprint_lexpt_wtyp_aux c) (sprint_lexpt_wtyp_aux t_branch) (sprint_lexpt_wtyp_aux e_branch) (sprint_typ t)
-    | LetinT (s, _, e, b, t) -> Printf.sprintf "\027[1;31mlet %s = %s in %s\027[0m{%s}\027[1;31m" s (sprint_lexpt_wtyp_aux e) (sprint_lexpt_wtyp_aux b) (sprint_typ t)
-    | VeclitT (ls, t) -> Printf.sprintf "\027[1;31mvec[%s]\027[0m{%s}\027[1;31m" (String.concat ", " (List.map sprint_lexpt_wtyp_aux ls)) (sprint_typ t)
-    | VecmkT (defval, count, t) -> Printf.sprintf "\027[1;31mvecmk[%s, %s]\027[0m{%s}\027[1;31m" (sprint_lexpt_wtyp_aux defval) (sprint_lexpt_wtyp_aux count) (sprint_typ t)
-    | VeclenT (v, t) -> Printf.sprintf "\027[1;31mveclen[%s]\027[0m{%s}\027[1;31m" (sprint_lexpt_wtyp_aux v) (sprint_typ t)
-    | VecgetT (v, i, t) -> Printf.sprintf "\027[1;31mvecget[%s, %s]\027[0m{%s}\027[1;31m" (sprint_lexpt_wtyp_aux v) (sprint_lexpt_wtyp_aux i) (sprint_typ t)
-    | VecsetT (v, i, value, t) -> Printf.sprintf "\027[1;31mvecset[%s, %s, %s]\027[0m{%s}\027[1;31m" (sprint_lexpt_wtyp_aux v) (sprint_lexpt_wtyp_aux i) (sprint_lexpt_wtyp_aux value) (sprint_typ t)
-  in
-  (sprint_lexpt_wtyp_aux e) ^ "\027[0m"
-
-let sprint_progpolyt_wtyp letblk : string =
-  List.fold_left (fun acc (name, uuid, vars, lexpt) -> 
-      acc ^ (Printf.sprintf "\027[1;31mlet %s \027[0m(uuid=%d,[%s])\027[1;31m = (%s);\027[0m\n" name uuid (String.concat ", " (List.map (fun i -> "t" ^ string_of_int i) vars)) (sprint_lexpt_wtyp lexpt))
-  ) "" letblk
-
-let sprint_progmonot_wtyp letblk : string =
-  List.fold_left (fun acc (name, uuid, lexpt) -> 
-      acc ^ (Printf.sprintf "\027[1;31mlet %s \027[0m(uuid=%d)\027[1;31m = (%s);\027[0m\n" name uuid (sprint_lexpt_wtyp lexpt))
-  ) "" letblk
-
-let sprint_instreg (instreg : instreg) : string =
-  let bindings = List.map (fun (uuid, sublst) -> 
-    "uuid = " ^ string_of_int uuid ^ ": " ^ 
-          (String.concat ", " 
-              (List.map (fun (i, tvar) -> "t" ^ string_of_int i ^ " -> " ^ (sprint_typ (repr (TVar tvar)))) sublst))
-  ) instreg in
-  String.concat "\n" bindings
-  *)

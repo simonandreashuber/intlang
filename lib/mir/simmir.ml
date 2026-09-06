@@ -1,3 +1,17 @@
+(*
+
+  MIR Simulator / Interpreter
+  
+  Makes an effort to simulate machine behavior. Vectors are
+  for example mutable ocaml arrays and if some op like vecwrite
+  consumes the origin vector the simulator actually does just 
+  mutate the original array. This is done to hopefully catch 
+  bugs early with a relatively low implementation effort compared
+  to something like a MIR verifier (which I probably should write...).
+
+*)
+
+
 open Mir
 open Printmir
 open Errors

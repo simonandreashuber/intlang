@@ -1,3 +1,15 @@
+(*
+
+  MIR Devirtualize closure calls to direct calls
+
+  This pass looks function local chains of closure creation (func), 
+  argument accumulation in the closure (pack) and finally closure
+  calls (callclosure) and devirtualizes them into direct function 
+  calls (calldirect).
+
+*)
+
+
 open Mir
 open Buildmir
 open Analysis
@@ -16,9 +28,7 @@ let calldirect_opt_func (aly : analysis_info) (fn : func) : unit =
 
   let defs : (ssaid, raw_def) Hashtbl.t = Hashtbl.create 32 in
 
-  (* -------------------------------------------------------------------- *)
-  (* Pass 1: Record all closure definitions across ALL basic blocks       *)
-  (* -------------------------------------------------------------------- *)
+  (* collect all closure defs *)
   BBMap.iter (fun _ bb ->
     List.iter (function
       | Func (dst, fid_ref, _) ->
@@ -35,9 +45,7 @@ let calldirect_opt_func (aly : analysis_info) (fn : func) : unit =
     ) bb.ops
   ) fn.bbs;
 
-  (* -------------------------------------------------------------------- *)
-  (* Lazy Recursive Resolver                                              *)
-  (* -------------------------------------------------------------------- *)
+  (* lazy recursive resolver *)
   let rec resolve (id : ssaid) : closure_info option =
     match Hashtbl.find_opt defs id with
     | Some (DefFunc fid) ->
@@ -57,9 +65,7 @@ let calldirect_opt_func (aly : analysis_info) (fn : func) : unit =
     | None -> None
   in
 
-  (* -------------------------------------------------------------------- *)
-  (* Pass 2: Devirtualize callclosure instructions                       *)
-  (* -------------------------------------------------------------------- *)
+  (* devirtualize callclosure ops *)
   BBMap.iter (fun _ bb ->
     let chron_ops = List.rev bb.ops in
     let new_ops_rev = List.fold_left (fun acc op ->

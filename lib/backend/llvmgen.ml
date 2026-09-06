@@ -1,3 +1,11 @@
+(*
+
+  Lowers MIR to LLVM IR
+
+  The MIR should have drop and all needed copies for terminators (memopt)
+
+*)
+
 open Mir
 open Analysis (*process bbs in rpo *)
 

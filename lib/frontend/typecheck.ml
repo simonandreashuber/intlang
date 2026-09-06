@@ -1,8 +1,13 @@
+(*
+
+  Type Checks the AST returning a Polymorphic Typed AST (TAST)
+
+*)
+
+
 open Ast
 open Errors
 open PrintIntlang
-
-(*CONFIGURATION*)
 
 let print_log = false
 
@@ -25,7 +30,6 @@ let spc = PrintIntlang.sprint_constraint
 let spcs (cs : constraints) : string = String.concat ", " (List.map (fun c -> spc c) cs)
 let spf = Printf.sprintf
 
-(*UNIFICATION ENGINE*)
 let rec unify (t1 : typ) (t2 : typ) : unit =
   (*you put a tvar v into this that has a link => not good*)
   let rec occurscheck (v : tvar) (t : typ) : unit =

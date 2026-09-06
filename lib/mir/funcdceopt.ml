@@ -1,3 +1,13 @@
+
+(*
+  
+  MIR Dead Function Elimination
+
+  Scans all func and calldirect ops in the program,
+  all functions that are never used get removed.
+
+*)
+
 open Mir
 open Buildmir
 open Analysis

@@ -1,3 +1,12 @@
+(*
+
+  Checks that all vectors are vectors of: vectors, i32 or i8 types
+
+  Operates on a Monomorphized TAST
+
+*)
+
+
 open Ast
 open Errors
 
@@ -13,7 +22,7 @@ let rec veccheck_typ (t : typ) : unit =
       let resolved_inner = repr inner in
       begin match resolved_inner with
       | TI32 | TI8 | TVec _ -> 
-          (* Valid inner type; continue recursively checking nested structures *)
+          (* valid inner type => check inner type *)
           veccheck_typ resolved_inner
       | TVar v -> raise (Errors.VecCheckError ("Polymorphic vector found: inner type is unsolved tvar t" ^ string_of_int v.id))
       | _ -> raise (Errors.VecCheckError "Invalid vector inner type: vectors of tuples, functions, or unit are not allowed")
@@ -21,7 +30,7 @@ let rec veccheck_typ (t : typ) : unit =
   | TVar v -> raise (Errors.VecCheckError ("Polymorphic vector found: inner type is unsolved tvar t" ^ string_of_int v.id))
 
 
-(* Recursive traversal over the typed expression (tlexp) *)
+(* recursive traversal over the typed expression (tlexp) *)
 let rec veccheck_tlexp (e : tlexp) : unit =
 
   veccheck_typ (tlexp_get_type e);

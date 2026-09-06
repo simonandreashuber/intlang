@@ -1,3 +1,20 @@
+(*
+
+  MIR Compat the Control Flow Graph
+
+  There are 3 compaction scenarios:
+    - No predecessors 
+              => remove BB
+    - No operations and a direct branch term (Trampoline)
+              => predecessors "skip" this bb
+    - direct branch and successor has only one predecessor
+              => "absorb" successor into bb
+
+  A worklist is run until a fixpoint is reached.
+
+*)
+
+
 open Mir
 open Buildmir
 open Analysis

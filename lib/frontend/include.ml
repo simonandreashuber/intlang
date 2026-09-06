@@ -1,3 +1,15 @@
+(*
+
+  Resolves include statements 
+
+  Actually integrates the Lexer and Parser (is kinda practical
+  since the included files also need to be Lexed and Parsed).
+  So actually this is (lex_parse_include) is the first thing the 
+  compiler runs.
+
+*)
+
+
 open Ast
 
 open Parser

@@ -1,9 +1,19 @@
+(*
+
+  Monomorphizes a TAST
+
+  Monomorphization removes all polymorphic types from the TAST ie. 
+  there are not more unlinked type variable in any type of the TAST.
+
+*)
+
+
 open Ast
 
 type specmap = (int * typ) list
 
-(* Map the poly version to all its mono versions
-  polyuuid -> (monouuid, monotyp)*)
+(* map the poly version to all its mono versions
+   polyuuid -> (monouuid, monotyp)*)
 let poly_to_mono_map : (uuid * (uuid * typ)) list ref = ref []
 (*registry with all existing poly versions*)
 let poly_bnds : polytast ref = ref []
@@ -11,8 +21,8 @@ let poly_bnds : polytast ref = ref []
 let find_polytletbnd (poly_uuid : uuid) : polytletbnd option =
   List.find_opt (fun (_, uuid, _, _) -> uuid = poly_uuid) !poly_bnds
 
-(*I have basically the same function in ast.ml but there is no error on non linked Vars and I like to have it for sanity
-  so thats way there is basically the same code here again*)
+(* I have basically the same function in ast.ml but there is no error on non linked Vars and I like to have it for sanity
+   so thats way there is basically the same code here again *)
 let rec cmp_mono_typs (t1 : typ) (t2 : typ) : bool =
   match (repr t1, repr t2) with
   | (TI32, TI32) -> true
@@ -53,7 +63,7 @@ let extract_specialization_map (polyt : typ) (monot : typ) : specmap =
     | (TVar {id = var_id; _}, t) -> (var_id, t) :: acc
     | _ -> raise (Errors.TypeError "Monomorphization Error: Type structure mismatch during specialization map extraction.")
   in 
-  (*I have an urge to sanitize the map here, but I think it should work without doing so...*)
+  (* I have an urge to sanitize the map here, but I think it should work without doing so... *)
   aux [] polyt monot
 
 let rec specialize_typ (smap : specmap) (t : typ) : typ =
@@ -72,7 +82,7 @@ let rec specialize_typ (smap : specmap) (t : typ) : typ =
 let specialize_polytletbnd ((name, uuid, _, lhs) : polytletbnd) (smap : specmap) : monotletbnd =
   let monouuid = fresh_uuid () in
   let sub = specialize_typ smap in
-  let newuuidmap = ref [] in (*all local bindings need new uuids*)
+  let newuuidmap = ref [] in (* all local bindings need new uuids *)
   let rec aux lexpt =
     match lexpt with
     | VarT (n, u, oldtyp) -> (
@@ -91,8 +101,8 @@ let specialize_polytletbnd ((name, uuid, _, lhs) : polytletbnd) (smap : specmap)
     | IfT (c, t, e, oldtyp) -> IfT (aux c, aux t, aux e, sub oldtyp)
     | LetinT (n, u, e, b, oldtyp) -> (
         let nuuid = fresh_uuid () in
-        (*for aux e (u,nuuid) should in principle not be in the newuuidmap
-          but since all things are already 'uuided' u will never be referenced in e (no shadowing)*)
+        (* for aux e (u,nuuid) should in principle not be in the newuuidmap
+           but since all things are already 'uuided' u will never be referenced in e (no shadowing) *)
         newuuidmap := (u,nuuid) :: !newuuidmap;
         LetinT (n, nuuid, aux e, aux b, sub oldtyp)
       )
@@ -113,7 +123,7 @@ let specialize_polytletbnd ((name, uuid, _, lhs) : polytletbnd) (smap : specmap)
       LetinTupleT (ntupls, aux e, aux b, sub oldtyp)
     )
     | TupleT (els, oldtyp) -> TupleT (List.map aux els, sub oldtyp)
-    | I32LitT (i, oldtyp) -> I32LitT (i, sub oldtyp) (*mb I could just default map these since they dont change*)
+    | I32LitT (i, oldtyp) -> I32LitT (i, sub oldtyp) (* mb I could just default map these since they dont change *)
     | I8LitT (c, oldtyp) -> I8LitT (c, sub oldtyp)
     | UnitLitT oldtyp -> UnitLitT (sub oldtyp)
     | UopI32T (op, e, oldtyp) -> UopI32T (op, aux e, sub oldtyp)
@@ -133,8 +143,8 @@ let specialize_polytletbnd ((name, uuid, _, lhs) : polytletbnd) (smap : specmap)
   let mono_name = mangle_mono_name name mono_typ in
   (mono_name, monouuid, sub_lhs)
 
-
-let rec genmonovers_tlexp (l : tlexp) : (uuid * monotletbnd) list = (*returns new monotletbnd with their original polyversion id attached*)
+(* returns new monotletbnd with their original polyversion id attached *)
+let rec genmonovers_tlexp (l : tlexp) : (uuid * monotletbnd) list =
   match l with
   | VarT (nameref, uuidref, typ) -> (
     match find_polytletbnd !uuidref with
@@ -198,7 +208,7 @@ let monomorph (ptast_input : polytast) : monotast =
     - we recurese on the new monomorphic versions until no more monomorphic versions are generated (fixpoint)
   *)
 
-  (* 1. split TAST int monomorphic and polymorphic part*)
+  (* split TAST int monomorphic and polymorphic part *)
   let ptast_part, mtast_part = List.fold_right
                               (fun (name, uuid, vars, lhs) (pp, mp) ->
                                 if List.length vars > 0 then 
@@ -209,11 +219,11 @@ let monomorph (ptast_input : polytast) : monotast =
                               ptast_input ([],[])
   in
 
-  (* 2. set global refs*)
+  (* set global refs *)
   poly_to_mono_map := [];
   poly_bnds := ptast_part;
 
-  (* 3. Iterate mono TAST until fix point is found*)
+  (* iterate mono TAST until fix point is found *)
   let rec fixpoint (mtast : monotast) : (uuid * monotletbnd) list =
     let nmonovers = genmonovers_monotast mtast in
     if List.length nmonovers = 0 then []
@@ -226,7 +236,7 @@ let monomorph (ptast_input : polytast) : monotast =
     let _, mvs = List.split (List.filter (fun (pu, mv) -> pu = polyuuid) gen_monovers) in mvs
   in
 
-  (*4. sew the new binding into the place where the old poly bnd was*)
+  (* sew the new binding into the place where the old poly bnd was *)
   List.fold_right 
   (fun (name, uuid, vars, lhs) mbacc ->
     if List.length vars > 0 then 

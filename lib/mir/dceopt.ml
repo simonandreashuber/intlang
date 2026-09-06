@@ -1,9 +1,21 @@
+(*
+
+  MIR Dead Code Elimination
+
+  Mark and Sweep approach to DCE. All def-use relation ships 
+  get recorded, some term and op uses are considered roots and 
+  get marked by default. Then a marked def implies its uses should
+  be marked, this is run in worklist until a fixpoint is reached. 
+  All unmarked ops are removed.
+
+*)
+
+
 open Mir
 open Buildmir
 open Analysis
 
 
-(* Extract all SSA IDs defined by an operation *)
 let extract_op_defs = function
   | Func (res, _, _) | Pack (res, _, _) | CallClosure (res, _)
   | CallDirect (res, _, _) | Immi32 (res, _) | Immi8 (res, _)
@@ -17,7 +29,6 @@ let extract_op_defs = function
   | Copy (res, _) -> [res]
   | StoreGlobal _ | Drop _ | DropGlobal _ -> []
 
-(* Extract all SSA IDs used by an operation *)
 let extract_op_uses = function
   | Pack (_, oldclos, args) -> oldclos.ssaid :: List.map (fun sc -> sc.ssaid) args
   | CallClosure (_, clos) -> [clos.ssaid]
@@ -38,7 +49,7 @@ let extract_op_uses = function
   | Vecextend (_, vec, lit, off) -> [vec; lit; off]
   | Func _ | LoadGlobal _ | DropGlobal _ | Immi32 _ | Immi8 _ | ImmUnit _ -> []
 
-(* Operations that cannot be deleted even if their results are ignored *)
+(* critical ops cannot be deleted even if their results are ignored *)
 let is_critical_op = function
   | CallClosure _ | CallDirect _ | StoreGlobal _ | Drop _ | DropGlobal _ -> true
   | Func _ | Pack _ | Tupuwrp _ | Vecread _ | Vecslice _
@@ -49,7 +60,7 @@ let is_critical_op = function
   | Veclen _ | Vecwrite _ | Vecinsert _
   | Vecextend _  -> false
 
-(* Helper to filter a list using a boolean mask *)
+(* helper to filter a list using a boolean mask *)
 let rec filter_mask mask lst =
   match mask, lst with
   | [], [] -> []
@@ -79,15 +90,12 @@ let dce_opt_func (aly : analysis_info) (fn : func) =
     Hashtbl.replace def_to_uses def (use :: existing)
   in
 
-  (* =========================================================
-     PHASE 1: Build Graph and Mark Roots
-     ========================================================= *)
+  (* collect all use def dependencies of ops and mark roots *)
   BBMap.iter (fun _ bb ->
-    (* 1a. Process Operations *)
     List.iter (fun op ->
       let uses = extract_op_uses op in
       if is_critical_op op then
-        List.iter mark_live uses (* Critical ops are roots *)
+        List.iter mark_live uses
       else
         let defs = extract_op_defs op in
         List.iter (fun def -> 
@@ -95,7 +103,7 @@ let dce_opt_func (aly : analysis_info) (fn : func) =
         ) defs
     ) bb.ops;
 
-    (* 1b. Process Terminators & Map BB Arguments *)
+    (* collect use def dependencies of terms and mark roots *)
     let map_branch_args (brbbid : bbid) (brargs : ssaconsume list) =
       let target_bb = BBMap.find brbbid bbs in
       (* target_bb parameter depends on incoming branch argument *)
@@ -106,44 +114,38 @@ let dce_opt_func (aly : analysis_info) (fn : func) =
 
     match bb.term with
     | Some (Ret ret) -> 
-        mark_live ret (* Return is a root *)
+        mark_live ret 
     | Some (Br (brbbid, brargs)) -> 
-        map_branch_args brbbid brargs (* Arguments are NOT roots, just data flow! *)
+        map_branch_args brbbid brargs
     | Some (Cbr (cond, _, _)) -> 
-        mark_live cond;    (* Branch condition IS a root *)
+        mark_live cond
     | None -> ()
   ) bbs;
 
-  (* =========================================================
-     PHASE 2: Propagate Liveness (Worklist)
-     ========================================================= *)
+  (* worklist to propagate the "marking" *)
   while not (Queue.is_empty worklist) do
     let needed_ssaid = Queue.pop worklist in
     match Hashtbl.find_opt def_to_uses needed_ssaid with
     | Some uses -> List.iter mark_live uses
     | None -> ()
   done;
-
-  (* =========================================================
-     PHASE 3: Sweep & Prune
-     ========================================================= *)
   
-  (* Determine which parameters survive in each Basic Block *)
+  (* determine which parameters survive in each bb *)
   let bb_arg_masks = Hashtbl.create (fn.next_bbid) in
   BBMap.iter (fun _ (bb : bb) ->
     let mask = List.map (fun p -> SsaSet.mem p !live_ssas) bb.args in
     Hashtbl.add bb_arg_masks bb.bbid mask
   ) bbs;
 
-  (* Helper to filter branch arguments based on the target block's surviving parameters *)
+  (* helper to filter branch arguments based on the target block's surviving parameters *)
   let prune_branch (brbbid : bbid) (brargs : ssaconsume list) =
     let mask = Hashtbl.find bb_arg_masks brbbid in
     filter_mask mask brargs
   in
 
-  (* Mutate the bbs in place to strip dead code *)
+  (* mutate the bbs in place to strip dead code *)
   BBMap.iter (fun _ bb ->
-    (* 3a. Strip dead operations *)
+    (* strip dead ops *)
     bb.ops <- List.filter (fun op ->
       if is_critical_op op then true
       else
@@ -151,10 +153,10 @@ let dce_opt_func (aly : analysis_info) (fn : func) =
         List.exists (fun def -> SsaSet.mem def !live_ssas) defs
     ) bb.ops;
 
-    (* 3b. Strip dead parameters *)
+    (* strip dead bb args *)
     bb.args <- List.filter (fun p -> SsaSet.mem p !live_ssas) bb.args;
 
-    (* 3c. Strip dead arguments in terminators *)
+    (* strip dead term args *)
     bb.term <- match bb.term with
       | Some (Br (brbbid, brargs)) -> Some (Br (brbbid, prune_branch brbbid brargs))
       | term_other -> term_other

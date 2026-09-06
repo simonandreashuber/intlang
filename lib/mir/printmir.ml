@@ -1,5 +1,14 @@
+(*
+
+  Creates strings of MIR and MIR Analysis
+
+*)
+
+
+
 open Mir
 open Analysis
+
 (* ========================================================================= *)
 (* String Helpers for Identifier and Primitive Types                         *)
 (* ========================================================================= *)

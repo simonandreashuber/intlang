@@ -1,3 +1,9 @@
+(*
+
+  Collection of specific Exceptions for different parts of the compiler
+
+*)
+
 
 (*Frontend*)
 exception ParseError of string
@@ -13,6 +19,5 @@ exception PrintError of string
 exception MirError of string
 exception MirSimError of string
 
-(*Codegen*)
-exception CodegenError of string
+(*Backend*)
 exception LlvmgenError of string

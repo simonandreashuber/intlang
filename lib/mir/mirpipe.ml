@@ -1,3 +1,16 @@
+(*
+  Collect all the MIR passes and run them in order
+
+  The Mir has 2 (.5) Phases of passes:
+    1. Ownership agnostic passes, these passes do not care about ownership
+       and run on the originally lowered versions (Calldirectopt, Tco, ...).
+    2. Optimizing optimizing the ownership of bb and function args +
+       enabling uses to consume memory objects. Theses run on and produce new
+       optimized versions of functions (Memopt).
+    2(.5). After Memopt I run Funcdceopt which is Ownership agnostic... ;)
+    
+*)
+
 open Mir
 open Buildmir
 open Printmir
@@ -7,21 +20,9 @@ open Calldirectopt
 open Tco
 open Dceopt
 open Compactcfgopt
-
 open Memopt
-
 open Funcdceopt
 
-(*
-  One module to collect all the Passes
-
-  The Mir has 2 Phases of passes:
-    1. Ownership agnostic passes, these passes do not care about ownership
-       and run on the originally lowered versions (for example TOC or DCE).
-    2. Optimizing optimizing the ownership of bb and function args +
-       enabling uses to consume memory objects. Theses run on and produce new
-       optimized versions of functions
-*)
 
 let run_pipeline (b : builder) : unit =
   try
@@ -39,7 +40,7 @@ let run_pipeline (b : builder) : unit =
     (* 2. Ownership and Consumption Passes *)
     Memopt.mem_opt b aly;
 
-    (*3. Function DCE*)
+    (*2(.5). Function DCE*)
     Funcdceopt.funcdce_opt b aly
     
   with e ->

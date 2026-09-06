@@ -1,3 +1,10 @@
+(*
+
+  Infrastructure to build MIR programs
+
+*)
+
+
 open Errors
 open Mir
 open Printmir

@@ -1,3 +1,17 @@
+(*
+
+  MIR Tail Call Optimization
+
+  Just a classic TCO the only thing that is maybe noteworthy is
+  that the implementation does not require a return directly
+  in the bb where a recursive call in tail position is but
+  if the returned result is just passed via bb args to the 
+  ret term this is also discoverd and valid.
+
+*)
+
+
+
 open Mir
 open Printmir
 open Buildmir

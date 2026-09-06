@@ -1,16 +1,30 @@
+(*
+
+  Collection of passes to remove copies (FBIP optimization) and memory leaks
+
+  The lowered MIR is
+    - not legal (memory leaks or does not consume in places that need ownership transfer)
+    - not optimized (unneeded implicit copies)
+  This pass makes sure that the code is legal (guarantee) and makes a best effort to have fast and efficient code (best effort, not guaranteed)
+
+  There are 5 passes:
+    - BB Arg Borrowed Promotion
+    - Consume where possible
+    - Monomorphize Functions
+    - Insert Explicit Copies at Terms
+    - Insert Drop
+
+  A worklist is run until a fixpoint is reached. Each of the 5 passes has 
+  a more detailed description below.
+
+*)
+
+
+
+
 open Mir
 open Buildmir
 open Analysis
-
-
-(*
-
-  The lowered MIR is
-    - not legal (memory leaks, does not consume in places that need ownership transfer)
-    - not optimized (unneeded implicit copies)
-
-  This pass makes sure that the code is legal (guarantee) and makes a best effort to have fast and efficient code (best effort, not guaranteed)
-*)
 
 (* ========================================================================= *)
 (* Memory Signature                                                          *)
@@ -399,6 +413,10 @@ let inscopy (opt : mem_optimizer) (fn : func) =
 (* ========================================================================= *)
 (* Insert Drop                                                               *)
 (* ========================================================================= *)
+
+(*
+  Inserts drops in all places where memory object stop being live
+*)
 
 let collect_consumed_ssaids (ops : op list) : SsaSet.t =
   let check acc sc =

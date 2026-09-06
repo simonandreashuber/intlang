@@ -1,7 +1,14 @@
+(*
+
+  Interprets a Monomorphized TAST (monotast)
+
+*)
+
+
 open Ast
 open Errors
 
-(** The types of values our interpreter can produce. *)
+(* the types of values the interpreter can produce *)
 type value =
     | VI32 of Int32.t
     | VI8 of char
@@ -13,7 +20,7 @@ type value =
     | VBlackhole (* Represents an uninitialized recursive binding *)
     | VBuiltin of (value -> value)
 
-(** An environment is a mutable reference to an association list mapping uuids to values. *)
+(* an environment is a mutable reference to an association list mapping uuids to values *)
 and env = (uuid * value) list ref
 
 let get_builtin_fun (name : string) : (value -> value) =
@@ -31,8 +38,6 @@ let get_builtin_fun (name : string) : (value -> value) =
                              | _ -> raise (Errors.InterpError "i8_to_i32 expects an i8"))
   | _ -> raise (Errors.InterpError ("Unknown builtin function: " ^ name))
 
-(** [lookup] finds a variable in the environment by uuid. 
-    If it finds a Thunk, it evaluates it (Call-by-Name). *)
 let rec lookup uuid env =
   match List.assoc_opt uuid !env, List.assoc_opt uuid Ast.builtin_uuid_to_name with
   | Some VBlackhole, None -> 
@@ -42,12 +47,11 @@ let rec lookup uuid env =
   | Some _, Some _ -> raise (Errors.InterpError ("Somehow a uuid is bound to both a value and a builtin: uuid " ^ string_of_int uuid))
   | None, None -> raise (Errors.InterpError ("Unbound variable: uuid " ^ string_of_int uuid))
 
-(** The core evaluation function. *)
 and eval (e : tlexp) (env : env) : value =
   match e with
     | VarT (_, uuid_ref, _) -> lookup !uuid_ref env
     | LamT (x, param_uuid, body, _) -> VClosure (param_uuid, body, env)
-    | LamUnitT (body, _) -> VClosureUnit (body, env)  (* -1 indicates no parameter *)
+    | LamUnitT (body, _) -> VClosureUnit (body, env) 
     | AppT (e1, e2, _) -> (
             (* left to right eval order because its more intuitive *)
             match eval e1 env with
@@ -57,7 +61,7 @@ and eval (e : tlexp) (env : env) : value =
                 eval body param_env
             )
             | VClosureUnit (body, c_env) -> (
-                let v2 = eval e2 env in assert (v2 = VUnit);  (* Ensure that the argument is unit *)
+                let v2 = eval e2 env in assert (v2 = VUnit);
                 let param_env = ref !c_env in
                 eval body param_env
             )
@@ -248,7 +252,7 @@ and eval (e : tlexp) (env : env) : value =
 let interp_monotast (mtast : monotast) : unit =
   let global_env_ref = ref [] in
 
-  (*stitch all bindings into the env, but with VBlackhole*)
+  (* stitch all bindings into the env, but with VBlackhole *)
   List.iter (fun (_, uuid, _) -> 
     global_env_ref := (uuid, VBlackhole) :: !global_env_ref
   ) mtast;
@@ -256,7 +260,7 @@ let interp_monotast (mtast : monotast) : unit =
   List.iter (fun (name, uuid, e) -> 
     try
         let v = eval e global_env_ref in
-        (*go and replace the VBlackhole used before in the env reference*)
+        (* go and replace the VBlackhole used before in the env reference *)
         global_env_ref := List.map (fun (uuid', v') -> 
         if uuid' = uuid then (uuid', v) else (uuid', v')
         ) !global_env_ref;

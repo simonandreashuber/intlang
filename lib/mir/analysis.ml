@@ -1,3 +1,20 @@
+(*
+
+  A collection of Analysis for the MIR
+
+  - Predecessors
+  - Reverse Post Order
+  - Liveliness
+  - Borrowers and Lenders
+  - Domination
+
+  The analysis_info record collects all in one place. The intention is of course
+  to use an analysis_info for one program only but in and of itself the analysis_info
+  record is not bound / does not contain to a MIR Program.
+
+*)
+
+
 open Mir
 
 (* ========================================================================= *)
