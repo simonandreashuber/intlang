@@ -131,7 +131,7 @@ let set_end_llbb (fgen_ctx : fgen_ctx) (bbid : bbid) (llbb : llbasicblock) : uni
 let get_llssa (fgen_ctx : fgen_ctx) (ssaid : ssaid) : llvalue =
   match fgen_ctx.ssa_env.(ssaid) with
   | Some llval -> llval
-  | None -> raise (LlvmgenError ("get_llssa: ssa not found in env: " ^ string_of_int ssaid))
+  | None -> raise (LlvmgenError ("get_llssa: ssa not found in env: " ^ string_of_int ssaid ^ " in mirfunc: @" ^ string_of_int fgen_ctx.mirfunc.funcid))
 
 let set_llssa (fgen_ctx : fgen_ctx) (ssaid : ssaid) (llval : llvalue) : unit =
   if Option.is_some fgen_ctx.ssa_env.(ssaid) then
@@ -1076,11 +1076,9 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
       let vec_inner_lltyp = access_lltyps.(i) in
       let elm_ptr = vec_checked_access fgen_ctx !curr_vec_llval vec_inner_lltyp idx_llval in
       let elm_llval = build_load vec_inner_lltyp elm_ptr "vec_elm" builder in
-      if i = (List.length idxs_ssaids - 1) then
-        set_llssa fgen_ctx ssa_def elm_llval
-      else
-        curr_vec_llval := elm_llval
-    ) idxs_ssaids
+      curr_vec_llval := elm_llval
+    ) idxs_ssaids;
+    set_llssa fgen_ctx ssa_def !curr_vec_llval
   )
   | Vecwrite (ssa_def, vec_sc, val_ssaid, idxs_ssaids) -> (
     let vec_llval = consume_or_copy fgen_ctx vec_sc in
@@ -1101,24 +1099,31 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     ) idxs_ssaids
   )
   | Vecinsert (ssa_def, vec_sc, val_sc, idxs_ssaids) -> (
-    let vec_llval = consume_or_copy fgen_ctx vec_sc in
-    let val_llval = consume_or_copy fgen_ctx val_sc in
-    let access_lltyps = vec_access_lltyps fgen_ctx vec_sc.ssaid in
-    let curr_vec_llval = ref vec_llval in
-    List.iteri (fun i idx_ssaid ->
-      let idx_llval = get_llssa fgen_ctx idx_ssaid in
-      let vec_inner_lltyp = access_lltyps.(i) in
-      let elm_ptr = vec_checked_access fgen_ctx !curr_vec_llval vec_inner_lltyp idx_llval in
-      let elm_llval = build_load vec_inner_lltyp elm_ptr "vec_elm" builder in
-      if i = (List.length idxs_ssaids - 1) then (
-        (*vecinsert is supposed to store a vector into another vector*)
-        (*a bit hacky to use the mirtyp of the inseted value for the old value but should be fine*)
-        drop ctx builder fgen_ctx.llfunc_info.func (get_mirtyp_func mirfunc val_sc.ssaid) elm_llval;
-        ignore (build_store val_llval elm_ptr builder);
-        set_llssa fgen_ctx ssa_def vec_llval)
-      else
-        curr_vec_llval := elm_llval
-    ) idxs_ssaids
+    if List.length idxs_ssaids = 0 then (
+      (* vecinsert %vec %val special case *)
+      let val_llval = consume_or_copy fgen_ctx val_sc in
+      set_llssa fgen_ctx ssa_def val_llval
+    ) else (
+      let vec_llval = consume_or_copy fgen_ctx vec_sc in
+      let val_llval = consume_or_copy fgen_ctx val_sc in
+      let access_lltyps = vec_access_lltyps fgen_ctx vec_sc.ssaid in
+      let curr_vec_llval = ref vec_llval in
+      List.iteri (fun i idx_ssaid ->
+        let idx_llval = get_llssa fgen_ctx idx_ssaid in
+        let vec_inner_lltyp = access_lltyps.(i) in
+        let elm_ptr = vec_checked_access fgen_ctx !curr_vec_llval vec_inner_lltyp idx_llval in
+        let elm_llval = build_load vec_inner_lltyp elm_ptr "vec_elm" builder in
+        if i = (List.length idxs_ssaids - 1) then (
+          (*vecinsert is supposed to store a vector into another vector*)
+          (*a bit hacky to use the mirtyp of the inseted value for the old value but should be fine*)
+          drop ctx builder fgen_ctx.llfunc_info.func (get_mirtyp_func mirfunc val_sc.ssaid) elm_llval;
+          ignore (build_store val_llval elm_ptr builder);
+          set_llssa fgen_ctx ssa_def vec_llval
+        ) else (
+          curr_vec_llval := elm_llval
+        )
+      ) idxs_ssaids
+    )
   )
   | Vecslice (ssa_def, vec_ssaid, start_ssaid, len_ssaid) -> (
     let vec_llval = get_llssa fgen_ctx vec_ssaid in

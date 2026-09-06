@@ -24,7 +24,7 @@ open Memopt
 open Funcdceopt
 
 
-let run_pipeline (b : builder) : unit =
+let run_pipeline (b : builder) (optimize : bool) : unit =
   try
 
     let aly = create_analysis_info () in
@@ -32,16 +32,20 @@ let run_pipeline (b : builder) : unit =
     (* Run the passes in the order they are defined in the pipeline *)
 
     (* 1. Ownership agnostic Passes *)
-    Calldirectopt.calldirect_opt b aly;
-    Tco.tco_opt b aly;
-    Dceopt.dce_opt b aly;
-    Compactcfgopt.compactcfg_opt b aly;
+    if optimize then(
+      Calldirectopt.calldirect_opt b aly;
+      Tco.tco_opt b aly;
+      Dceopt.dce_opt b aly;
+      Compactcfgopt.compactcfg_opt b aly
+    );
 
     (* 2. Ownership and Consumption Passes *)
-    Memopt.mem_opt b aly;
+    Memopt.mem_opt b aly optimize;
 
     (*2(.5). Function DCE*)
-    Funcdceopt.funcdce_opt b aly
+    if optimize then (
+      Funcdceopt.funcdce_opt b aly
+    )
     
   with e ->
     let msg = Printexc.to_string e in

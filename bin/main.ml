@@ -13,6 +13,7 @@ let main () =
   let print_llvm = ref false in
   let emit_llvm = ref false in
   let address_sanitizer = ref false in
+  let opt_level = ref 0 in
   let outputfile_passed = ref false in
   let outputfilename = ref "" in
   let inputfilename = ref "" in
@@ -23,6 +24,19 @@ let main () =
 
   (* Map command-line flags *)
   let speclist = [
+    ("-o", Arg.String (fun s -> outputfilename := s; outputfile_passed := true), "<filename> Specify output filename (default: out / out.ll)");
+    ("--emitllvm", Arg.Set emit_llvm, "Emit LLVM IR");
+    ("--stdlibpath", Arg.Set_string stdlib_path, "<path> Custom path to the standard library");
+    ("-O0", Arg.Unit (fun () -> opt_level := 0), "No optimizations");
+    ("-O1", Arg.Unit (fun () -> opt_level := 1), "Basic optimizations");
+    ("-O2", Arg.Unit (fun () -> opt_level := 2), "Moderate optimizations");
+    ("-O3", Arg.Unit (fun () -> opt_level := 3), "Heavy optimizations");
+    ("--asan", Arg.Set address_sanitizer, "Enable AddressSanitizer for the generated binary");
+    ("--printast", Arg.Set print_ast, "Print AST to stdout");
+    ("--printmonotast", Arg.Set print_monotast, "Print Monomorphized TAST to stdout");
+    ("--printmir", Arg.Set print_mir, "Print MIR to stdout");
+    ("--printllvm", Arg.Set print_llvm, "Print LLVM IR to stdout");
+    ("--printall", Arg.Unit (fun () -> print_ast := true; print_monotast := true; print_mir := true; print_llvm := true), "Print all intermediate representations to stdout");
     ("--interpast", Arg.Int (fun i ->
        if i <= 0 then
          raise (Arg.Bad "must be greater than 0")
@@ -39,15 +53,6 @@ let main () =
          interpmir_flag_passed := true
        end
      ), "<int> Number of times to execute the MIR Simulator (default: 1)");
-    ("--printast", Arg.Set print_ast, "Print AST to stdout");
-    ("--printmonotast", Arg.Set print_monotast, "Print Monomorphized TAST to stdout");
-    ("--printmir", Arg.Set print_mir, "Print MIR to stdout");
-    ("--printllvm", Arg.Set print_llvm, "Print LLVM IR to stdout");
-    ("--printall", Arg.Unit (fun () -> print_ast := true; print_monotast := true; print_mir := true; print_llvm := true), "Print all intermediate representations to stdout");
-    ("--emitllvm", Arg.Set emit_llvm, "Emit LLVM IR");
-    ("--asan", Arg.Set address_sanitizer, "Enable AddressSanitizer for the generated binary");
-    ("-o", Arg.String (fun s -> outputfilename := s; outputfile_passed := true), "<filename> Specify output filename (default: out / out.ll)");
-    ("--stdlibpath", Arg.Set_string stdlib_path, "<path> Custom path to the standard library");
   ] in
 
   (* --help *)
@@ -121,7 +126,7 @@ let main () =
     let mir_builder = Mirgen.lower_monotast monotast in
 
     (* Run the MIR optimization pipeline *)
-    Mirpipe.run_pipeline mir_builder;
+    Mirpipe.run_pipeline mir_builder (!opt_level > 0);
     let mir = mir_builder.program in
 
     if !print_mir then begin
@@ -158,7 +163,9 @@ let main () =
     else (
       let ll_name = "temp.ll" in
       let bin_name = if !outputfile_passed then !outputfilename else "out" in
-      let clang_flags = if !address_sanitizer then "-fsanitize=address" else "" in
+      let clang_flags = ref "" in
+      clang_flags := !clang_flags ^ "-O" ^ string_of_int !opt_level ^ " ";
+      clang_flags := !clang_flags ^ if !address_sanitizer then "-fsanitize=address" else "";
 
       let llvm_ir = Llvm.string_of_llmodule llmod in
 
@@ -174,7 +181,7 @@ let main () =
       );
 
       (* Compile the LLVM IR to a binary using clang *)
-      let clang_cmd = Printf.sprintf "clang-19 %s %s -o %s" ll_name clang_flags bin_name in
+      let clang_cmd = Printf.sprintf "clang-19 %s %s -o %s" ll_name !clang_flags bin_name in
       let exit_code = Sys.command clang_cmd in
       if exit_code <> 0 then (
         prerr_endline ("Error: clang failed to compile LLVM IR to binary. Exit code: " ^ string_of_int exit_code);

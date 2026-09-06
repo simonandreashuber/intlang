@@ -336,6 +336,10 @@ let monofunc (opt : mem_optimizer) (fn : func) =
   BBMap.iter (fun bbid bb ->
     List.iter (fun op ->
       match op with
+      | Func (_, funcid1 , funcid2_opt) when is_exter_vers opt !funcid1 -> (
+          funcid1 := !funcid1;
+          funcid2_opt := Some !funcid1
+      )
       | Func (def, funcid1, funcid2_opt) 
           when is_orig_vers opt !funcid1 && Option.is_none !funcid2_opt -> (
           let orig_fn = find_func opt.b !funcid1 in
@@ -347,7 +351,6 @@ let monofunc (opt : mem_optimizer) (fn : func) =
           funcid1 := borr_funcid;
           funcid2_opt := Some own_funcid
       )
-      | Func (_, funcid1 , _) when is_exter_vers opt !funcid1 -> ()
       | Func (_, funcid1, _) -> failwith (Printf.sprintf "monofunc: bb %d has func op with funcid %d that is not an original version" bbid !funcid1)
       | CallDirect (_, funcid_ref, args) -> (
         let call_memsig = get_memsig_calldirect_args fn args in
@@ -595,14 +598,16 @@ let finalize_mem_optimizer opt =
   ) opt.orig_vers
 
 
-let mem_opt (b : builder) (aly : analysis_info) =
+let mem_opt (b : builder) (aly : analysis_info) (optimize : bool) =
     let opt = create_mem_optimizer b aly in
     push_canonical_funcvers opt;                  (* starts the optimizer worklist with a all borrowed and all owned function versions *)
 
     while has_func_to_opt opt do
       let fn = pop_func_to_opt opt in
-      bbarg opt fn;             (* select bb args should borrow *)
-      consume opt fn;           (* try to consume in as many places as possible *)
+      if optimize then (
+        bbarg opt fn;             (* select bb args should borrow *)
+        consume opt fn            (* try to consume in as many places as possible *)
+      );
       monofunc opt fn;          (* Monomorphize Functions suited to the specific signature of what args can be consumed *)
       inscopy opt fn;           (* inserts explicit copies for term uses that cant be consumed but need to be consumed *)
       insdrop opt fn            (* drop all memory objects when they are not consumed on last use *)
