@@ -9,7 +9,7 @@ A small eager functional language with
 
 ## How to Run
 
-If you just want to try intlang out you can on [intlang.dev](intlang.dev) (still experimental)
+If you just want to try intlang out you can on [intlang.dev](https://intlang.dev) (still experimental)
 
 - To build `dune build`
 - To compile some program (here fib.intlang): `dune exec bin/main.exe -- fib.intlang` (use `dune exec bin/main.exe -- --help` to see all options)
