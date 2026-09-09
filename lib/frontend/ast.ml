@@ -66,7 +66,7 @@ type schema = Forall of int list * typ (*to be honest the Forall is just annoyin
 
 type typenv = (string * (schema * uuid)) list
 
-type constraints = (typ * typ) list
+type constraints = (typ * typ * string) list
 
 
 

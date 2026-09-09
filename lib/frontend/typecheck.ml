@@ -30,7 +30,7 @@ let spc = PrintIntlang.sprint_constraint
 let spcs (cs : constraints) : string = String.concat ", " (List.map (fun c -> spc c) cs)
 let spf = Printf.sprintf
 
-let rec unify (t1 : typ) (t2 : typ) : unit =
+let rec unify (msg : string) (t1 : typ) (t2 : typ) : unit =
   (*you put a tvar v into this that has a link => not good*)
   let rec occurscheck (v : tvar) (t : typ) : unit =
       match repr t with
@@ -51,14 +51,14 @@ let rec unify (t1 : typ) (t2 : typ) : unit =
   | (TI32, TI32) -> ()
   | (TI8, TI8) -> ()
   | (TFun (t1f, t1x), TFun (t2f, t2x)) -> 
-      unify t1f t2f;
-      unify t1x t2x
+      unify msg t1f t2f;
+      unify msg t1x t2x
   | (TTup ts1, TTup ts2) ->
     if List.length ts1 <> List.length ts2 then
       raise (Errors.TypeError ("Type mismatch: Cannot unify " ^ spt (repr t1) ^ " with " ^ spt (repr t2) ^ " because they have different lengths"))
     else
-      List.iter2 unify ts1 ts2
-  | (TVec t1_inner, TVec t2_inner) -> unify t1_inner t2_inner;
+      List.iter2 (unify msg) ts1 ts2
+  | (TVec t1_inner, TVec t2_inner) -> unify msg t1_inner t2_inner;
   | (TVar v, t) | (t, TVar v) -> (
       match repr t with
       | TVar v' when v.id = v'.id -> () (*t0 does not occur in t0 but it would in TVec[t0]*)
@@ -68,7 +68,7 @@ let rec unify (t1 : typ) (t2 : typ) : unit =
           v.link <- Some t
       )
     )
-  | _ -> raise (Errors.TypeError ("Type mismatch: Cannot unify " ^ spt (repr t1) ^ " with " ^ spt (repr t2)))  
+  | _ -> raise (Errors.TypeError ("Type mismatch: Cannot unify " ^ spt (repr t1) ^ " with " ^ spt (repr t2) ^ " Reason: " ^ msg))  
 
 let generalize (t : typ) : schema =
   let rec freevars (t : typ) : int list =
@@ -102,6 +102,7 @@ let instantiate (Forall (vars, t) : schema) : typ =
 
 
 let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp = 
+  let constr_msg (msg : string) = spf "%s for %s" msg (sples e) in
   match e with
     | Var x -> (
       match List.assoc_opt x env with
@@ -116,8 +117,8 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let env' = (x, (Forall ([], tv), uuid)) :: env in (*it is enough to stitch it to the front as assoc_opt just finds the first one*)
       let cs, bt = typecheck_lexp env' b in
       let t_body = tlexp_get_type bt in
-      let cs_inT = match inT_opt with | Some t -> [(t, tv)] | None -> [] in
-      let cs_outT = match outT_opt with | Some t -> [(t, t_body)] | None -> [] in
+      let cs_inT = match inT_opt with | Some t -> [(t, tv, constr_msg "Type of function argument does not match its annotation ")] | None -> [] in
+      let cs_outT = match outT_opt with | Some t -> [(t, t_body, constr_msg "Type of lambda/function body does not match its annotation ")] | None -> [] in
       log_appendln (spf "Lam %s: uuid=%d, tv=%s. constr= %s" (sples e) uuid (spt tv) (spcs @@ cs_inT @ cs_outT));
       (cs_inT @ cs_outT @ cs, LamT (x, uuid, bt, TFun (tv, t_body)))
       )
@@ -133,16 +134,16 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let cs_x, xt = typecheck_lexp env x in
       let t_f = tlexp_get_type ft in
       let t_x = tlexp_get_type xt in
-      log_appendln (spf "App %s: t_out=%s, constr= %s" (sples e) (spt t_out) (spc (t_f, TFun (t_x, t_out))) );
-      ((t_f, TFun (t_x, t_out)) :: (cs_f @ cs_x), AppT (ft, xt, t_out))
+      log_appendln (spf "App %s: t_out=%s, constr= %s" (sples e) (spt t_out) (spc (t_f, TFun (t_x, t_out), constr_msg "Function argument type does not match the type it is applied to or the function return type does not match the type that is expected")) );
+      ((t_f, TFun (t_x, t_out), constr_msg "Function application") :: (cs_f @ cs_x), AppT (ft, xt, t_out))
     )
     | Seq (e1, e2) -> (
       let cs1, et1 = typecheck_lexp env e1 in
       let cs2, et2 = typecheck_lexp env e2 in
       let t_e1 = tlexp_get_type et1 in
       let t_e2 = tlexp_get_type et2 in
-      log_appendln (spf "Seq %s: constr= %s" (sples e) (spc (t_e1, TUnit)) );
-      ((t_e1, TUnit) :: cs1 @ cs2, SeqT( et1, et2, t_e2))
+      log_appendln (spf "Seq %s: constr= %s" (sples e) (spc (t_e1, TUnit, constr_msg "Sequence")) );
+      ((t_e1, TUnit, constr_msg "Sequence") :: cs1 @ cs2, SeqT( et1, et2, t_e2))
     )
     | If (c, t, els) -> (
       let cs_c, ct = typecheck_lexp env c in
@@ -151,8 +152,8 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let t_c = tlexp_get_type ct in
       let t_t = tlexp_get_type tt in
       let t_e = tlexp_get_type et in
-      log_appendln (spf "If %s: constr= %s, %s" (sples e) (spc (t_c, TI32)) (spc (t_t, t_e)) );
-      ((t_c, TI32) :: (t_t, t_e) :: (cs_c @ cs_t @ cs_e), IfT (ct, tt, et, t_t))
+      log_appendln (spf "If %s: constr= %s, %s" (sples e) (spc (t_c, TI32, constr_msg "If condition")) (spc (t_t, t_e, constr_msg "If branches")) );
+      ((t_c, TI32, constr_msg "If condition") :: (t_t, t_e, constr_msg "If branches") :: (cs_c @ cs_t @ cs_e), IfT (ct, tt, et, t_t))
     )
     | Letin (x, exp, b) -> (
       let t_letin = TVar (fresh_tvar ()) in
@@ -162,8 +163,8 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let cs_b, bt = typecheck_lexp env' b in
       let t_e = tlexp_get_type et in
       let t_b = tlexp_get_type bt in
-      log_appendln (spf "Letin %s: t_letin=%s, uuid=%d, constr= %s" (sples e) (spt t_letin) uuid (spc (t_letin, t_e)) );
-      ((t_letin, t_e) :: (cs_e @ cs_b), LetinT (x, uuid, et, bt, t_b))
+      log_appendln (spf "Letin %s: t_letin=%s, uuid=%d, constr= %s" (sples e) (spt t_letin) uuid (spc (t_letin, t_e, constr_msg "Letin")) );
+      ((t_letin, t_e, constr_msg "Letin") :: (cs_e @ cs_b), LetinT (x, uuid, et, bt, t_b))
     )
     | Letrecin (x, exp, b) -> (
       let t_letin = TVar (fresh_tvar ()) in
@@ -173,8 +174,8 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let cs_b, bt = typecheck_lexp env' b in
       let t_e = tlexp_get_type et in
       let t_b = tlexp_get_type bt in
-      log_appendln (spf "Letrecin %s: t_letin=%s, uuid=%d, constr= %s" (sples e) (spt t_letin) uuid (spc (t_letin, t_e)) );
-      ((t_letin, t_e) :: (cs_e @ cs_b), LetrecinT (x, uuid, et, bt, t_b))
+      log_appendln (spf "Letrecin %s: t_letin=%s, uuid=%d, constr= %s" (sples e) (spt t_letin) uuid (spc (t_letin, t_e, constr_msg "Letrecin")) );
+      ((t_letin, t_e, constr_msg "Letrecin") :: (cs_e @ cs_b), LetrecinT (x, uuid, et, bt, t_b))
     )
     | LetinTuple (ids, exp, b) -> (
       (*uuid and tvar for each of the non blank tuple elements is needed all over the place 
@@ -195,8 +196,8 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let t_b = tlexp_get_type bt in
       log_appendln (spf "LetinTupleT %s: (id, uuid, tv) = %s, constr= %s" (sples e) 
         (String.concat ", " (List.map (fun tup_opt -> match tup_opt with | Some (id, uuid, tv) -> spf "(%s, %d, %s)" id uuid (spt tv) | None -> "_") id_uuid_tv)) 
-        (spc (t_e, t_tup_constr)) );
-      ((t_e, t_tup_constr) :: (cs_e @ cs_b), LetinTupleT (id_uuids, et, bt, t_b))
+        (spc (t_e, t_tup_constr, constr_msg "LetinTuple")) );
+      ((t_e, t_tup_constr, constr_msg "LetinTuple") :: (cs_e @ cs_b), LetinTupleT (id_uuids, et, bt, t_b))
     )
     | Tuple els -> (
       let cs_ls, etls = List.split (List.map (fun ei -> typecheck_lexp env ei) els) in
@@ -211,22 +212,22 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
     | UopI32 (uop, e0) -> (
       let cs, et0 = typecheck_lexp env e0 in
       let t_e0 = tlexp_get_type et0 in
-      log_appendln (spf "UopI32 %s: constr= %s" (sples e) (spc (t_e0, TI32)) );
-      ((t_e0, TI32) :: cs, UopI32T (uop, et0, TI32))
+      log_appendln (spf "UopI32 %s: constr= %s" (sples e) (spc (t_e0, TI32, constr_msg "Unary operation on i32")) );
+      ((t_e0, TI32, constr_msg "Unary operation on i32") :: cs, UopI32T (uop, et0, TI32))
     )
     | UopI8 (uop, e0) -> (
       let cs, et0 = typecheck_lexp env e0 in
       let t_e0 = tlexp_get_type et0 in
-      log_appendln (spf "UopI8 %s: constr= %s" (sples e) (spc (t_e0, TI8)) );
-      ((t_e0, TI8) :: cs, UopI8T (uop, et0, TI8))
+      log_appendln (spf "UopI8 %s: constr= %s" (sples e) (spc (t_e0, TI8, constr_msg "Unary operation on i8")) );
+      ((t_e0, TI8, constr_msg "Unary operation on i8") :: cs, UopI8T (uop, et0, TI8))
     )
     | BopI32 (bop, e1, e2) -> (
       let cs1, e1t = typecheck_lexp env e1 in
       let cs2, e2t = typecheck_lexp env e2 in
       let t1 = tlexp_get_type e1t in
       let t2 = tlexp_get_type e2t in
-      log_appendln (spf "BopI32 %s: constr= %s, %s" (sples e) (spc (t1, TI32)) (spc (t2, TI32)) );
-      ((t1, TI32) :: (t2, TI32) :: (cs1 @ cs2), BopI32T (bop, e1t, e2t, TI32))
+      log_appendln (spf "BopI32 %s: constr= %s, %s" (sples e) (spc (t1, TI32, constr_msg "Binary operation on i32")) (spc (t2, TI32, constr_msg "Binary operation on i32")) );
+      ((t1, TI32, constr_msg "Binary operation on i32") :: (t2, TI32, constr_msg "Binary operation on i32") :: (cs1 @ cs2), BopI32T (bop, e1t, e2t, TI32))
     )
     | BopI8 (bop, e1, e2) -> (
       let cs1, e1t = typecheck_lexp env e1 in
@@ -234,14 +235,14 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let t1 = tlexp_get_type e1t in
       let t2 = tlexp_get_type e2t in
       let ret_typ = if bop = Eqi8 || bop = Neqi8 || bop = Lti8 || bop = Gti8 || bop = LtEqi8 || bop = GtEqi8 then TI32 else TI8 in
-      log_appendln (spf "BopI8 %s: constr= %s, %s" (sples e) (spc (t1, TI8)) (spc (t2, TI8)) );
-      ((t1, TI8) :: (t2, TI8) :: (cs1 @ cs2), BopI8T (bop, e1t, e2t, ret_typ))
+      log_appendln (spf "BopI8 %s: constr= %s, %s" (sples e) (spc (t1, TI8, constr_msg "Binary operation on i8")) (spc (t2, TI8, constr_msg "Binary operation on i8")) );
+      ((t1, TI8, constr_msg "Binary operation on i8") :: (t2, TI8, constr_msg "Binary operation on i8") :: (cs1 @ cs2), BopI8T (bop, e1t, e2t, ret_typ))
     )
     | VecLit ls -> (
       let cs_ls, ls_t = List.split (List.map (fun lexp_i -> typecheck_lexp env lexp_i) ls) in
       let cs = List.flatten cs_ls in
       let t_elem = TVar (fresh_tvar ()) in
-      let elem_constraints = List.map (fun i_t -> (tlexp_get_type i_t, t_elem)) ls_t in
+      let elem_constraints = List.mapi (fun i i_t -> (tlexp_get_type i_t, t_elem, constr_msg ("Vector Lit element " ^ string_of_int i))) ls_t in
       log_appendln (spf "Veclit %s: t_elem=%s, constr= %s" (sples e) (spt t_elem) (spcs elem_constraints) );
       (elem_constraints @ cs, VecLitT (ls_t, (TVec t_elem)))
     )
@@ -250,7 +251,7 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let t_defval = tlexp_get_type defval_t in
       let cs_sizerec_nf, size_list_t = List.split (List.map (fun ei -> typecheck_lexp env ei) size_list) in
       let cs_sizerec = List.flatten cs_sizerec_nf in
-      let cs_size = List.map (fun et -> (tlexp_get_type et, TI32)) size_list_t in
+      let cs_size = List.mapi (fun i et -> (tlexp_get_type et, TI32, constr_msg ("Vector make dim size " ^ string_of_int i))) size_list_t in
       let t_vec_constr = List.fold_left (fun acc et -> TVec acc) t_defval size_list_t in
       log_appendln (spf "Vecmk %s: constr= %s" (sples e) (spcs cs_size) );
       (cs_size @ cs_sizerec @ cs_defval, VecmkT (defval_t, size_list_t, t_vec_constr))
@@ -259,19 +260,19 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let cs_v, v_t = typecheck_lexp env v in
       let t_v = tlexp_get_type v_t in
       let t_vec_constr = TVec(TVar (fresh_tvar ())) in
-      log_appendln (spf "Veclen %s: vec_of=%s, constr= %s" (sples e) (spt t_vec_constr) (spc (t_v, t_vec_constr)) );
-      ((t_v, t_vec_constr) :: cs_v, VeclenT (v_t, TI32))
+      log_appendln (spf "Veclen %s: vec_of=%s, constr= %s" (sples e) (spt t_vec_constr) (spc (t_v, t_vec_constr, constr_msg "Vector length")) );
+      ((t_v, t_vec_constr, constr_msg "Vector length") :: cs_v, VeclenT (v_t, TI32))
     )
     | Vecget (v, idx_list) -> (
       let cs_v, v_t = typecheck_lexp env v in
       let t_v = tlexp_get_type v_t in
       let cs_idxrec_nf, idx_list_t = List.split (List.map (fun ei -> typecheck_lexp env ei) idx_list) in
       let cs_idxrec = List.flatten cs_idxrec_nf in
-      let cs_idx = List.map (fun et -> (tlexp_get_type et, TI32)) idx_list_t in
+      let cs_idx = List.mapi (fun i et -> (tlexp_get_type et, TI32, constr_msg ("Vector get index " ^ string_of_int i))) idx_list_t in
       let t_vec_of = TVar (fresh_tvar ()) in
       let t_vec_constr = List.fold_left (fun acc et -> TVec acc) t_vec_of idx_list_t in
-      log_appendln (spf "Vecget %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr) :: cs_idx)) );
-      ((t_v, t_vec_constr) :: (cs_idx @ cs_idxrec @ cs_v), VecgetT (v_t, idx_list_t, t_vec_of))
+      log_appendln (spf "Vecget %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr, constr_msg "Vector get") :: cs_idx)) );
+      ((t_v, t_vec_constr, constr_msg "Vector get") :: (cs_idx @ cs_idxrec @ cs_v), VecgetT (v_t, idx_list_t, t_vec_of))
     )
     | Vecset (v, value, idx_list) -> (
       let cs_v, v_t = typecheck_lexp env v in
@@ -280,11 +281,11 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let t_val = tlexp_get_type val_t in
       let cs_idxrec_nf, idx_list_t = List.split (List.map (fun ei -> typecheck_lexp env ei) idx_list) in
       let cs_idxrec = List.flatten cs_idxrec_nf in
-      let cs_idx = List.map (fun et -> (tlexp_get_type et, TI32)) idx_list_t in
+      let cs_idx = List.mapi (fun i et -> (tlexp_get_type et, TI32, constr_msg ("Vector set index " ^ string_of_int i))) idx_list_t in
       let t_vec_of = TVar (fresh_tvar ()) in
       let t_vec_constr = List.fold_left (fun acc et -> TVec acc) t_vec_of idx_list_t in
-      log_appendln (spf "Vecset %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr) :: (t_val, t_vec_of) :: cs_idx)) );
-      ((t_v, t_vec_constr) :: (t_val, t_vec_of) :: (cs_idx @ cs_idxrec @ cs_val @ cs_v), VecsetT (v_t, val_t, idx_list_t, t_vec_constr))
+      log_appendln (spf "Vecset %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr, constr_msg "Vector set right dim") :: (t_val, t_vec_of, constr_msg "Vector set value and vec type compatible") :: cs_idx)) );
+      ((t_v, t_vec_constr, constr_msg "Vector set right dim") :: (t_val, t_vec_of, constr_msg "Vector set value and vec type compatible") :: (cs_idx @ cs_idxrec @ cs_val @ cs_v), VecsetT (v_t, val_t, idx_list_t, t_vec_constr))
     )
     | Vecslice(v, start, len) -> (
       let cs_v, v_t = typecheck_lexp env v in
@@ -295,8 +296,8 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let t_len = tlexp_get_type len_t in
       let t_vec_of = TVar (fresh_tvar ()) in
       let t_vec_constr = TVec (t_vec_of) in
-      log_appendln (spf "Vecslice %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr) :: (t_start, TI32) :: (t_len, TI32) :: [])) );
-      ((t_v, t_vec_constr) :: (t_start, TI32) :: (t_len, TI32) :: (cs_len @ cs_start @ cs_v), VecsliceT (v_t, start_t, len_t, t_vec_constr))
+      log_appendln (spf "Vecslice %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr, constr_msg "Vector slice") :: (t_start, TI32, constr_msg "Vector slice start") :: (t_len, TI32, constr_msg "Vector slice length") :: [])) );
+      ((t_v, t_vec_constr, constr_msg "Vector slice") :: (t_start, TI32, constr_msg "Vector slice start") :: (t_len, TI32, constr_msg "Vector slice length") :: (cs_len @ cs_start @ cs_v), VecsliceT (v_t, start_t, len_t, t_vec_constr))
     )
     | Vecextend(v, lit, off) -> (
       let cs_v, v_t = typecheck_lexp env v in
@@ -307,8 +308,8 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let t_off = tlexp_get_type off_t in
       let t_vec_of = TVar (fresh_tvar ()) in
       let t_vec_constr = TVec (t_vec_of) in
-      log_appendln (spf "Vecextend %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr) :: (t_lit, t_vec_of) :: (t_off, TI32) :: [])) );
-      ((t_v, t_vec_constr) :: (t_lit, t_vec_of) :: (t_off, TI32) :: (cs_off @ cs_lit @ cs_v), VecextendT (v_t, lit_t, off_t, t_vec_constr))
+      log_appendln (spf "Vecextend %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ((t_v, t_vec_constr, constr_msg "Vector extend") :: (t_lit, t_vec_of, constr_msg "Vector extend literal") :: (t_off, TI32, constr_msg "Vector extend offset") :: [])) );
+      ((t_v, t_vec_constr, constr_msg "Vector extend") :: (t_lit, t_vec_of, constr_msg "Vector extend literal") :: (t_off, TI32, constr_msg "Vector extend offset") :: (cs_off @ cs_lit @ cs_v), VecextendT (v_t, lit_t, off_t, t_vec_constr))
     )
 
 let typecheck_let (id: string) (e: lexp) (env : typenv) : typenv * polytast =
@@ -319,8 +320,8 @@ let typecheck_let (id: string) (e: lexp) (env : typenv) : typenv * polytast =
   let cs, et = typecheck_lexp env e in
 
   (*unify constraints*)
-  List.iter (fun (t1, t2) -> 
-    unify t1 t2;
+  List.iter (fun (t1, t2, msg) -> 
+    unify msg t1 t2;
   ) cs;
 
   (*generalize*)
@@ -353,13 +354,13 @@ let typecheck_letrecblk (letblk : (string * lexp) list) (env : typenv) : typenv 
       log_appendln (spf "let %s = : tvar=%s, uuid=%d" name (spt let_tvar) uuid);
       let cs', lt = typecheck_lexp env_with_letdefs lexp  in (*we add this binding in the step before, it must exist so no need to check *)
       let t_l = tlexp_get_type lt in
-      ((let_tvar, t_l) :: (cs' @ cs), ltb @ [(name, uuid, [], lt)])
+      ((let_tvar, t_l, "Top level Let binding") :: (cs' @ cs), ltb @ [(name, uuid, [], lt)])
     )
     ([],[]) letblk in
 
   (*unify all constraints*)
-  List.iter (fun (t1, t2) -> 
-    unify t1 t2;
+  List.iter (fun (t1, t2, msg) -> 
+    unify msg t1 t2;
   ) constraints;
 
   (*generalize all types and add to env*)

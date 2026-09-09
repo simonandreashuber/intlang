@@ -38,8 +38,8 @@ let sprint_env (env : typenv) : string =
   ) env in
   String.concat "\n" bindings
 
-let sprint_constraint ((t1, t2) : typ*typ) : string =
-  sprint_typ t1 ^ "==" ^ sprint_typ t2
+let sprint_constraint ((t1, t2, msg) : typ*typ*string) : string =
+  sprint_typ t1 ^ "==" ^ sprint_typ t2 ^ " : (" ^ msg ^ ")"
 
 let indent (level : int) : string =
   String.make (level * 4) ' '
