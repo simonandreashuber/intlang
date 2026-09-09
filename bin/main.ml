@@ -14,6 +14,7 @@ let main () =
   let emit_llvm = ref false in
   let address_sanitizer = ref false in
   let opt_level = ref 0 in
+  let prohibit_relative_include = ref false in
   let outputfile_passed = ref false in
   let outputfilename = ref "" in
   let inputfilename = ref "" in
@@ -37,6 +38,7 @@ let main () =
     ("--printmir", Arg.Set print_mir, "Print MIR to stdout");
     ("--printllvm", Arg.Set print_llvm, "Print LLVM IR to stdout");
     ("--printall", Arg.Unit (fun () -> print_ast := true; print_monotast := true; print_mir := true; print_llvm := true), "Print all intermediate representations to stdout");
+    ("--prohibitrelativeinclude", Arg.Set prohibit_relative_include, "Prohibit relative includes");
     ("--interpast", Arg.Int (fun i ->
        if i <= 0 then
          raise (Arg.Bad "must be greater than 0")
@@ -90,7 +92,7 @@ let main () =
 
   try
     (* Lex, Parse and Include Pass *)
-    let ast = Include.lex_parse_include intlang_std_lib_path !inputfilename in
+    let ast = Include.lex_parse_include intlang_std_lib_path !inputfilename !prohibit_relative_include in
     if !print_ast then begin
       Printf.printf "%sPARSED AST:\n%s" headerline (PrintIntlang.sprint_ast ast); flush stdout;
     end;

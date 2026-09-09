@@ -46,7 +46,7 @@ let validate_include_relative (path : string) : string =
   else
     raise (Errors.IncludeError ("Invalid relative include path: " ^ path ^ ". Must contain a '/' and end with a valid identifier."))
 
-let lex_parse_include (std_lib_path: string) (filepath: string) : ast =
+let lex_parse_include (std_lib_path: string) (filepath: string) (prohibit_relative_include : bool) : ast =
   let rec vars_add_prefix (prefix: string) (locbound : string list) (e: lexp) : lexp =
     match e with
       | Var v -> if (List.mem v locbound) || (String.contains v '.') then Var v else Var (prefix ^ "." ^ v)
@@ -99,9 +99,12 @@ let lex_parse_include (std_lib_path: string) (filepath: string) : ast =
             match stmt with
               | IncludeGlobal newinclname -> (acc_includes std_lib_path newinclname true)
               | IncludeRelative newinclname -> (
-                  let valid_newinclname = validate_include_relative newinclname in
-                  let updt_dirstem = Filename.dirname (Filename.concat dirstem inclname) in
-                  acc_includes updt_dirstem valid_newinclname true 
+                  if prohibit_relative_include then
+                    raise (Errors.IncludeError ("Relative include not allowed: " ^ newinclname ^ " in file: " ^ inclname))
+                  else
+                    let valid_newinclname = validate_include_relative newinclname in
+                    let updt_dirstem = Filename.dirname (Filename.concat dirstem inclname) in
+                    acc_includes updt_dirstem valid_newinclname true 
                 )
               | Let (name, e) -> (
                   let nl = if is_include then Let (basename ^ "." ^ name, vars_add_prefix basename builtin_names e) else Let (name, e) in
