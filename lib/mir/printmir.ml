@@ -199,7 +199,7 @@ let string_of_func (aly : analysis_info) (f : func) : string =
       (List.map (fun (id, opt_name) -> 
         match opt_name with
         | Some n -> Printf.sprintf "%s %s \"%s\"" (string_of_typ @@ get_mirtyp_func f id) (string_of_ssa_def f id) n 
-        | None -> Printf.sprintf "%s: %s" (string_of_ssa_def f id) (string_of_typ @@ get_mirtyp_func f id)
+        | None -> Printf.sprintf "%s %s" (string_of_typ @@ get_mirtyp_func f id) (string_of_ssa_def f id)
       ) f.args)
   in
   let functionlocation = if Option.is_none f.extern_name then "fn" else "externalfn" in
