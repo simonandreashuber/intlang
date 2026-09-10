@@ -11,7 +11,7 @@ let main () =
   let print_monotast = ref false in
   let print_mir = ref false in
   let print_llvm = ref false in
-  let emit_llvm = ref false in
+  let outputllvm_name = ref "" in
   let address_sanitizer = ref false in
   let opt_level = ref 0 in
   let prohibit_relative_include = ref false in
@@ -27,8 +27,9 @@ let main () =
 
   (* Map command-line flags *)
   let speclist = [
-    ("-o", Arg.String (fun s -> outputfilename := s; outputfile_passed := true), "<filename> Specify output filename (default: out / out.ll)");
-    ("--emitllvm", Arg.Set emit_llvm, "Emit LLVM IR");
+    ("-o", Arg.String (fun s -> outputfilename := s; outputfile_passed := true), "<filename> Specify output filename (default: out)");
+    ("--outputllvmir", Arg.Set_string outputllvm_name, "<filename> name for llvm ir output file");
+    ("--outputmir", Arg.Set_string outputmir_name, "<filename> name for mir output file");
     ("--stdlibpath", Arg.Set_string stdlib_path, "<path> Custom path to the standard library");
     ("-O0", Arg.Unit (fun () -> opt_level := 0), "No optimizations");
     ("-O1", Arg.Unit (fun () -> opt_level := 1), "Basic optimizations");
@@ -38,11 +39,10 @@ let main () =
     ("--printast", Arg.Set print_ast, "Print AST to stdout");
     ("--printmonotast", Arg.Set print_monotast, "Print Monomorphized TAST to stdout");
     ("--printmir", Arg.Set print_mir, "Print MIR to stdout");
-    ("--outputmir", Arg.Set_string outputmir_name, "<filename> name for mir output file");
-    ("--addanalysisprintmir", Arg.Set add_analysis_printmir, "In MIR output or print: Adds analysis information to the MIR output");
     ("--printllvm", Arg.Set print_llvm, "Print LLVM IR to stdout");
     ("--printall", Arg.Unit (fun () -> print_ast := true; print_monotast := true; print_mir := true; print_llvm := true), "Print all intermediate representations to stdout");
     ("--prohibitrelativeinclude", Arg.Set prohibit_relative_include, "Prohibit relative includes");
+    ("--addanalysisprintmir", Arg.Set add_analysis_printmir, "In MIR output or print: Adds analysis information to the MIR output");
     ("--interpast", Arg.Int (fun i ->
        if i <= 0 then
          raise (Arg.Bad "must be greater than 0")
@@ -82,8 +82,8 @@ let main () =
   end;
 
   (* when the interpreter is run the compiler should not emit anything *)
-  if (!interpast_flag_passed || !interpmir_flag_passed) && !emit_llvm then begin
-    prerr_endline "Error: --testast / --testmir are incompatible with --emitllvm.";
+  if (!interpast_flag_passed || !interpmir_flag_passed) && not (!outputllvm_name = "" && !outputmir_name = "" && not !outputfile_passed) then begin
+    prerr_endline "Error: --testast / --testmir are incompatible with outputting files (-o / --outputllvmir / --outputmir)";
     Arg.usage speclist usage_msg;
     exit 1
   end;
@@ -165,23 +165,26 @@ let main () =
     (* Lower MIR to LLVM IR *)
     let llmod = Llvmgen.lower_mir mir in
 
-    if !print_llvm then begin
-      Printf.printf "%sLLVM IR:\n%s" headerline (Llvm.string_of_llmodule llmod); flush stdout end;
+    (* Print and/or output LLVM IR *)
+    if !print_llvm || !outputllvm_name <> "" then begin
+      let llvm_str = Llvm.string_of_llmodule llmod in
+      if !print_llvm then begin
+        Printf.printf "%sLLVM IR:\n%s" headerline llvm_str; flush stdout 
+      end;
+      if !outputllvm_name <> "" then begin
+        try
+          let oc = open_out !outputllvm_name in
+          output_string oc llvm_str;
+          close_out oc
+        with Sys_error msg -> (
+          prerr_endline ("Error writing LLVM to file: " ^ msg);
+          exit 1
+        )
+      end
+    end;
 
-    (*Mental note: this simple if is only correct because the interpreters call exit *)
-    if !emit_llvm then (
-      let ll_name = if !outputfile_passed then !outputfilename else "out.ll" in
-      let llvm_ir = Llvm.string_of_llmodule llmod in
-      try
-        let oc = open_out ll_name in
-        output_string oc llvm_ir;
-        close_out oc
-      with Sys_error msg -> (
-        prerr_endline ("Error writing LLVM IR to file: " ^ msg);
-        exit 1
-      )
-    )
-    else (
+    (*Lower LLVM IR with clang*)
+    (
       let ll_name = "temp.ll" in
       let bin_name = if !outputfile_passed then !outputfilename else "out" in
       let clang_flags = ref "" in

@@ -212,7 +212,7 @@ let decl_func (ctx : proggen_ctx) (builtin_table : (string, lltype * llvalue) Ha
     let args_lltyps = mirtyplst_get_lltyparr ctx args_mirtyps in
     let ret_lltyp = mirtyp_get_lltyp ctx ret_mirtyp in
     let llfunc_t = function_type ret_lltyp args_lltyps in
-    let llfunc = declare_function (mirfunc.name ^ "_" ^ string_of_int mirfunc.funcid) llfunc_t ctx.llmodule in
+    let llfunc = declare_function (string_of_int mirfunc.funcid ^ "_" ^ mirfunc.name) llfunc_t ctx.llmodule in
     ctx_add_llfunc_info ctx mirfunc.funcid { mir_funcid = mirfunc.funcid; func_t = llfunc_t; func = llfunc; closwrpr = None; }
 
 
@@ -571,7 +571,7 @@ let get_clos_wrapper (ctx : proggen_ctx) (mirfuncid : funcid) : llvalue =
   | Some closwrpr -> closwrpr
   | None -> (
     let closwrpr_func_t = function_type (return_type llfunc_info.func_t) [| ctx.ptr_t |] in
-    let closwrpr_func = declare_function ("closwrpr_func_" ^ string_of_int mirfuncid) closwrpr_func_t ctx.llmodule in
+    let closwrpr_func = declare_function ("closwrpr_" ^ string_of_int mirfuncid) closwrpr_func_t ctx.llmodule in
     let bb = append_block ctx.llcontext "entry" closwrpr_func in
     let builder = builder ctx.llcontext in
     position_at_end bb builder;
@@ -684,7 +684,7 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
     (*COPY FUNC*)
     (*declare copy func*)
     let copy_func_t = function_type ctx.ptr_t [| ctx.ptr_t ; ctx.i64_t |] in
-    let copy_func = declare_function ("clos_copy_func_" ^ string_of_int hash) copy_func_t ctx.llmodule in
+    let copy_func = declare_function ("closcopy_" ^ string_of_int hash) copy_func_t ctx.llmodule in
     let builder = Llvm.builder ctx.llcontext in
     let entry_bb = append_block ctx.llcontext "entry" copy_func in
     position_at_end entry_bb builder;
@@ -713,7 +713,7 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
     (*DROP FUNC*)
     (*declare drop func*)
     let drop_func_t = function_type ctx.void_t [| ctx.ptr_t ; ctx.i64_t |] in
-    let drop_func = declare_function ("clos_drop_func_" ^ string_of_int hash) drop_func_t ctx.llmodule in
+    let drop_func = declare_function ("closdrop_" ^ string_of_int hash) drop_func_t ctx.llmodule in
     let builder = Llvm.builder ctx.llcontext in
     let entry_bb = append_block ctx.llcontext "entry" drop_func in
     position_at_end entry_bb builder;
