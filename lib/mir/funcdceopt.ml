@@ -62,7 +62,7 @@ let funcdce_opt (b : builder) (_ : analysis_info) : unit =
   mark main_funcid;
   (match b.program.init_globals_funcid with | Some igfuncid -> mark igfuncid | None -> ());
   (match b.program.uninit_globals_funcid with | Some uigfuncid -> mark uigfuncid | None -> ());
-
+  (FuncMap.iter (fun _ func -> if Option.is_some func.extern_name then mark func.funcid else ()) b.program.funcs);
   (*
     Mark Phase
   *)

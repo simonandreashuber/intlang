@@ -559,7 +559,8 @@ let copy_func (b : builder) (fid : funcid) : func =
   let fn = find_func b fid in
   let newfn = {
     funcid = new_funcid;
-    name = fn.name ^ "_copy" ^ string_of_int new_funcid;
+    (* I have decided to take this out since out to make the mir print more presentable *)
+    name = fn.name (*^ "_copy" ^ string_of_int new_funcid*);
     args = fn.args;
     rettyp = fn.rettyp;
     extern_name = fn.extern_name;

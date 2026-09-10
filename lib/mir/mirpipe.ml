@@ -50,7 +50,7 @@ let run_pipeline (b : builder) (optimize : bool) : unit =
   with e ->
     let msg = Printexc.to_string e in
     let backtrace = Printexc.get_backtrace () in
-    Printf.eprintf "%s\n" (Printmir.string_of_program b.program);
+    Printf.eprintf "%s\n" (Printmir.string_of_program b.program true);
     let curr_fun, curr_bb = 
       match b.cursor with
       | (Some func, Some bb) -> ("func_" ^ string_of_int func.funcid, "bb_" ^ string_of_int bb.bbid)

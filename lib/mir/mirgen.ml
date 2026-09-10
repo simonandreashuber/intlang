@@ -355,6 +355,7 @@ let eta_expansion (b : builder) (unsat_ssaid : ssaid) : ssaid =
 
   (*declare eta expansion function wrapper*)
   let eta_func = create_func b 
+                             (*hard to name nice*)
                              ("eta_expansion_for_ssaid_" ^ string_of_int unsat_ssaid)
                              ((0, None, unsat_mirtyp) :: (List.flatten sat_args))
                              sat_ret_mirtyp
@@ -808,7 +809,7 @@ let lower_monotast (monotast : Ast.monotast) : builder =
   with e ->
     let msg = Printexc.to_string e in
     let backtrace = Printexc.get_backtrace () in
-    Printf.eprintf "%s\n" (Printmir.string_of_program b.program);
+    Printf.eprintf "%s\n" (Printmir.string_of_program b.program true);
     let curr_fun, curr_bb = 
       match b.cursor with
       | (Some func, Some bb) -> ("func_" ^ string_of_int func.funcid, "bb_" ^ string_of_int bb.bbid)

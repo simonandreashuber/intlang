@@ -15,6 +15,8 @@ let main () =
   let address_sanitizer = ref false in
   let opt_level = ref 0 in
   let prohibit_relative_include = ref false in
+  let add_analysis_printmir = ref false in
+  let outputmir_name = ref "" in
   let outputfile_passed = ref false in
   let outputfilename = ref "" in
   let inputfilename = ref "" in
@@ -36,6 +38,8 @@ let main () =
     ("--printast", Arg.Set print_ast, "Print AST to stdout");
     ("--printmonotast", Arg.Set print_monotast, "Print Monomorphized TAST to stdout");
     ("--printmir", Arg.Set print_mir, "Print MIR to stdout");
+    ("--outputmir", Arg.Set_string outputmir_name, "<filename> name for mir output file");
+    ("--addanalysisprintmir", Arg.Set add_analysis_printmir, "In MIR output or print: Adds analysis information to the MIR output");
     ("--printllvm", Arg.Set print_llvm, "Print LLVM IR to stdout");
     ("--printall", Arg.Unit (fun () -> print_ast := true; print_monotast := true; print_mir := true; print_llvm := true), "Print all intermediate representations to stdout");
     ("--prohibitrelativeinclude", Arg.Set prohibit_relative_include, "Prohibit relative includes");
@@ -131,8 +135,23 @@ let main () =
     Mirpipe.run_pipeline mir_builder (!opt_level > 0);
     let mir = mir_builder.program in
 
-    if !print_mir then begin
-      Printf.printf "%sMIR:\n%s" headerline (Printmir.string_of_program mir); flush stdout end;
+    if !print_mir || !outputmir_name <> "" then begin
+      let mir_str =  Printmir.string_of_program mir !add_analysis_printmir in
+      if !print_mir then begin
+        Printf.printf "%sMIR:\n%s" headerline mir_str; flush stdout 
+      end;
+      if !outputmir_name <> "" then begin
+        try
+          let oc = open_out !outputmir_name in
+          output_string oc mir_str;
+          close_out oc
+        with Sys_error msg -> (
+          prerr_endline ("Error writing MIR to file: " ^ msg);
+          exit 1
+        )
+      end
+    end;
+
 
     (* Execute Mir Simulator *)
     if !interpmir_flag_passed then (

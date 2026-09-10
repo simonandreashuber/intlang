@@ -45,7 +45,7 @@ let register_mono_version (poly_uuid : uuid) (mono_uuid : uuid) (spec_typ : typ)
   poly_to_mono_map := (poly_uuid, (mono_uuid, spec_typ)) :: !poly_to_mono_map
 
 let mangle_mono_name (name : string) (spec_typ : typ) : string =
-  name ^ "@" ^ (String.concat "" (String.split_on_char ' ' (PrintIntlang.sprint_typ spec_typ)))
+  name ^ ":" ^ (String.concat "" (String.split_on_char ' ' (PrintIntlang.sprint_typ spec_typ)))
 
 let extract_specialization_map (polyt : typ) (monot : typ) : specmap =
   let rec aux (acc : specmap) (polyt : typ) (monot : typ) : specmap =

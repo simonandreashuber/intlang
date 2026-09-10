@@ -15,8 +15,8 @@ open Analysis
 
 let string_of_ssa_def (fn : func) (id : ssaid) : string =
   match get_ownership_func fn id with
-  | Owned -> Printf.sprintf "%%o%d" id
-  | Borrowed -> Printf.sprintf "%%b%d" id
+  | Owned -> Printf.sprintf "%%%do" id
+  | Borrowed -> Printf.sprintf "%%%db" id
   | NoMem -> Printf.sprintf "%%%d" id
 
 let string_of_ssa (id : ssaid) : string =
@@ -34,7 +34,7 @@ let string_of_globalid (id : globalid) : string =
   Printf.sprintf "@g%d" id
 
 let string_of_bbid (id : bbid) : string =
-  Printf.sprintf "bb_%d" id
+  Printf.sprintf "bb%d" id
 
 let string_of_vecinnertype = function
   | TMIRVECI32 -> "i32"
@@ -45,11 +45,11 @@ let rec string_of_typ = function
   | TMIRI32 -> "i32"
   | TMIRI8 -> "i8"
   | TMIRClos (args, ret) -> 
-      Printf.sprintf "clos(%s -> %s)" 
+      Printf.sprintf "clos(%s->%s)" 
         (String.concat ", " (List.map string_of_typ args)) 
         (string_of_typ ret)
-  | TMIRTup typs -> "(" ^ String.concat ", " (List.map string_of_typ typs) ^ ")"
-  | TMIRVec (dim, inner) -> Printf.sprintf "vec<%d, %s>" dim (string_of_vecinnertype inner)
+  | TMIRTup typs -> String.concat "*" (List.map string_of_typ typs)
+  | TMIRVec (dim, inner) -> Printf.sprintf "vec<%d,%s>" dim (string_of_vecinnertype inner)
 
 let string_of_ownership = function
   | Borrowed -> "Borrowed"
@@ -138,7 +138,7 @@ let string_of_op (fn : func) = function
   | Tupwrp (dst, elms) ->
       Printf.sprintf "%s = tupwrp %s" (string_of_ssa_def fn dst) (string_of_ssaconsumes elms)
   | Tupuwrp (elms, tup) ->
-      Printf.sprintf "(%s) = tupuwrp %s" (string_of_ssa_defs fn elms) (string_of_ssaconsume tup)
+      Printf.sprintf "%s = tupuwrp %s" (string_of_ssa_defs fn elms) (string_of_ssaconsume tup)
   | Veclit (dst, elms) ->
       Printf.sprintf "%s = veclit %s" (string_of_ssa_def fn dst) (string_of_ssaconsumes elms)
   | Vecinit (dst, defval, dims) ->
@@ -159,14 +159,16 @@ let string_of_op (fn : func) = function
 (* Terminators                                                               *)
 (* ========================================================================= *)
 
-let string_of_term = function
+let string_of_term (fn : func) = function
   | Br (target, args) -> 
       Printf.sprintf "br %s(%s)" (string_of_bbid target) (string_of_ssaconsumes args)
   | Cbr (cond, target_then, target_else) ->
       Printf.sprintf "cbr %s %s %s" (string_of_ssa cond) (string_of_bbid target_then) (string_of_bbid target_else)
   | Ret arg -> 
-      Printf.sprintf "ret %s" (string_of_ssa arg)
-
+      (if is_memtyp @@ get_mirtyp_func fn arg then
+        Printf.sprintf "ret %s!" (string_of_ssa arg)
+      else 
+        Printf.sprintf "ret %s" (string_of_ssa arg))
 (* ========================================================================= *)
 (* Basic Blocks, Functions, and Program                                      *)
 (* ========================================================================= *)
@@ -177,16 +179,16 @@ let string_of_bb (fn : func) (bb : bb) : string =
     else
       "(" ^ String.concat ", " (List.map (fun arg -> Printf.sprintf "%s" (string_of_ssa_def fn arg)) bb.args) ^ ")"
   in
-  let header = Printf.sprintf "\tbb: %s (%s) %s :" (string_of_int bb.bbid) bb.name args_str in
+  let header = Printf.sprintf "  bb%s \"%s\" %s:" (string_of_int bb.bbid) bb.name args_str in
   
   (* NOTE: bb.ops is stored in reverse order, so we reverse it here to print chronologically *)
   let ops_chronological = List.rev bb.ops in
-  let ops_strs = List.map (fun op -> Printf.sprintf "\t\t%s" (string_of_op fn op)) ops_chronological in
+  let ops_strs = List.map (fun op -> Printf.sprintf "    %s" (string_of_op fn op)) ops_chronological in
   
   let term_str =
     match bb.term with
-    | Some t -> [Printf.sprintf "\t\t%s" (string_of_term t)]
-    | None -> ["\t\t<missing terminator>"]
+    | Some t -> [Printf.sprintf "    %s" (string_of_term fn t)]
+    | None -> ["    <missing terminator>"]
   in
   String.concat "\n" ([header] @ ops_strs @ term_str)
 
@@ -196,16 +198,17 @@ let string_of_func (aly : analysis_info) (f : func) : string =
     String.concat ", "
       (List.map (fun (id, opt_name) -> 
         match opt_name with
-        | Some n -> Printf.sprintf "%s \"%s\": %s" (string_of_ssa_def f id) n (string_of_typ @@ get_mirtyp_func f id)
+        | Some n -> Printf.sprintf "%s %s \"%s\"" (string_of_typ @@ get_mirtyp_func f id) (string_of_ssa_def f id) n 
         | None -> Printf.sprintf "%s: %s" (string_of_ssa_def f id) (string_of_typ @@ get_mirtyp_func f id)
       ) f.args)
   in
-  let header = Printf.sprintf "fn %s %s(%s) -> %s {" (string_of_funcid f.funcid) f.name args_str (string_of_typ f.rettyp) in
+  let functionlocation = if Option.is_none f.extern_name then "fn" else "externalfn" in
+  let header = Printf.sprintf "%s %s %s \"%s\" (%s)" functionlocation (string_of_typ f.rettyp) (string_of_funcid f.funcid) f.name args_str in
   let body_str =
   match f.extern_name with
-  | Some ext_name -> Printf.sprintf "\t<extern: %s>" ext_name
+  | Some _ -> " {}"
   | None ->
-    match f.entry_bb with
+    ((match f.entry_bb with
     | Some entry_bbid ->
         let rpo_info = get_rpo_info aly f in
         let rpo_bbs = List.map (fun bbid -> BBMap.find bbid f.bbs) rpo_info.rpo_lst in
@@ -214,9 +217,10 @@ let string_of_func (aly : analysis_info) (f : func) : string =
         f.bbs
         |> BBMap.bindings
         |> List.map (fun (_, bb) -> string_of_bb f bb)
-        |> String.concat "\n\n")
+        |> String.concat "\n\n"))
+    |> (fun body_str -> " {\n" ^ body_str ^ "\n}"))
   in
-  header ^ "\n" ^ body_str ^ "\n}"
+  header ^ body_str
 
 let string_of_ssa_info_table ssatyps memown =
   let len1 = Dynarray.length ssatyps in
@@ -310,7 +314,7 @@ let string_of_analysis (aly : analysis_info) (f : func) : string =
     string_of_borrow_info (get_borrow_info aly f) ^
     string_of_dom_info (get_dom_info aly f)
 
-let string_of_program (prog : program) : string =
+let string_of_program (prog : program) (with_analysis : bool) : string =
   (* 1. Print special entry point metadata *)
   let string_of_opt_funcid prefix = function
     | Some id -> Printf.sprintf "%s: %s" prefix (string_of_funcid id)
@@ -337,11 +341,14 @@ let string_of_program (prog : program) : string =
   (* 3. Print functions (Iterate Map) *)
   let funcs_str =
     FuncMap.bindings prog.funcs
-    |> List.map (fun (_, f) -> (string_of_func aly f ^ "\n" ^ string_of_analysis aly f ))
+    |> List.map (fun (_, f) ->
+          string_of_func aly f ^ 
+          (if with_analysis then "\n" ^ string_of_analysis aly f else ""))
+    |> List.filter (fun s -> s <> "")
     |> String.concat "\n\n"
   in
 
-  String.concat "\n\n" [meta_str; globals_str; funcs_str]
+  (String.concat "\n\n" [meta_str; globals_str; funcs_str]) ^ "\n"
 
 let print_program (prog : program) : unit =
-  print_endline (string_of_program prog)
+  print_endline (string_of_program prog false)

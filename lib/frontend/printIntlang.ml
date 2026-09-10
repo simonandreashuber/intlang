@@ -14,7 +14,7 @@ let rec sprint_typ (t : typ) : string =
     | TI8 -> "i8"
     | TTup t_list -> 
         let t_lst_str = List.map sprint_typ t_list in
-        "(" ^ (String.concat "," t_lst_str) ^ ")"
+        "(" ^ (String.concat "*" t_lst_str) ^ ")"
     | TVec t_inner -> "[" ^ (sprint_typ t_inner)  ^ "]"
     | TFun (t1, t2) -> (
         let t1str = sprint_typ t1 in
