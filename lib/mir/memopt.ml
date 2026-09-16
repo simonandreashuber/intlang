@@ -59,8 +59,8 @@ let memsig_all_to (memsig : memsig) (own : ownership) : memsig =
 (* ========================================================================= *)
 
 type mem_optimizer = {
-  b : builder;                                            (* Mir Builder *)
-  aly : analysis_info;                                    (* Analysis information *)
+  b : builder;                                          (* Mir Builder *)
+  aly : analysis_info;                                  (* Analysis information *)
   exter_vers : func list;                               (* All funcion that are marked as external *)
   orig_vers : func list;                                (* All original versions where all func args are borrowed and all bb args are owned *)
   mutable orig_to_opt_vers : (func list) FuncMap.t;     (* Given some funcid of an original version, find all optimized versions *)

@@ -5,10 +5,10 @@
   There are 3 compaction scenarios:
     - No predecessors 
               => remove BB
-    - No operations and a direct branch term (Trampoline)
-              => predecessors "skip" this bb
-    - direct branch and successor has only one predecessor
-              => "absorb" successor into bb
+    - No ssa definitions (ie. no ops and bbargs) and a direct branch term with no branch arguments
+              => predecessors "skip" this bb, 
+    - direct branch to a successor with single predecessor
+              => "absorb" successor into bb, requires ssaid substitution for successors with bbargs
 
   A worklist is run until a fixpoint is reached.
 
@@ -34,31 +34,30 @@ let compactcfg_opt_func (aly : analysis_info) (fn : func) : unit =
   while Queue.is_empty wl = false do
     let bbid = Queue.pop wl in    
     match BBMap.find_opt bbid fn.bbs with
-    | Some bb when Some (bb.bbid) <> fn.entry_bb -> (
-
+    | Some bb -> (
       let preds = get_preds bbid in
       match preds, bb.args, bb.ops, bb.term with
       (* Unreachable BB removal *)
-      | [], _, _ , Some (Br (brbbid, brargs)) -> (
+      | [], _, _ , Some (Br (brbbid, brargs)) when Some (bb.bbid) <> fn.entry_bb -> (
         fn.bbs <- BBMap.remove bbid fn.bbs;
         rem_pred bb.bbid brbbid;
         Queue.push brbbid wl
       )
-      | [], _, _ , Some (Cbr (_, ibr, ebr)) -> (
+      | [], _, _ , Some (Cbr (_, ibr, ebr)) when Some (bb.bbid) <> fn.entry_bb -> (
         fn.bbs <- BBMap.remove bbid fn.bbs;
         rem_pred bb.bbid ibr;
         rem_pred bb.bbid ebr;
         Queue.push ibr wl;
         Queue.push ebr wl
       )
-      (* Trampoline BB removal, no args*)
-      | _, [], [], Some (Br (tbrbbid, [])) when tbrbbid <> bbid-> (
+      (* Trampoline BB removal *)
+      | _, [], [], Some (Br (tbrbbid, [])) when tbrbbid <> bbid && Some (bb.bbid) <> fn.entry_bb-> (
           List.iter (
             fun predbbid ->
               let predbb = BBMap.find predbbid fn.bbs in
                 (match predbb.term with
                 | Some (Br (pbrbbid, [])) when bbid = pbrbbid-> 
-                    predbb.term <- Some (Br (pbrbbid, []))
+                    predbb.term <- Some (Br (tbrbbid, []))
                 | Some (Cbr (cond, pibrbbid, pebrbbid)) -> 
                     let pibrbbid' = if pibrbbid = bbid then tbrbbid else pibrbbid in
                     let pebrbbid' = if pebrbbid = bbid then tbrbbid else pebrbbid in
@@ -72,30 +71,11 @@ let compactcfg_opt_func (aly : analysis_info) (fn : func) : unit =
           rem_pred bbid tbrbbid;
           Queue.add tbrbbid wl
       )
-      (* Trampoline BB removal, with args *)
-      | _, bbargs, [], Some (Br (tbrbbid, tbrargs)) when List.length bbargs > 0 && tbrbbid <> bbid-> (
-          List.iter (
-            fun predbbid ->
-              let predbb = BBMap.find predbbid fn.bbs in
-                (match predbb.term with
-                | Some (Br (pbrbbid, pbrargs)) when pbrbbid = bbid -> 
-                    let sub = List.map2 (fun bbarg brarg -> (bbarg, brarg.ssaid)) bbargs pbrargs in
-                    let tbrargs' = sub_sc_list sub tbrargs in
-                    predbb.term <- Some (Br (tbrbbid, tbrargs'))
-                | _ -> failwith "compactcfg_opt_func: predbb term is not of the fromat expected for a trampoline bb with args");
-                rem_pred predbbid bbid;
-                add_pred predbbid tbrbbid;
-                Queue.push predbbid wl
-          ) preds;
-          fn.bbs <- BBMap.remove bbid fn.bbs;
-          rem_pred bbid tbrbbid;
-          Queue.add tbrbbid wl
-      )
       (* Successor BB chain compaction*)
       | _, _, _, Some (Br (brbbid, brargs)) when get_preds brbbid = [bbid] -> (
         let succbb = BBMap.find brbbid fn.bbs in
         let sub = List.map2 (fun sbbarg brarg -> (sbbarg, brarg.ssaid)) succbb.args brargs in
-        bb.ops <- (sub_ops_uses sub succbb.ops) @ bb.ops;
+        bb.ops <- succbb.ops @ bb.ops;
         (match succbb.term with
         | Some (Br (sbrbbid, sbrargs)) -> (
           bb.term <- Some (Br (sbrbbid, sub_sc_list sub sbrargs));
@@ -118,11 +98,13 @@ let compactcfg_opt_func (aly : analysis_info) (fn : func) : unit =
         | None -> failwith "compactcfg_opt_func: succbb term is not of the fromat expected for a trampoline bb with args"); 
         fn.bbs <- BBMap.remove brbbid fn.bbs;
         rem_pred bbid brbbid;
+        (*while only the dominated bbs are affected since ssa form us used iterating the entire cfg is possible and valid*)
+        sub_cfg_uses sub fn;
         Queue.push bbid wl;
       )
       | _ -> () (* no compact opportunity*)
     )
-    | _ -> () (* already removed bb or entry bb*);
+    | _ -> () (* already removed bb*);
     done;
 
     invalidate_all_analysis aly fn.funcid

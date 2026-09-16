@@ -441,6 +441,7 @@ let create_func (b : builder)
                 (args_w_mirtyp : (ssaid * (string option) * mirtyp) list)
                 (rettyp : mirtyp)
                 (extern_name : string option)
+                (exported : bool)
                 : func =
   let fid = b.next_funcid in
   b.next_funcid <- b.next_funcid + 1;
@@ -459,6 +460,7 @@ let create_func (b : builder)
             args = args;
             rettyp = rettyp;
             extern_name = extern_name;
+            exported = exported;
             next_ssaid = max_ssaid + 1;
             next_bbid = 0;
             entry_bb = None;
@@ -514,43 +516,54 @@ let create_global (b : builder) (typ : mirtyp) : global =
 (* Copy Things                                                               *)
 (* ========================================================================= *)
 
-let copy_ssaconsume (sc : ssaconsume) = 
-  { ssaid = sc.ssaid; consume = sc.consume }
+let copy_ssaconsume (ssaid_off : ssaid) (sc : ssaconsume) = 
+  { ssaid = ssaid_off + sc.ssaid; consume = sc.consume }
 
-let rec copy_op (o : op) : op =
+let rec copy_op (ssaid_off : ssaid) (o : op) : op =
+  let add id = id + ssaid_off in
+  let copy_sc = copy_ssaconsume ssaid_off in
   match o with
-  | Func (res, funcid1, funcid2_opt) -> Func (res, ref !funcid1, ref !funcid2_opt)
-  | Pack (res, sc, scs) -> Pack (res, copy_ssaconsume sc, List.map copy_ssaconsume scs)
-  | CallClosure (res, sc) -> CallClosure (res, copy_ssaconsume sc)
-  | CallDirect (res, fid_ref, scs) -> CallDirect (res, ref !fid_ref, List.map copy_ssaconsume scs)
-  | StoreGlobal (gid, sc) -> StoreGlobal (gid, copy_ssaconsume sc)
+  | Func (res, funcid1, funcid2_opt) -> Func (add res, ref !funcid1, ref !funcid2_opt)
+  | Pack (res, sc, scs) -> Pack (add res, copy_sc sc, List.map copy_sc scs)
+  | CallClosure (res, sc) -> CallClosure (add res, copy_sc sc)
+  | CallDirect (res, fid_ref, scs) -> CallDirect (add res, ref !fid_ref, List.map copy_sc scs)
+  | Copy (res, val_ssa) -> Copy (add res, add val_ssa)
+  | Drop ssas -> Drop (List.map add ssas)
+  | StoreGlobal (gid, sc) -> StoreGlobal (gid, copy_sc sc)
+  | LoadGlobal (res, gid) -> LoadGlobal (add res, gid)
   | DropGlobal gid -> DropGlobal gid
-  | Tupwrp (res, scs) -> Tupwrp (res, List.map copy_ssaconsume scs)
-  | Tupuwrp (res, sc) -> Tupuwrp (res, copy_ssaconsume sc)
-  | Veclit (res, scs) -> Veclit (res, List.map copy_ssaconsume scs)
-  | Vecwrite (res, val_sc, vec, idxs) -> Vecwrite (res, copy_ssaconsume val_sc, vec, idxs)
-  | Vecinsert (res, vec_sc, ins_sc, idxs) -> Vecinsert (res, copy_ssaconsume vec_sc, copy_ssaconsume ins_sc, idxs)
-  | Copy _ | Drop _ | LoadGlobal _
-  | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
-  | Uopi8 _ | Bopi32 _ | Bopi8 _ 
-  | Vecinit _ 
-  | Veclen _ | Vecread _ 
-  | Vecslice _ | Vecextend _ -> o
+  | Immi32 (res, v) -> Immi32 (add res, v)
+  | Immi8 (res, c) -> Immi8 (add res, c)
+  | ImmUnit res -> ImmUnit (add res)
+  | Uopi32 (res, arg, a) -> Uopi32 (add res, arg, add a)
+  | Uopi8 (res, arg, a) -> Uopi8 (add res, arg, add a)
+  | Bopi32 (res, arg, a, b) -> Bopi32 (add res, arg, add a, add b)
+  | Bopi8 (res, arg, a, b) -> Bopi8 (add res, arg, add a, add b)
+  | Tupwrp (res, scs) -> Tupwrp (add res, List.map copy_sc scs)
+  | Tupuwrp (res_list, sc) -> Tupuwrp (List.map add res_list, copy_sc sc)
+  | Veclit (res, scs) -> Veclit (add res, List.map copy_sc scs)
+  | Vecinit (res, defval, dims) -> Vecinit (add res, add defval, List.map add dims)
+  | Veclen (res, vec) -> Veclen (add res, add vec)
+  | Vecread (res, vec, idxs) -> Vecread (add res, add vec, List.map add idxs)
+  | Vecwrite (res, val_sc, vec, idxs) -> Vecwrite (add res, copy_sc val_sc, add vec, List.map add idxs)
+  | Vecinsert (res, vec_sc, ins_sc, idxs) -> Vecinsert (add res, copy_sc vec_sc, copy_sc ins_sc, List.map add idxs)
+  | Vecslice (res, vec, start, len) -> Vecslice (add res, add vec, add start, add len)
+  | Vecextend (res, vec, lit, off) -> Vecextend (add res, add vec, add lit, add off)
 
-let copy_term (t : term option) : term option =
+let copy_term (ssaid_off : ssaid) (bbid_off : bbid) (t : term option) : term option =
   match t with
   | None -> None
-  | Some (Br (brbbid, brargs)) -> Some (Br (brbbid, List.map copy_ssaconsume brargs))
-  | Some (Cbr _) -> t
-  | Some (Ret _) -> t
+  | Some (Br (brbbid, brargs)) -> Some (Br (bbid_off + brbbid, List.map (copy_ssaconsume ssaid_off) brargs))
+  | Some (Cbr (cond, tbr, fbr)) -> Some (Cbr (ssaid_off + cond, bbid_off + tbr, bbid_off + fbr))
+  | Some (Ret ret) -> Some (Ret (ssaid_off + ret))
 
-let copy_bb (b : bb) : bb =
+let copy_bb (ssaid_off : ssaid) (bbid_off : bbid) (b : bb) : bb =
   {
-    bbid = b.bbid;
+    bbid = bbid_off + b.bbid;
     name = b.name;
-    args = b.args;
-    ops = List.map copy_op b.ops;
-    term = copy_term b.term;
+    args = List.map (fun ssaid -> ssaid + ssaid_off) b.args;
+    ops = List.map (copy_op ssaid_off) b.ops;
+    term = copy_term ssaid_off bbid_off b.term;
   }
 
 let copy_func (b : builder) (fid : funcid) : func =
@@ -564,10 +577,11 @@ let copy_func (b : builder) (fid : funcid) : func =
     args = fn.args;
     rettyp = fn.rettyp;
     extern_name = fn.extern_name;
+    exported = fn.exported;
     next_ssaid = fn.next_ssaid;
     next_bbid = fn.next_bbid;
     entry_bb = fn.entry_bb;
-    bbs = BBMap.map copy_bb fn.bbs; (* Deep copy of basic blocks *)
+    bbs = BBMap.map (fun bb -> copy_bb 0 0 bb) fn.bbs;
     ssatyps = Dynarray.copy fn.ssatyps; (* Copy the type array *)
     memown = Dynarray.copy fn.memown; (* Copy the ownership array *)
   } in
@@ -625,17 +639,24 @@ let fresh_ssaid (b : builder) : ssaid =
 (* Other Helpers                                                             *)
 (* ========================================================================= *)
 
-  let sub_id submap id = 
-    match List.assoc_opt id submap with
-    | Some new_id -> new_id
-    | None -> id 
-  
-  let sub_id_list submap ids = List.map (sub_id submap) ids 
+let sub_id submap id = 
+  match List.assoc_opt id submap with
+  | Some new_id -> new_id
+  | None -> id 
 
-  let sub_sc submap sc = 
-    { ssaid = sub_id submap sc.ssaid; consume = sc.consume } 
-  
-  let sub_sc_list submap scs = List.map (sub_sc submap) scs 
+let sub_id_list submap ids = List.map (sub_id submap) ids 
+
+let sub_sc submap sc = 
+  { ssaid = sub_id submap sc.ssaid; consume = sc.consume } 
+
+let sub_sc_list submap scs = List.map (sub_sc submap) scs 
+
+let sub_term_uses submap term_opt=
+  match term_opt with
+  | Some (Br (bbid, args)) -> Some (Br (bbid, sub_sc_list submap args))
+  | Some (Cbr (cond, tbbid, fbbid)) -> Some (Cbr (sub_id submap cond, tbbid, fbbid))
+  | Some (Ret ret) -> Some (Ret (sub_id submap ret))
+  | None -> failwith "sub_term_uses: called on None Term"
 
 let sub_ops_uses submap ops =
 
@@ -714,3 +735,11 @@ let sub_ops_uses submap ops =
     | Vecextend (dst, vec, lit, off) -> 
         Vecextend (dst, sub_id vec, sub_id lit, sub_id off)
   ) ops
+
+let sub_cfg_uses submap (fn : func) : unit =
+  fn.bbs <- BBMap.map (fun bb ->
+    { bb with
+      ops = sub_ops_uses submap bb.ops;
+      term = sub_term_uses submap bb.term;
+    }
+  ) fn.bbs

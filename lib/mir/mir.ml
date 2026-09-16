@@ -126,6 +126,7 @@ type func = {
     mutable args: ( ssaid * (string option) ) list;       (* string only debug info, mutable for TCO *)
     rettyp: mirtyp;                                       
     extern_name: string option;                           (* if Some externalname then bbs is ignored and a extern function gets linked *)
+    exported : bool;                                      (* if true this function is needed by other modules and should not be inlined or removed, not much use now mainly for future *)
     mutable next_ssaid: ssaid;                            (* lowest unused ssaid, should always be in sync with the length of ssatyps and memown *)
     mutable next_bbid: bbid;                              (* lowest unused bbid *)
     mutable entry_bb: bbid option;                        (* entry basic block id *)
@@ -165,7 +166,7 @@ type program = {
 let find_bb_func (func : func) (bbid : bbid) : bb =
   match BBMap.find_opt bbid func.bbs with
   | Some bb -> bb
-  | None -> failwith (Printf.sprintf "find_bb_func: bb %d not found in function %s" bbid func.name)
+  | None -> failwith (Printf.sprintf "find_bb_func: bb %d not found in function @%d %s" bbid func.funcid func.name)
 
 let is_memtyp (typ : mirtyp) : bool =
   match typ with

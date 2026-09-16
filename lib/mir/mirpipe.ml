@@ -35,6 +35,8 @@ let run_pipeline (b : builder) (optimize : bool) : unit =
     if optimize then(
       Calldirectopt.calldirect_opt b aly;
       Tco.tco_opt b aly;
+      Inlineopt.inline_opt b aly;
+      Calldirectopt.calldirect_opt b aly;
       Dceopt.dce_opt b aly;
       Compactcfgopt.compactcfg_opt b aly
     );
@@ -50,7 +52,7 @@ let run_pipeline (b : builder) (optimize : bool) : unit =
   with e ->
     let msg = Printexc.to_string e in
     let backtrace = Printexc.get_backtrace () in
-    Printf.eprintf "%s\n" (Printmir.string_of_program b.program true);
+    Printf.eprintf "%s\n" (Printmir.string_of_program b.program false);
     let curr_fun, curr_bb = 
       match b.cursor with
       | (Some func, Some bb) -> ("func_" ^ string_of_int func.funcid, "bb_" ^ string_of_int bb.bbid)

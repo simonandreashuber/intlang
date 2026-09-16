@@ -246,6 +246,7 @@ let declare_func (b : builder)
                  (env : mirval UuidMap.t) 
                  (name : string) 
                  (capture_banned_uuids_lst : uuid list) 
+                 (exported : bool)
                  (l_out : tlexp) 
                  : func * (uuid list) * mirval UuidMap.t * tlexp =
   let rec declare_func_aux (arg_acc : (uuid option * string option * Ast.typ) list) (l : tlexp) =
@@ -291,7 +292,7 @@ let declare_func (b : builder)
 
       (*create mir func*)
       let ret_mirtyp = asttyp_to_mirtyp (tlexp_get_type l) in
-      let func = create_func b name (List.rev func_args_rev) ret_mirtyp None in
+      let func = create_func b name (List.rev func_args_rev) ret_mirtyp None exported in
 
       let lamlift_uuid = List.map (fun (uuid_opt, _, _) -> Option.get uuid_opt) args_lamlift in
 
@@ -312,7 +313,7 @@ let declare (b : builder) (builtins_env : mirval UuidMap.t) (monotast : Ast.mono
     match l with
     | LamT _ | LamUnitT _ -> (
         let (func, lamlift_uuid, loc_env, l_body) = 
-            declare_func b builtins_env name toplevel_uuids l in
+            declare_func b builtins_env name toplevel_uuids true l in
         if lamlift_uuid <> [] then
           raise (Errors.LowerMonoTASTError ("Function has captured variables, this should not happen as the function should have been lambda lifted " ^ name ^ " uuids: " ^ String.concat ", " (List.map string_of_int lamlift_uuid)))
         else
@@ -360,6 +361,7 @@ let eta_expansion (b : builder) (unsat_ssaid : ssaid) : ssaid =
                              ((0, None, unsat_mirtyp) :: (List.flatten sat_args))
                              sat_ret_mirtyp
                              None 
+                             false
                             in
   switch_func b eta_func;
   let bbentry = create_bb b "entry" [] in
@@ -683,7 +685,7 @@ and lower_loc_func (b : builder)
   let cp = cp_set b in
 
   (*setup function*)
-  let func, lamlift_uuids, env_func, l_body = declare_func b env name (match rec_u with Some u -> [u] | None -> []) l in
+  let func, lamlift_uuids, env_func, l_body = declare_func b env name (match rec_u with Some u -> [u] | None -> []) false l in
   switch_func b func;
   let bbentry = create_bb b "entry" [] in
   set_entry_bb b bbentry.bbid;
@@ -720,7 +722,7 @@ and lower_loc_func (b : builder)
 let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t) : unit =
 
   (*setup @init_globals*)
-  let init_globals_func = create_func b "init_globals" [(0, None, TMIRUnit)] TMIRUnit None in
+  let init_globals_func = create_func b "init_globals" [(0, None, TMIRUnit)] TMIRUnit None true in
   switch_func b init_globals_func;
   let bbentry = create_bb b "entry" [] in
   set_entry_bb b bbentry.bbid;
@@ -729,7 +731,7 @@ let lower_decls (b : builder) (decls : decl list) (toplvl_env : mirval UuidMap.t
   b.program.init_globals_funcid <- Some init_globals_func.funcid;
 
   (*setup @uninit_globals*)
-  let uninit_globals_func = create_func b "uninit_globals" [(0, None, TMIRUnit)] TMIRUnit None in
+  let uninit_globals_func = create_func b "uninit_globals" [(0, None, TMIRUnit)] TMIRUnit None true in
   switch_func b uninit_globals_func;
   let bbentry = create_bb b "entry" [] in
   set_entry_bb b bbentry.bbid;
@@ -792,7 +794,7 @@ let lower_builtins (b : builder) (builtins : Ast.typenv) : mirval UuidMap.t =
     | Ast.Forall ([], TFun (arg_typ, ret_typ)) -> (
         let arg_mirtyp = asttyp_to_mirtyp arg_typ in
         let ret_mirtyp = asttyp_to_mirtyp ret_typ in
-        let func = create_func b name [(0, None, arg_mirtyp)] ret_mirtyp (Some name) in (*here would mb go other external names*)
+        let func = create_func b name [(0, None, arg_mirtyp)] ret_mirtyp (Some name) false in (*here would mb go other external names*)
         env_put env_acc uuid (MIRFuncid func.funcid)
       )
     | _ -> raise (Errors.LowerMonoTASTError "Builtin function has unexpected type schema")
