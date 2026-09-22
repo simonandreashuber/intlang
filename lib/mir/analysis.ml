@@ -54,12 +54,22 @@ type dom_info = {
   dom_tree : bbid list array;
 }
 
+type data_info = {
+  data_graph : (ssaid list) array;    (* edges in data graph, has edges for bbargs and tupuwrp *)
+  reaching_srcs : SsaSet.t array;     (* all the srcs that can reach this ssa def in the data graph *)
+  mutable own_srcs : SsaSet.t;        (* all owned srcs ie. ssa defs that are guaranteed owned *)
+  mutable borr_srcs : SsaSet.t;       (* all borrowed srcs ie. ssa defs that are guaranteed borrowed *)
+  mutable own_sinks : ssaid list;     (* all owned sinks ie. ssa uses that will trigger a copy if the arg can not be consumed *)
+  mutable own_path_srcs : SsaSet.t;   (* all owned srcs that have a path to a owned sink *)
+}
+
 type analysis_info = {
   preds_arr : preds_info option Dynarray.t;
   rpo_arr : rpo_info option Dynarray.t;
   live_arr : live_info option Dynarray.t;
   borrow_arr: borrow_info option Dynarray.t;
   dom_arr : dom_info option Dynarray.t;
+  data_arr : data_info option Dynarray.t;
 }
 
 let create_analysis_info () : analysis_info = {
@@ -68,6 +78,7 @@ let create_analysis_info () : analysis_info = {
   live_arr = Dynarray.create ();
   borrow_arr = Dynarray.create ();
   dom_arr = Dynarray.create ();
+  data_arr = Dynarray.create ();
 }
 
 let dynarray_len_check (arr : 'a option Dynarray.t) (funcid : funcid) : unit =
@@ -94,11 +105,11 @@ let invalidate_all_analysis (aly : analysis_info) (funcid : funcid) : unit =
 let get_preds predsarr bbid = Array.get predsarr bbid
 
 let add_pred predsarr pred_bbid succ_bbid =
-  let old_pred = Array.get predsarr succ_bbid in 
+  let old_pred = Array.get predsarr succ_bbid in
   Array.set predsarr succ_bbid (pred_bbid :: old_pred)
 
 let rem_pred predsarr pred_bbid succ_bbid =
-  let old_pred = Array.get predsarr succ_bbid in 
+  let old_pred = Array.get predsarr succ_bbid in
   let new_pred = List.filter (fun x -> x <> pred_bbid) old_pred in
   Array.set predsarr succ_bbid new_pred
 
@@ -124,7 +135,7 @@ let get_preds_info (aly : analysis_info) (func : func) : preds_info =
   dynarray_len_check aly.preds_arr func.funcid;
   match Dynarray.get aly.preds_arr func.funcid with
   | Some preds_info -> preds_info
-  | None -> 
+  | None ->
     let preds_info = compute_preds func in
     Dynarray.set aly.preds_arr func.funcid (Some preds_info);
     preds_info
@@ -168,7 +179,7 @@ let get_rpo_info (aly : analysis_info) (func : func) : rpo_info =
   dynarray_len_check aly.rpo_arr func.funcid;
   match Dynarray.get aly.rpo_arr func.funcid with
   | Some rpo_info -> rpo_info
-  | None -> 
+  | None ->
     let rpo_info = compute_rpo func in
     Dynarray.set aly.rpo_arr func.funcid (Some rpo_info);
     rpo_info
@@ -200,11 +211,11 @@ let compute_live (aly : analysis_info) (f : func) =
 
     (* 1. Accumulate Terminator uses *)
     (match bb.term with
-     | Some (Br (_, brargs)) -> 
+     | Some (Br (_, brargs)) ->
         apply_sc_uses brargs
-     | Some (Cbr (cond, tbbid, fbbid)) -> 
+     | Some (Cbr (cond, tbbid, fbbid)) ->
         apply_use cond;
-     | Some (Ret ret) -> 
+     | Some (Ret ret) ->
         apply_use ret
      | None -> failwith ("live_analysis: function " ^ string_of_int f.funcid ^ " block " ^ string_of_int bbid ^ " has no terminator")
     );
@@ -240,7 +251,7 @@ let compute_live (aly : analysis_info) (f : func) =
     apply_defs bb.args;
 
     block_uses.(bbid) <- SsaSet.diff !uses !defs;
-    block_defs.(bbid) <- !defs; 
+    block_defs.(bbid) <- !defs;
   ) f.bbs;
 
   (* --- STEP 2: Fast Fixed-Point Loop using Precomputed Sets --- *)
@@ -295,10 +306,10 @@ let compute_live (aly : analysis_info) (f : func) =
     List.iteri (fun op_index op ->
       match op with
       | Func (res, _, _) -> add_def res op_index
-      | Pack (res, sc, scs) -> add_def res op_index; 
-                               add_use sc.ssaid op_index; 
+      | Pack (res, sc, scs) -> add_def res op_index;
+                               add_use sc.ssaid op_index;
                                add_sc_uses scs op_index
-      | CallClosure (res, sc) -> add_def res op_index; 
+      | CallClosure (res, sc) -> add_def res op_index;
                                  add_use sc.ssaid op_index
       | CallDirect (res, _, scs) -> add_def res op_index;
                                     add_sc_uses scs op_index
@@ -335,7 +346,7 @@ let get_live_info (aly : analysis_info) (func : func) : live_info =
   dynarray_len_check aly.live_arr func.funcid;
   match Dynarray.get aly.live_arr func.funcid with
   | Some live_info -> live_info
-  | None -> 
+  | None ->
     let live_info = compute_live aly func in
     Dynarray.set aly.live_arr func.funcid (Some live_info);
     live_info
@@ -361,12 +372,12 @@ let compute_borrow (fn : func) =
     List.iter2 (fun brarg bbarg ->
     (*
       I put all the potential borrows in the graph while this makes
-      the resolvers a bit more complex it saves a massive headache 
+      the resolvers a bit more complex it saves a massive headache
       when answering questions like: is this bb arg borrow legal and/or
       does it extend the live range of the owners
     *)
     if Mir.is_memtyp (Mir.get_mirtyp_func fn bbarg)
-    then borrow bbarg brarg.ssaid  
+    then borrow bbarg brarg.ssaid
     ) brargs targbb.args
   in
 
@@ -385,9 +396,9 @@ let compute_borrow (fn : func) =
         match Mir.get_mirtyp_func fn vec with
         | TMIRVec (vecdim, _) when List.length idxlst < vecdim -> borrow def vec
         | _ -> ()
-      ) 
+      )
       | Vecslice (def, vec, _, _) -> borrow def vec
-      (* when at some point a mir op is added and does borrow 
+      (* when at some point a mir op is added and does borrow
          I need to remember that here I check for this. With | _ -> the compiler does not tell me
          like this it does so thats why I put this here*)
       | Func _ | Pack _ | CallClosure _ | CallDirect _
@@ -412,7 +423,7 @@ let get_borrow_info (aly : analysis_info) (func : func) : borrow_info =
   dynarray_len_check aly.borrow_arr func.funcid;
   match Dynarray.get aly.borrow_arr func.funcid with
   | Some borrow_info -> borrow_info
-  | None -> 
+  | None ->
     let borrow_info = compute_borrow func in
     Dynarray.set aly.borrow_arr func.funcid (Some borrow_info);
     borrow_info
@@ -422,10 +433,10 @@ let get_borrow_info (aly : analysis_info) (func : func) : borrow_info =
   let borrow_info = get_borrow_info aly fn in
   let rec transacc acc lender =
     let borrowers = borrow_info.lender_to_borrowers.(lender) in
-    List.fold_left (fun acc borrower -> 
+    List.fold_left (fun acc borrower ->
       match get_ownership_func fn borrower with
       | Borrowed when List.mem borrower excludelist -> acc
-      | Borrowed -> transacc (borrower :: acc) borrower 
+      | Borrowed -> transacc (borrower :: acc) borrower
       | Owned -> acc
       | NoMem -> failwith (Printf.sprintf "find_borrowers: ssaid %d is not a memory type but in borrowers" borrower)
      ) acc borrowers
@@ -435,7 +446,7 @@ let get_borrow_info (aly : analysis_info) (func : func) : borrow_info =
 let find_borrowers = find_borrowers_excludelist []
 
 
-(* 
+(*
   Find all function local owners of a given borrower
   DOES NOT CHECK IF PASSED BORROWER IS A BORROWER
   this is usefull in the case where we would mb
@@ -460,10 +471,10 @@ let find_funclocal_owners (aly : analysis_info) (fn : func) (borrower : ssaid) :
 (* ========================================================================= *)
 
 let compute_dom (aly : analysis_info) (fn : func) =
-  
+
   let rpo_list = (get_rpo_info aly fn).rpo_lst in
   let rpo_idx = (get_rpo_info aly fn).rpo_idx in
-  
+
   let get_preds = get_preds (get_preds_info aly fn).preds in
 
   (* --- Cooper-Harvey-Kennedy Algorithm Setup --- *)
@@ -534,7 +545,7 @@ let get_dom_info (aly : analysis_info) (func : func) : dom_info =
   dynarray_len_check aly.dom_arr func.funcid;
   match Dynarray.get aly.dom_arr func.funcid with
   | Some dom_info -> dom_info
-  | None -> 
+  | None ->
     let dom_info = compute_dom aly func in
     Dynarray.set aly.dom_arr func.funcid (Some dom_info);
     dom_info
@@ -550,6 +561,178 @@ let does_strictly_dominate aly fn dominator dominated =
       | None when fn.entry_bb = Some b -> false
       | _ -> failwith "does_strictly_dominate: reached a block with no idom that is not the entry"
   in
-  if dominator = dominated 
-  then false 
+  if dominator = dominated
+  then false
   else check_dom dominated
+
+
+
+
+
+(* ========================================================================= *)
+(* Data Flow                                                                 *)
+(* ========================================================================= *)
+
+(*
+
+  Considering the graph where:
+    - There are owned sources (guarantied owned), borrowed sources (guarantied borrowed)
+      and owned sinks (need to consume ie. owned is a neccesary condition).
+    - BB Args and tupuwrp create edges (both dont modify data just propagate it)
+
+  This analysis tries to answer for a give ssa defintion:
+    - is it on a path from a owned source to a owned sink (keeping things owned is ideal)
+    - is there a path from a borrowed source to this ssa defintion (keeping things borrowed is ideal)
+
+*)
+
+let compute_data (aly : analysis_info) (fn : func) =
+
+  (*create data structures*)
+  let n = fn.next_ssaid in
+  let data_info = {
+    data_graph = Array.make n ([]);
+    reaching_srcs = Array.make n (SsaSet.empty);
+    own_srcs = SsaSet.empty;
+    borr_srcs = SsaSet.empty;
+    own_sinks = [];
+    own_path_srcs = SsaSet.empty;
+  } in
+
+  let add_edge u v = if is_memtyp @@ get_mirtyp_func fn u then (
+                     assert(get_mirtyp_func fn u = get_mirtyp_func fn v);
+                     data_info.data_graph.(u) <- v :: data_info.data_graph.(u) ) in
+  let add_ownsrc s = if is_memtyp @@ get_mirtyp_func fn s then (
+                     data_info.own_srcs <- SsaSet.add s data_info.own_srcs;
+                     assert(SsaSet.is_empty data_info.reaching_srcs.(s)); data_info.reaching_srcs.(s) <- SsaSet.singleton s) in
+  let add_borrsrc s = if is_memtyp @@ get_mirtyp_func fn s then (
+                      data_info.borr_srcs <- SsaSet.add s data_info.borr_srcs;
+                      assert(SsaSet.is_empty data_info.reaching_srcs.(s)); data_info.reaching_srcs.(s) <- SsaSet.singleton s ) in
+  let add_ownsink s = if is_memtyp @@ get_mirtyp_func fn s then (
+                      data_info.own_sinks <- s :: data_info.own_sinks ) in
+
+  (*iterate cfg and populate data structures*)
+
+  (*funciton args*)
+  List.iter (fun (farg_ssaid, _ ) ->
+    match get_ownership_func fn farg_ssaid with
+    | Owned -> add_ownsrc farg_ssaid
+    | Borrowed -> add_borrsrc farg_ssaid
+    | NoMem -> ()
+  ) fn.args;
+
+  (*bbs*)
+  BBMap.iter (fun _ bb ->
+    (*ops*)
+    List.iter (fun op ->
+      match op with
+      | Func (def, _, _) -> add_ownsrc def
+      | Pack (def, clos_sc, args_sc) -> (
+        add_ownsrc def;
+        add_ownsink clos_sc.ssaid;
+        List.iter (fun arg_sc -> add_ownsink arg_sc.ssaid) args_sc
+      )
+      | CallClosure (def, clos_sc) -> (
+        add_ownsrc def;
+        add_ownsink clos_sc.ssaid
+      )
+      | CallDirect (def, _ , _) -> (
+        (*funciton args are specifically not sinks, I made this decision because
+          like this the analyis can stay entirely in one function scope ie. at this place
+          the analysis does not need to know anything about what the callee will do to memory objects
+          of course one do this but the main problem I see is recursion and how to handle it so I just
+          leave it out entirely*)
+        add_ownsrc def
+      )
+      | Copy (def, _) -> add_ownsrc def
+      | StoreGlobal (_, sc) -> add_ownsink sc.ssaid
+      | LoadGlobal (def, _) -> add_borrsrc def
+      | Tupwrp (def, elms) -> (
+        add_ownsrc def;
+        List.iter (fun elm_sc -> add_ownsink elm_sc.ssaid) elms
+      )
+      | Tupuwrp (elm_defs, tup) -> (
+        add_ownsink tup.ssaid;
+        List.iter (fun elm_def ->
+          add_edge tup.ssaid elm_def
+        ) elm_defs
+      )
+      | Veclit (def, lit_scs) -> (
+        add_ownsrc def;
+        List.iter (fun lit_sc -> add_ownsink lit_sc.ssaid) lit_scs
+      )
+      | Vecinit (def, _, _) -> add_ownsrc def
+      | Vecread (def, _, _) -> add_borrsrc def
+      | Vecwrite (def, vec, _, _ ) -> (
+        add_ownsrc def;
+        add_ownsink vec.ssaid
+      )
+      | Vecinsert (def, vec, vecins, _ ) -> (
+        add_ownsrc def;
+        add_ownsink vec.ssaid;
+        add_ownsink vecins.ssaid
+      )
+      | Vecslice (def, _, _, _) -> add_borrsrc def
+      | Vecextend (def, _, _, _) -> add_ownsrc def
+      | Drop _ | DropGlobal _
+      | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
+      | Veclen _ -> ()
+    ) bb.ops;
+
+    (*term*)
+    match bb.term with
+    | Some (Br (target_bbid, brargs)) when not @@ List.is_empty brargs -> (
+      let target_bb = find_bb_func fn target_bbid in
+      List.iter2 (fun {ssaid = brarg_ssaid; consume = _} bbarg_ssaid ->
+        add_edge brarg_ssaid bbarg_ssaid
+      ) brargs target_bb.args
+    )
+    | Some (Ret ret_ssaid) -> add_ownsink ret_ssaid
+    | Some (Br _) | Some (Cbr _) -> ()
+    | None -> failwith "compute_data found bb with no term"
+  ) fn.bbs;
+
+  (*run a fix point until for reaching_srcs on the data_graph*)
+  let changed = ref true in
+  while !changed do
+    changed := false;
+    Array.iteri (fun u vs ->
+      let u_srcs = data_info.reaching_srcs.(u) in
+      List.iter (fun v ->
+        let v_srcs = data_info.reaching_srcs.(v) in
+        let v_srcs_size = SsaSet.cardinal v_srcs in
+        let v_srcs' = SsaSet.union v_srcs u_srcs in
+        let v_srcs_size' = SsaSet.cardinal v_srcs' in
+        if v_srcs_size < v_srcs_size' then begin
+         changed := true;
+         data_info.reaching_srcs.(v) <- v_srcs' end
+      ) vs;
+      ()
+    ) data_info.data_graph
+  done;
+
+  (*compute own_path_srcs*)
+  List.iter (fun own_sink ->
+    data_info.own_path_srcs <- SsaSet.union data_info.own_path_srcs data_info.reaching_srcs.(own_sink)
+  ) data_info.own_sinks;
+  data_info.own_path_srcs <- SsaSet.inter data_info.own_path_srcs data_info.own_srcs;
+
+  data_info
+
+
+let get_data_info (aly : analysis_info) (func : func) : data_info =
+  dynarray_len_check aly.data_arr func.funcid;
+  match Dynarray.get aly.data_arr func.funcid with
+  | Some data_info -> data_info
+  | None ->
+    let data_info = compute_data aly func in
+    Dynarray.set aly.data_arr func.funcid (Some data_info);
+    data_info
+
+let is_on_own_path (aly : analysis_info) (fn : func) (def_ssaid : ssaid) : bool =
+  let data_info = get_data_info aly fn in
+  not @@ SsaSet.disjoint data_info.reaching_srcs.(def_ssaid) data_info.own_path_srcs
+
+let is_reached_by_borrsrc (aly : analysis_info) (fn : func) (def_ssaid : ssaid) : bool =
+  let data_info = get_data_info aly fn in
+  not @@ SsaSet.disjoint data_info.reaching_srcs.(def_ssaid) data_info.borr_srcs
