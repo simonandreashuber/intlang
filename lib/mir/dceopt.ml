@@ -2,10 +2,10 @@
 
   MIR Dead Code Elimination
 
-  Mark and Sweep approach to DCE. All def-use relation ships 
-  get recorded, some term and op uses are considered roots and 
+  Mark and Sweep approach to DCE. All def-use relation ships
+  get recorded, some term and op uses are considered roots and
   get marked by default. Then a marked def implies its uses should
-  be marked, this is run in worklist until a fixpoint is reached. 
+  be marked, this is run in worklist until a fixpoint is reached.
   All unmarked ops are removed.
 
 *)
@@ -26,6 +26,7 @@ let extract_op_defs = function
   | Vecinsert (res, _, _, _) | Vecslice (res, _, _, _)
   | Vecextend (res, _, _, _) | LoadGlobal (res, _) -> [res]
   | Tupuwrp (res_list, _) -> res_list
+  | Tupborr (res_list, _) -> res_list
   | Copy (res, _) -> [res]
   | StoreGlobal _ | Drop _ | DropGlobal _ -> []
 
@@ -40,6 +41,7 @@ let extract_op_uses = function
   | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) -> [a; b]
   | Tupwrp (_, elms) | Veclit (_, elms) -> List.map (fun sc -> sc.ssaid) elms
   | Tupuwrp (_, tup) -> [tup.ssaid]
+  | Tupborr (_, tup) -> [tup]
   | Vecinit (_, defval, dims) -> defval :: dims
   | Veclen (_, vec) -> [vec]
   | Vecread (_, vec, idxs) -> vec :: idxs
@@ -52,11 +54,11 @@ let extract_op_uses = function
 (* critical ops cannot be deleted even if their results are ignored *)
 let is_critical_op = function
   | CallClosure _ | CallDirect _ | StoreGlobal _ | Drop _ | DropGlobal _ -> true
-  | Func _ | Pack _ | Tupuwrp _ | Vecread _ | Vecslice _
+  | Func _ | Pack _ | Tupuwrp _ | Tupborr _ | Vecread _ | Vecslice _
   | Copy _ | LoadGlobal _
   | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
   | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
-  | Veclit _ | Vecinit _ 
+  | Veclit _ | Vecinit _
   | Veclen _ | Vecwrite _ | Vecinsert _
   | Vecextend _  -> false
 
@@ -98,7 +100,7 @@ let dce_opt_func (aly : analysis_info) (fn : func) =
         List.iter mark_live uses
       else
         let defs = extract_op_defs op in
-        List.iter (fun def -> 
+        List.iter (fun def ->
           List.iter (add_dependency def) uses
         ) defs
     ) bb.ops;
@@ -107,17 +109,17 @@ let dce_opt_func (aly : analysis_info) (fn : func) =
     let map_branch_args (brbbid : bbid) (brargs : ssaconsume list) =
       let target_bb = BBMap.find brbbid bbs in
       (* target_bb parameter depends on incoming branch argument *)
-      List.iter2 (fun param arg -> 
+      List.iter2 (fun param arg ->
         add_dependency param arg.ssaid
       ) target_bb.args brargs
     in
 
     match bb.term with
-    | Some (Ret ret) -> 
-        mark_live ret 
-    | Some (Br (brbbid, brargs)) -> 
+    | Some (Ret ret) ->
+        mark_live ret
+    | Some (Br (brbbid, brargs)) ->
         map_branch_args brbbid brargs
-    | Some (Cbr (cond, _, _)) -> 
+    | Some (Cbr (cond, _, _)) ->
         mark_live cond
     | None -> ()
   ) bbs;
@@ -129,7 +131,7 @@ let dce_opt_func (aly : analysis_info) (fn : func) =
     | Some uses -> List.iter mark_live uses
     | None -> ()
   done;
-  
+
   (* determine which parameters survive in each bb *)
   let bb_arg_masks = Hashtbl.create (fn.next_bbid) in
   BBMap.iter (fun _ (bb : bb) ->
@@ -161,12 +163,12 @@ let dce_opt_func (aly : analysis_info) (fn : func) =
       | Some (Br (brbbid, brargs)) -> Some (Br (brbbid, prune_branch brbbid brargs))
       | term_other -> term_other
   ) bbs;
-  
+
   invalidate_all_analysis aly fn.funcid
 
 
 let dce_opt (b : builder) (aly : analysis_info) : unit =
-  FuncMap.iter (fun _fid fn -> 
+  FuncMap.iter (fun _fid fn ->
     match fn.extern_name with
     | Some _ -> ()
     | None -> dce_opt_func aly fn

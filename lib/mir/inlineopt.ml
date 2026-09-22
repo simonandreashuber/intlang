@@ -57,7 +57,11 @@ let get_post_order (func_map : func FuncMap.t) (visited : FuncidSet.t ref) (call
             | Some callee -> call_counts.(callee) <- call_counts.(callee) + 1;
             | None -> ()
           )
-          | _ -> ()
+          | Pack _ | CallClosure _
+          | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _ | DropGlobal _
+          | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
+          | Tupwrp _ | Tupuwrp _ | Tupborr _ | Veclit _ | Vecinit _ | Veclen _ | Vecread _
+          | Vecwrite _ | Vecinsert _ | Vecslice _ | Vecextend _ -> ()
         ) (List.rev bb.ops)
       ) fn.bbs;
       (* post order: append node after all reachable callees are visited *)

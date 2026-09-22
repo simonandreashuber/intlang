@@ -23,7 +23,7 @@ let string_of_ssa (id : ssaid) : string =
   Printf.sprintf "%%%d" id
 
 let string_of_ssaconsume (c : ssaconsume) : string =
-  if c.consume 
+  if c.consume
   then Printf.sprintf "%%%d!" c.ssaid
   else Printf.sprintf "%%%d" c.ssaid
 
@@ -44,9 +44,9 @@ let rec string_of_typ = function
   | TMIRUnit -> "unit"
   | TMIRI32 -> "i32"
   | TMIRI8 -> "i8"
-  | TMIRClos (args, ret) -> 
-      Printf.sprintf "clos(%s->%s)" 
-        (String.concat ", " (List.map string_of_typ args)) 
+  | TMIRClos (args, ret) ->
+      Printf.sprintf "clos(%s->%s)"
+        (String.concat ", " (List.map string_of_typ args))
         (string_of_typ ret)
   | TMIRTup typs -> String.concat "*" (List.map string_of_typ typs)
   | TMIRVec (dim, inner) -> Printf.sprintf "vec<%d,%s>" dim (string_of_vecinnertype inner)
@@ -73,23 +73,23 @@ let string_of_uopi32 = function
   | Negi32 -> "negi32" | Noti32 -> "noti32"
 
 let string_of_bopi32 = function
-  | Eqi32 -> "eqi32"     | Neqi32 -> "neqi32"   | Lti32 -> "lti32" 
+  | Eqi32 -> "eqi32"     | Neqi32 -> "neqi32"   | Lti32 -> "lti32"
   | Gti32 -> "gti32"     | LtEqi32 -> "lteqi32" | GtEqi32 -> "gteqi32"
-  | ULti32 -> "ulti32"   | UGti32 -> "ugti32"   | ULtEqi32 -> "ulteqi32" 
+  | ULti32 -> "ulti32"   | UGti32 -> "ugti32"   | ULtEqi32 -> "ulteqi32"
   | UGtEqi32 -> "ugteqi32"
-  | Muli32 -> "muli32"   | Subi32 -> "subi32"   | Addi32 -> "addi32" 
-  | Divi32 -> "divi32"   | Modi32 -> "modi32"   | UDivi32 -> "udivi32" 
+  | Muli32 -> "muli32"   | Subi32 -> "subi32"   | Addi32 -> "addi32"
+  | Divi32 -> "divi32"   | Modi32 -> "modi32"   | UDivi32 -> "udivi32"
   | UModi32 -> "umodi32"
-  | Andi32 -> "andi32"   | Ori32 -> "ori32"     | Xori32 -> "xori32" 
+  | Andi32 -> "andi32"   | Ori32 -> "ori32"     | Xori32 -> "xori32"
   | Shli32 -> "shli32"   | Shri32 -> "shri32"   | UShri32 -> "ushri32"
 
 let string_of_uopi8 = function
   | Negi8 -> "negi8" | Noti8 -> "noti8"
 
 let string_of_bopi8 = function
-  | Eqi8 -> "eqi8"       | Neqi8 -> "neqi8"     | Lti8 -> "lti8" 
+  | Eqi8 -> "eqi8"       | Neqi8 -> "neqi8"     | Lti8 -> "lti8"
   | Gti8 -> "gti8"       | LtEqi8 -> "lteqi8"   | GtEqi8 -> "gteqi8"
-  | Addi8 -> "addi8"     | Subi8 -> "subi8"     | Andi8 -> "andi8" 
+  | Addi8 -> "addi8"     | Subi8 -> "subi8"     | Andi8 -> "andi8"
   | Ori8 -> "ori8"       | Xori8 -> "xori8"
 
 (* ========================================================================= *)
@@ -139,6 +139,8 @@ let string_of_op (fn : func) = function
       Printf.sprintf "%s = tupwrp %s" (string_of_ssa_def fn dst) (string_of_ssaconsumes elms)
   | Tupuwrp (elms, tup) ->
       Printf.sprintf "%s = tupuwrp %s" (string_of_ssa_defs fn elms) (string_of_ssaconsume tup)
+  | Tupborr (elms, tup) ->
+      Printf.sprintf "%s = tupborr %s" (string_of_ssa_defs fn elms) (string_of_ssa tup)
   | Veclit (dst, elms) ->
       Printf.sprintf "%s = veclit %s" (string_of_ssa_def fn dst) (string_of_ssaconsumes elms)
   | Vecinit (dst, defval, dims) ->
@@ -160,14 +162,14 @@ let string_of_op (fn : func) = function
 (* ========================================================================= *)
 
 let string_of_term (fn : func) = function
-  | Br (target, args) -> 
+  | Br (target, args) ->
       Printf.sprintf "br %s(%s)" (string_of_bbid target) (string_of_ssaconsumes args)
   | Cbr (cond, target_then, target_else) ->
       Printf.sprintf "cbr %s %s %s" (string_of_ssa cond) (string_of_bbid target_then) (string_of_bbid target_else)
-  | Ret arg -> 
+  | Ret arg ->
       (if is_memtyp @@ get_mirtyp_func fn arg then
         Printf.sprintf "ret %s!" (string_of_ssa arg)
-      else 
+      else
         Printf.sprintf "ret %s" (string_of_ssa arg))
 (* ========================================================================= *)
 (* Basic Blocks, Functions, and Program                                      *)
@@ -180,11 +182,11 @@ let string_of_bb (fn : func) (bb : bb) : string =
       "(" ^ String.concat ", " (List.map (fun arg -> Printf.sprintf "%s" (string_of_ssa_def fn arg)) bb.args) ^ ")"
   in
   let header = Printf.sprintf "  bb%s \"%s\" %s:" (string_of_int bb.bbid) bb.name args_str in
-  
+
   (* NOTE: bb.ops is stored in reverse order, so we reverse it here to print chronologically *)
   let ops_chronological = List.rev bb.ops in
   let ops_strs = List.map (fun op -> Printf.sprintf "    %s" (string_of_op fn op)) ops_chronological in
-  
+
   let term_str =
     match bb.term with
     | Some t -> [Printf.sprintf "    %s" (string_of_term fn t)]
@@ -196,9 +198,9 @@ let string_of_func (aly : analysis_info) (f : func) : string =
 
   let args_str =
     String.concat ", "
-      (List.map (fun (id, opt_name) -> 
+      (List.map (fun (id, opt_name) ->
         match opt_name with
-        | Some n -> Printf.sprintf "%s %s \"%s\"" (string_of_typ @@ get_mirtyp_func f id) (string_of_ssa_def f id) n 
+        | Some n -> Printf.sprintf "%s %s \"%s\"" (string_of_typ @@ get_mirtyp_func f id) (string_of_ssa_def f id) n
         | None -> Printf.sprintf "%s %s" (string_of_typ @@ get_mirtyp_func f id) (string_of_ssa_def f id)
       ) f.args)
   in
@@ -239,11 +241,11 @@ let string_of_ssa_info_table ssatyps memown =
   for i = 0 to len - 1 do
     let typ_str = string_of_typ (Dynarray.get ssatyps i) in
     let own_str = string_of_ownership (Dynarray.get memown i) in
-    
+
     (* %%%-4d formats as "%123 ", %-30s pads string to 30 chars right *)
     acc := !acc ^ Printf.sprintf "| %%%-4d | %-30s | %-9s |\n" i typ_str own_str
   done;
-  
+
   acc := !acc ^ Printf.sprintf "+-------+--------------------------------+-----------+\n";
   !acc
 
@@ -271,16 +273,16 @@ let string_of_live_info (l : live_info) =
   let s = ref "--- Live Info ---\nBBID | Live In                           | Live Out\n---------------------------------------------------------------------------\n" in
   let len = min (Array.length l.live_in) (Array.length l.live_out) in
   for bbid = 0 to (len - 1) do
-    s := !s ^ Printf.sprintf "%4d | %-33s | %s\n" 
-      bbid 
-      (string_of_ssaset l.live_in.(bbid)) 
+    s := !s ^ Printf.sprintf "%4d | %-33s | %s\n"
+      bbid
+      (string_of_ssaset l.live_in.(bbid))
       (string_of_ssaset l.live_out.(bbid))
   done;
   s := !s ^ "\nBBID | Defs                              | Uses\n---------------------------------------------------------------------------\n";
   for bbid = 0 to (len - 1) do
-    s := !s ^ Printf.sprintf "%4d | %-33s | %s\n" 
-      bbid 
-      (string_of_ssaset l.block_defs.(bbid)) 
+    s := !s ^ Printf.sprintf "%4d | %-33s | %s\n"
+      bbid
+      (string_of_ssaset l.block_defs.(bbid))
       (string_of_ssaset l.block_uses.(bbid))
   done;
   !s
@@ -320,7 +322,7 @@ let string_of_program (prog : program) (with_analysis : bool) : string =
     | Some id -> Printf.sprintf "%s: %s" prefix (string_of_funcid id)
     | None -> Printf.sprintf "%s: <none>" prefix
   in
-  let meta_str = 
+  let meta_str =
     String.concat "\n" [
       string_of_opt_funcid "init_globals" prog.init_globals_funcid;
       string_of_opt_funcid "main" prog.main_funcid;
@@ -331,7 +333,7 @@ let string_of_program (prog : program) (with_analysis : bool) : string =
   (* 2. Print globals (Iterate Map) *)
   let globals_str =
     GlobalMap.bindings prog.globals
-    |> List.map (fun (gid, g) -> 
+    |> List.map (fun (gid, g) ->
         Printf.sprintf "global %s: %s" (string_of_globalid gid) (string_of_typ g.typ))
     |> String.concat "\n"
   in
@@ -342,7 +344,7 @@ let string_of_program (prog : program) (with_analysis : bool) : string =
   let funcs_str =
     FuncMap.bindings prog.funcs
     |> List.map (fun (_, f) ->
-          string_of_func aly f ^ 
+          string_of_func aly f ^
           (if with_analysis then "\n" ^ string_of_analysis aly f else ""))
     |> List.filter (fun s -> s <> "")
     |> String.concat "\n\n"

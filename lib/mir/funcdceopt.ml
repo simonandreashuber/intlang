@@ -1,6 +1,6 @@
 
 (*
-  
+
   MIR Dead Function Elimination
 
   Scans all func and calldirect ops in the program,
@@ -21,17 +21,17 @@ let funcdce_opt (b : builder) (_ : analysis_info) : unit =
   let marked = ref FuncSet.empty in
   let wl = ref [] in
 
-  let mark (funcid : funcid) = 
+  let mark (funcid : funcid) =
     if not @@ FuncSet.mem funcid !marked then
       (marked := FuncSet.add funcid !marked;
       wl := funcid :: !wl)
   in
 
-  let is_marked (funcid : funcid) (_ : func) = 
-    FuncSet.mem funcid !marked 
+  let is_marked (funcid : funcid) (_ : func) =
+    FuncSet.mem funcid !marked
   in
 
-  let wl_pop () = 
+  let wl_pop () =
     match !wl with
     | h :: tl -> (wl := tl; h)
     | [] -> failwith "funcdce_opt pop called on empty wl"
@@ -47,7 +47,7 @@ let funcdce_opt (b : builder) (_ : analysis_info) : unit =
     | None -> ()
   )
   | CallDirect (_, funcid_ref, _) -> mark !funcid_ref
-  | Pack _ | CallClosure _ | Tupuwrp _ | DropGlobal _
+  | Pack _ | CallClosure _ | Tupuwrp _ | Tupborr _ | DropGlobal _
   | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _
   | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
   | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _

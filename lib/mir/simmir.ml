@@ -1,11 +1,11 @@
 (*
 
   MIR Simulator / Interpreter
-  
+
   Makes an effort to simulate machine behavior. Vectors are
   for example mutable ocaml arrays and if some op like vecwrite
-  consumes the origin vector the simulator actually does just 
-  mutate the original array. This is done to hopefully catch 
+  consumes the origin vector the simulator actually does just
+  mutate the original array. This is done to hopefully catch
   bugs early with a relatively low implementation effort compared
   to something like a MIR verifier (which I probably should write...).
 
@@ -69,23 +69,23 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
         | "i8_to_i32", [Vi8 c] -> (Vi32 (Int32.of_int (Char.code c)))
         | _ -> failwith (Printf.sprintf "Simulator: External function '%s' not implemented or arg mismatch" ext_name))
   | None ->
-      
+
   (* 2. def up the local environment *)
   let values : (ssaid, value) Hashtbl.t = Hashtbl.create 32 in
 
-  let use (s : ssaid) = 
-    try Hashtbl.find values s 
-    with Not_found -> failwith (Printf.sprintf "Simulator Error: SSA ID %d used before definition in %s" s func.name) 
+  let use (s : ssaid) =
+    try Hashtbl.find values s
+    with Not_found -> failwith (Printf.sprintf "Simulator Error: SSA ID %d used before definition in %s" s func.name)
   in
 
-  let consume (sc : ssaconsume) = 
+  let consume (sc : ssaconsume) =
     let v = use sc.ssaid in
     if is_memval v
     then (if sc.consume then (Hashtbl.remove values sc.ssaid; v) else v)
     else ( if sc.consume then failwith "consume: consumed a non memory value this should not happen" else v )
   in
 
-  let def (s : ssaid) (v : value) = 
+  let def (s : ssaid) (v : value) =
     if get_ownership_func func s = Owned then (
         if not (Hashtbl.mem values s) then
             Hashtbl.add values s v
@@ -106,25 +106,25 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
         | Vclos (fid, fid2, env) -> Vclos (fid, fid2, List.map copy_memvalue_aux env)
         | Vvec (off, len, arr) -> Vvec (off, len ,Array.map copy_memvalue_aux arr)
         in
-    if is_memval v 
-    then copy_memvalue_aux v 
+    if is_memval v
+    then copy_memvalue_aux v
     else failwith "copy_memvalue: Cannot (or more like IR shouldnt) copy primitive values"
   in
 
   let copy_value (v : value) : value =
-    if is_memval v 
-    then copy_memvalue v 
+    if is_memval v
+    then copy_memvalue v
     else v
   in
 
-  let consume_or_copy (sc : ssaconsume) = 
+  let consume_or_copy (sc : ssaconsume) =
     let v = use sc.ssaid in
     if is_memval v
     then (if sc.consume then (Hashtbl.remove values sc.ssaid; v) else copy_memvalue v)
     else ( if sc.consume then failwith "consume_or_copy: consumed a non memory value this should not happen" else v )
   in
 
-  let drop (ssaid : ssaid ) = 
+  let drop (ssaid : ssaid ) =
     Hashtbl.remove values ssaid
   in
 
@@ -152,18 +152,18 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
     | CallDirect (res, fid_ref, args_sc_list) ->
         let evaled_args = List.map consume args_sc_list in
         def res (simmir_func p !fid_ref evaled_args)
-    | Copy (res, ssaid) -> 
+    | Copy (res, ssaid) ->
         def res (copy_memvalue @@ use ssaid)
     | Drop ssaid_list -> List.iter drop ssaid_list
-    | StoreGlobal (gid, sc) -> 
+    | StoreGlobal (gid, sc) ->
         store_global gid (consume_or_copy sc)
-    | LoadGlobal (res, gid) -> 
+    | LoadGlobal (res, gid) ->
         def res (load_global gid)
     | DropGlobal gid -> drop_global gid
     | Immi32 (res, i) -> def res (Vi32 i)
     | Immi8 (res, c) -> def res (Vi8 c)
     | ImmUnit res -> def res Vunit
-    
+
     | Uopi32 (res, op, a) ->
         let av = match use a with Vi32 v -> v | _ -> failwith "Uopi32 type mismatch" in
         let out = match op with
@@ -199,7 +199,7 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
             | Shli32 -> if n2 < 0l || n2 >= 32l then raise (Errors.MirSimError "Shift amount out of bounds") else Vi32 (Int32.shift_left n1 (Int32.to_int n2))
             | Shri32 -> if n2 < 0l || n2 >= 32l then raise (Errors.MirSimError "Shift amount out of bounds") else Vi32 (Int32.shift_right n1 (Int32.to_int n2))
             | UShri32 -> if n2 < 0l || n2 >= 32l then raise (Errors.MirSimError "Shift amount out of bounds") else Vi32 (Int32.shift_right_logical n1 (Int32.to_int n2))
-        in 
+        in
         def res out
 
     | Uopi8 (res, op, a) ->
@@ -228,9 +228,14 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
 
     | Tupwrp (res, sc_list) ->
         def res (Vtup (List.map consume_or_copy sc_list))
-        
+
     | Tupuwrp (res_list, tup_sc) ->
         let tup = match consume tup_sc with Vtup t -> t | _ -> failwith "Tupuwrp on non-tuple" in
+        if List.length res_list <> List.length tup then failwith "Tuple destructuring arity mismatch";
+        List.iter2 def res_list tup
+
+    | Tupborr (res_list, tup) ->
+        let tup = match use tup with Vtup t -> t | _ -> failwith "Tupuwrp on non-tuple" in
         if List.length res_list <> List.length tup then failwith "Tuple destructuring arity mismatch";
         List.iter2 def res_list tup
 
@@ -318,7 +323,7 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
     | Vecslice (res, vec, start, nlen) ->
         let off, olen, arr = vecval_unpack (use vec) in
         let startv = Int32.to_int @@ i32val_unpack (use start) in
-        let nlenv = Int32.to_int @@ i32val_unpack (use nlen) in 
+        let nlenv = Int32.to_int @@ i32val_unpack (use nlen) in
         if startv < 0 then failwith "vecslice got negative start index";
         if startv + nlenv > olen then failwith "vecslice out of bounds";
         def res (Vvec (off + startv, nlenv, arr))
@@ -330,17 +335,17 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
         let prep_len = - (min 0 offint) in
         let app_len = max 0 offint in
         let newlen = prep_len + oldlen + app_len in
-        let new_arr = Array.init newlen 
+        let new_arr = Array.init newlen
             (fun i -> if i < prep_len || prep_len + oldlen <= i then copy_value litv else copy_value arr.(i - prep_len))
         in
-        def res (Vvec (0, newlen, new_arr)) 
+        def res (Vvec (0, newlen, new_arr))
     )
   in
 
   (* 5. Basic Block Evaluator Loop *)
   let rec eval_bb (bb_id : bbid) (bb_args : value list) : value =
     let bb = find_bb_func func bb_id in
-    
+
     (* A. Bind block arguments (Simulating Phi nodes / TCO args) *)
     if List.length bb.args <> List.length bb_args then
       failwith (Printf.sprintf "Simulator: Block %d in %s expected %d args, got %d" bb_id func.name (List.length bb.args) (List.length bb_args));
@@ -360,7 +365,7 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
         let cond_int = Int32.to_int @@ i32val_unpack (use cond) in
         if cond_int <> 0 then eval_bb true_bb [] else eval_bb false_bb []
     | Some (Ret retssaid) ->(
-        Hashtbl.iter (fun live_ssaid _ -> if get_ownership_func func live_ssaid = Owned && live_ssaid <> retssaid then 
+        Hashtbl.iter (fun live_ssaid _ -> if get_ownership_func func live_ssaid = Owned && live_ssaid <> retssaid then
             failwith (Printf.sprintf "Memory leak detected in function %s: SSA ID %d is owned but not consumed before return" func.name live_ssaid)
         ) values;
         use retssaid)
@@ -371,7 +376,7 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
   | Some entry_id -> eval_bb entry_id []
   | None -> failwith (Printf.sprintf "Simulator: Function %s has no entry block" func.name)
 
-let simmir_program (p : program) = 
+let simmir_program (p : program) =
     try
         reset_globals ();
         (

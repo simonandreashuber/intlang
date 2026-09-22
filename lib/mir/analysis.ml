@@ -237,6 +237,7 @@ let compute_live (aly : analysis_info) (f : func) =
       | Bopi32 (res, _, a, b) | Bopi8 (res, _, a, b) -> apply_def res; apply_uses [a; b]
       | Tupwrp (res, scs) -> apply_def res; apply_sc_uses scs
       | Tupuwrp (res_list, sc) -> apply_defs res_list; apply_use sc.ssaid
+      | Tupborr (res_list, tup) -> apply_defs res_list; apply_use tup
       | Veclit (res, scs) -> apply_def res; apply_sc_uses scs
       | Vecinit (res, defval, dims) -> apply_def res; apply_use defval; apply_uses dims
       | Veclen (res, vec) -> apply_def res; apply_use vec
@@ -323,6 +324,7 @@ let compute_live (aly : analysis_info) (f : func) =
       | Bopi32 (res, _, a, b) | Bopi8 (res, _, a, b) -> add_def res op_index; add_uses [a; b] op_index
       | Tupwrp (res, scs) -> add_def res op_index; add_sc_uses scs op_index
       | Tupuwrp (res_list, sc) -> add_defs res_list op_index; add_use sc.ssaid op_index
+      | Tupborr (res_list, tup) -> add_defs res_list op_index; add_use tup op_index
       | Veclit (res, scs) -> add_def res op_index; add_sc_uses scs op_index
       | Vecinit (res, defval, dims) -> add_def res op_index; add_use defval op_index; add_uses dims op_index
       | Veclen (res, vec) -> add_def res op_index; add_use vec op_index
@@ -386,10 +388,10 @@ let compute_borrow (fn : func) =
     (*ops borrows*)
     List.iter (fun op ->
       match op with
-      | Tupuwrp (deflst, tup) -> (
+      | Tupborr (deflst, tup) -> (
         List.iter (fun def ->
            if Mir.is_memtyp (Mir.get_mirtyp_func fn def)
-           then borrow def tup.ssaid
+           then borrow def tup
         ) deflst
       )
       | Vecread (def, vec, idxlst) -> (
@@ -404,7 +406,7 @@ let compute_borrow (fn : func) =
       | Func _ | Pack _ | CallClosure _ | CallDirect _
       | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
-      | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
+      | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _ | Tupuwrp _
       | Veclit _ | Vecinit _ | DropGlobal _
       | Veclen _ | Vecwrite _ | Vecinsert _
       | Vecextend _ -> ()
@@ -652,9 +654,13 @@ let compute_data (aly : analysis_info) (fn : func) =
         List.iter (fun elm_sc -> add_ownsink elm_sc.ssaid) elms
       )
       | Tupuwrp (elm_defs, tup) -> (
-        add_ownsink tup.ssaid;
         List.iter (fun elm_def ->
           add_edge tup.ssaid elm_def
+        ) elm_defs
+      )
+      | Tupborr (elm_defs, tup) -> (
+        List.iter (fun elm_def ->
+          add_edge tup elm_def
         ) elm_defs
       )
       | Veclit (def, lit_scs) -> (

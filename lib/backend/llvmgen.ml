@@ -74,7 +74,7 @@ let ctx_add_llfunc_info (ctx : proggen_ctx) (funcid : funcid) (llfunc_info : llf
 let find_llfunc_info (ctx : proggen_ctx) (funcid : funcid) : llfunc_info =
   try Hashtbl.find ctx.func_env funcid
   with Not_found -> raise (LlvmgenError ("find_llfunc: function not found in env: " ^ string_of_int funcid))
-  
+
 let find_global (ctx : proggen_ctx) (globalid : globalid) : mirtyp * llvalue =
   let global_mirtyp, global_llval = try Hashtbl.find ctx.globals_env globalid
   with Not_found -> raise (LlvmgenError ("find_global: global not found in env: " ^ string_of_int globalid)) in
@@ -141,7 +141,7 @@ let set_llssa (fgen_ctx : fgen_ctx) (ssaid : ssaid) (llval : llvalue) : unit =
 
 
 
-  
+
 (* ========================================================================= *)
 (* Mir Types to Llvm Types                                                   *)
 (* ========================================================================= *)
@@ -171,7 +171,7 @@ let rec gen_default_llvalue (ctx : proggen_ctx) (mirtyp : mirtyp) : llvalue =
   | TMIRI32 -> zero_i32
   | TMIRI8 -> zero_i8
   | TMIRClos _ ->
-    const_struct ctx.llcontext [| 
+    const_struct ctx.llcontext [|
             null_ptr; (*borr*)
             null_ptr; (*own*)
             null_ptr; (*copy*)
@@ -179,7 +179,7 @@ let rec gen_default_llvalue (ctx : proggen_ctx) (mirtyp : mirtyp) : llvalue =
             null_ptr; (*data_ptr*)
             zero_i64; (*off*)
           |]
-  | TMIRVec _ -> const_struct ctx.llcontext [| 
+  | TMIRVec _ -> const_struct ctx.llcontext [|
             null_ptr; (*vec_ptr*)
             zero_i32; (*vec_len*)
           |]
@@ -227,12 +227,12 @@ let build_vec_struct (ctx : proggen_ctx) (builder : llbuilder) (vec_ptr : llvalu
   let s0 = build_insertvalue undef vec_ptr 0 "vec_struct0" builder in
   build_insertvalue s0 vec_len 1 "vec_struct" builder
 
-let build_clos_struct (ctx : proggen_ctx) (builder : llbuilder) 
-                      (borr_llfunc : llvalue) 
-                      (own_llfunc : llvalue) 
-                      (copy_llfunc : llvalue) 
-                      (drop_llfunc : llvalue) 
-                      (data_ptr : llvalue) 
+let build_clos_struct (ctx : proggen_ctx) (builder : llbuilder)
+                      (borr_llfunc : llvalue)
+                      (own_llfunc : llvalue)
+                      (copy_llfunc : llvalue)
+                      (drop_llfunc : llvalue)
+                      (data_ptr : llvalue)
                       (off : llvalue) : llvalue =
   let undef = undef ctx.clos_t in
   let s0 = build_insertvalue undef borr_llfunc 0 "clos_struct0" builder in
@@ -300,7 +300,7 @@ let build_malloc_safe (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalu
     ...
     next_idx = add idx 1
     branch header_bb
-  
+
   exit_bb:
 *)
 let gen_loop (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (gen_body : llvalue -> unit) (upper_bound : llvalue) : unit =
@@ -320,7 +320,7 @@ let gen_loop (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (gen_b
   (*loop body*)
   position_at_end body_bb builder;
   gen_body phi_index;
-  (*note these follwing instructions migth be in a bb that is different 
+  (*note these follwing instructions migth be in a bb that is different
     from body_bb since gen_body can create new bbs*)
   let body_bb' = insertion_block builder in
   let next_index = build_add phi_index (Llvm.const_int ctx.i64_t 1) "next_index" builder in
@@ -329,7 +329,7 @@ let gen_loop (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (gen_b
 
   (*loop exit*)
   (* append exit_block here to make the bb ordering nicer *)
-  let exit_bb = append_block ctx.llcontext "gen_loop_exit_bb" llfunc in 
+  let exit_bb = append_block ctx.llcontext "gen_loop_exit_bb" llfunc in
   position_at_end header_bb builder;
   ignore (build_cond_br cond body_bb exit_bb builder);
   position_at_end exit_bb builder;
@@ -344,7 +344,7 @@ let rec copy_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (m
     let origvec_ptr = Llvm.build_extractvalue origvec 0 "vecptr" builder in
     let origvec_len = Llvm.build_extractvalue origvec 1 "veclen" builder in
     let len_i64 = Llvm.build_zext origvec_len ctx.i64_t "len_i64" builder in
-    let vec_bytesz = 
+    let vec_bytesz =
       match inner_mirtyp with
       | TMIRVECI32 -> (
         let i32_bytesz = const_int ctx.i64_t (Int64.to_int @@ DataLayout.abi_size ctx.i32_t ctx.lldata_layout) in
@@ -354,7 +354,7 @@ let rec copy_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (m
 
     (*malloc new vec memory*)
     let copyvec_ptr = build_malloc_safe ctx builder llfunc vec_bytesz in
-    
+
     (*do memcpy*)
     let is_volatile = Llvm.const_int ctx.i1_t 0 in
     ignore (build_call ctx.memcpy_t ctx.memcpy_func [| copyvec_ptr; origvec_ptr; vec_bytesz; is_volatile |] "" builder);
@@ -440,7 +440,7 @@ let rec drop_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (m
     ignore (build_call ctx.free_t ctx.free_func [| vec_ptr |] "" builder);
     ignore (build_br merge_bb builder);
 
-    position_at_end merge_bb builder 
+    position_at_end merge_bb builder
   )
   | TMIRVec (n, inner_mirtyp) -> (
     let vec_ptr = Llvm.build_extractvalue origvec 0 "vecptr" builder in
@@ -514,12 +514,12 @@ let rec init_vec (fgen_ctx : fgen_ctx) (defval_ssaid : ssaid) (dim_sizes : ssaid
     (*malloc new vec memory*)
     let vec_size_llval = get_llssa fgen_ctx vec_size_ssaid in
     let vec_size_i64 = build_zext vec_size_llval ctx.i64_t "vec_size_i64" builder in
-    let vec_elm_lltyp = 
+    let vec_elm_lltyp =
       match rest_dim_sizes, defval_mirtyp with
       | [], TMIRI32 -> ctx.i32_t
       | [], TMIRI8 -> ctx.i8_t
       | [], TMIRVec _ -> ctx.vec_t
-      | h :: tl, _ -> ctx.vec_t 
+      | h :: tl, _ -> ctx.vec_t
       | _ -> raise (LlvmgenError "init_vec: defval mirtyp not i32, i8 or vec")
     in
     let vec_elm_size = size_of vec_elm_lltyp in
@@ -578,10 +578,10 @@ let get_clos_wrapper (ctx : proggen_ctx) (mirfuncid : funcid) : llvalue =
     let clos_dataptr = param closwrpr_func 0 in
     let args_lltyps = param_types llfunc_info.func_t in
     let clos_data_offsets, _ = get_clos_layout ctx args_lltyps in
-    let args_llvalues = 
+    let args_llvalues =
       Array.init (Array.length args_lltyps) (fun i ->
       let argptr = build_gep ctx.i8_t clos_dataptr [| const_int ctx.i32_t clos_data_offsets.(i) |] ("argptr_" ^ string_of_int i) builder in
-      build_load args_lltyps.(i) argptr ("arg_" ^ string_of_int i) builder ) 
+      build_load args_lltyps.(i) argptr ("arg_" ^ string_of_int i) builder )
     in
     let ret_val = build_call llfunc_info.func_t llfunc_info.func args_llvalues "ret_val" builder in
     ignore (build_ret ret_val builder);
@@ -613,7 +613,7 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
 
     bbmaxoff:
       effects of (fgen builder (maxoff-1))
-    
+
     bbmaxoff':
       ...
       branch bbend
@@ -724,7 +724,7 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
     let drop_arg_gen (builder : llbuilder) (i : int) =
       let arg_ptr = build_gep ctx.i8_t clos_data_ptr [| const_int ctx.i32_t clos_data_offsets.(i) |] ("argptr_" ^ string_of_int i) builder in
       let arg_val = build_load args_lltype_arr.(i) arg_ptr ("arg_" ^ string_of_int i) builder in
-      drop ctx builder drop_func args_mirtyp_arr.(i) arg_val 
+      drop ctx builder drop_func args_mirtyp_arr.(i) arg_val
     in
     gen_ladder builder drop_func drop_arg_gen off clos_data_offsets;
 
@@ -755,24 +755,24 @@ let get_clos_helpers (ctx : proggen_ctx) (args_mirtyp : mirtyp list) : clos_help
 
 let consume_or_copy (fgen_ctx : fgen_ctx) (sc : ssaconsume) : llvalue =
   let orig_llvalue = get_llssa fgen_ctx sc.ssaid in
-  if sc.consume then 
-    orig_llvalue 
+  if sc.consume then
+    orig_llvalue
   else
-    let mirtyp = get_mirtyp_func fgen_ctx.mirfunc sc.ssaid in 
+    let mirtyp = get_mirtyp_func fgen_ctx.mirfunc sc.ssaid in
     copy fgen_ctx.proggen_ctx fgen_ctx.builder fgen_ctx.llfunc_info.func mirtyp orig_llvalue
 
 let vec_access_lltyps (fgen_ctx : fgen_ctx) (vec_ssaid : ssaid) : lltype array =
   let ctx = fgen_ctx.proggen_ctx in
   let mirfunc = fgen_ctx.mirfunc in
-  let dim, inner_vecmirtyp = 
+  let dim, inner_vecmirtyp =
     match get_mirtyp_func mirfunc vec_ssaid with
     | TMIRVec (dim, inner_vecmirtyp) -> dim, inner_vecmirtyp
     | _ -> raise (LlvmgenError "vec_access_lltyps: vec ssa has non vec type")
   in
-  Array.init dim ( fun i -> 
-    if i = (dim-1) then 
-      match inner_vecmirtyp with | TMIRVECI32 -> ctx.i32_t | TMIRVECI8 -> ctx.i8_t 
-    else 
+  Array.init dim ( fun i ->
+    if i = (dim-1) then
+      match inner_vecmirtyp with | TMIRVECI32 -> ctx.i32_t | TMIRVECI8 -> ctx.i8_t
+    else
       ctx.vec_t
   )
 
@@ -803,7 +803,7 @@ let vec_checked_access (fgen_ctx : fgen_ctx) (vec : llvalue) (vec_inner_lltype :
 
   build_gep vec_inner_lltype vec_ptr [| idx |] "vec_elm_ptr" builder
   (*I dont do the load since then the helper can be used for the write ops too*)
-  
+
 
 let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
   let ctx = fgen_ctx.proggen_ctx in
@@ -812,7 +812,7 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
   let get_lltyp_from_ssaid ssaid = mirtyp_get_lltyp ctx @@ get_mirtyp_func mirfunc ssaid in
   match mirop with
   | Func (def_ssaid, borr_funcid_ref, own_funcid_opt_ref) -> (
-    
+
     (*gen on demand / get clos wrappers for funcs*)
     let borr_closwrpr = get_clos_wrapper ctx !borr_funcid_ref in
     if Option.is_none !own_funcid_opt_ref then raise (LlvmgenError "lower_op: own funcid not implemented yet");
@@ -820,7 +820,7 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
 
     (*layout*)
     let clos_mirtyp = get_mirtyp_func mirfunc def_ssaid in
-    let args_mirtyp = 
+    let args_mirtyp =
       match clos_mirtyp with
       | TMIRClos (args, ret) -> args
       | _ -> raise (LlvmgenError "mir ssa def has non clos type after func op")
@@ -919,7 +919,7 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     let global_mirtyp, global_llval = find_global ctx globalid in
     let loaded_llval = build_load (mirtyp_get_lltyp ctx global_mirtyp) global_llval "load_global" builder in
     drop ctx builder fgen_ctx.llfunc_info.func global_mirtyp loaded_llval;
-    (* overwriting this here makes the droped stuff fully unreachable 
+    (* overwriting this here makes the droped stuff fully unreachable
        which can avoid bugs and uncover memory leaks with then LeakSanitizer *)
     let glob_default_llval = gen_default_llvalue ctx global_mirtyp in
     ignore (build_store glob_default_llval global_llval builder)
@@ -1036,7 +1036,14 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
       let elm_llval = build_extractvalue tup_llval i ("tup_elm_" ^ string_of_int i) builder in
       set_llssa fgen_ctx ssa_def elm_llval
     ) ssa_defs
-  ) 
+  )
+  | Tupborr (ssa_defs, tup) -> (
+    let tup_llval = get_llssa fgen_ctx tup in
+    List.iteri (fun i ssa_def ->
+      let elm_llval = build_extractvalue tup_llval i ("tup_elm_" ^ string_of_int i) builder in
+      set_llssa fgen_ctx ssa_def elm_llval
+    ) ssa_defs
+  )
   | Veclit (ssa_def, lits_consume) -> (
     match lits_consume with
     | [] -> (
@@ -1222,7 +1229,7 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
 
   let fgen_ctx = create_fgen_ctx ctx mirfunc in
   let llfunc_info = fgen_ctx.llfunc_info in
-  let llfunc = llfunc_info.func in 
+  let llfunc = llfunc_info.func in
 
   (*create the entry bb*)
   let entrybb = append_block ctx.llcontext "entry" llfunc in
@@ -1234,13 +1241,13 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
   ) mirfunc.args;
 
   (*create all llbbs and lower their ops*)
-  let rpo_info = get_rpo_info ctx.miranalysis mirfunc in  
+  let rpo_info = get_rpo_info ctx.miranalysis mirfunc in
   List.iter (fun bbid ->
     let mirbb = BBMap.find bbid mirfunc.bbs in
     let llbb = append_block ctx.llcontext (string_of_int bbid) llfunc in
     set_start_llbb fgen_ctx bbid llbb;
     ignore (position_at_end llbb fgen_ctx.builder);
-    
+
     (*phi node for all bb args*)
     List.iter (fun ssaid ->
       let mirtyp = get_mirtyp_func mirfunc ssaid in
@@ -1252,7 +1259,7 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
     (*lower all ops*)
     List.iter (fun mirop ->
       ignore (lower_op fgen_ctx mirop)
-    ) (List.rev mirbb.ops);    
+    ) (List.rev mirbb.ops);
     let curr_bb = insertion_block fgen_ctx.builder in
     set_end_llbb fgen_ctx bbid curr_bb
 
@@ -1275,7 +1282,7 @@ let lower_func (ctx : proggen_ctx) (mirfunc : Mir.func) : unit =
         let phi_node = get_llssa fgen_ctx mir_bbarg in
         let passed_llval = get_llssa fgen_ctx mir_brarg.ssaid in
         add_incoming (passed_llval, end_llbb) phi_node
-      ) mir_brargs target_mirbb.args 
+      ) mir_brargs target_mirbb.args
     )
     | Some (Cbr (cond_ssaid, true_bbid, false_bbid)) -> (
       (* transfor i32 cond into bool cond *)
@@ -1319,7 +1326,7 @@ let lower_mir ( p : Mir.program) : llmodule =
   let target = Target.by_triple triple in
   let target_machine = TargetMachine.create ~triple target in
   let lldata_layout = TargetMachine.data_layout target_machine in
-  
+
   (* Embed the data layout string into the module *)
   set_data_layout (DataLayout.as_string lldata_layout) llmodule;
 
@@ -1390,7 +1397,7 @@ let lower_mir ( p : Mir.program) : llmodule =
     miranalysis;
   } in
 
-  (* all the builtins are lowered directly here and put in the builtin_table 
+  (* all the builtins are lowered directly here and put in the builtin_table
      that gets passed to the function declaration pass*)
   let builtin_table = Hashtbl.create 32 in
 
@@ -1443,15 +1450,15 @@ let lower_mir ( p : Mir.program) : llmodule =
   let i32_val = build_zext i8_val i32_t "i8_to_i32" builder in
   ignore (build_ret i32_val builder);
   Hashtbl.add builtin_table "i8_to_i32" (i8_to_i32_t, i8_to_i32_func);
-  
+
 
   (* Iterate all MIR globals and declare empty llvm equivalents *)
-  GlobalMap.iter (fun _ glob -> 
+  GlobalMap.iter (fun _ glob ->
     decl_global ctx glob
   ) p.globals;
 
   (* Iterate all MIR functions and declare empty llvm equivalents *)
-  FuncMap.iter (fun _  func -> 
+  FuncMap.iter (fun _  func ->
     decl_func ctx builtin_table func
   ) p.funcs;
 
@@ -1466,7 +1473,7 @@ let lower_mir ( p : Mir.program) : llmodule =
   let bb = append_block ctx.llcontext "entry" main_fn in
   let main_builder = Llvm.builder llcontext in
   position_at_end bb main_builder;
-  
+
   let call_unitfunc_opt unitfunc_opt = (
     match unitfunc_opt with
     | Some funcid -> (
@@ -1476,7 +1483,7 @@ let lower_mir ( p : Mir.program) : llmodule =
     )
     | None -> ()
   ) in
-  
+
   call_unitfunc_opt p.init_globals_funcid;
   call_unitfunc_opt p.main_funcid;
   call_unitfunc_opt p.uninit_globals_funcid;

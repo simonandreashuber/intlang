@@ -2,9 +2,9 @@
 
   MIR Devirtualize closure calls to direct calls
 
-  This pass looks function local chains of closure creation (func), 
+  This pass looks function local chains of closure creation (func),
   argument accumulation in the closure (pack) and finally closure
-  calls (callclosure) and devirtualizes them into direct function 
+  calls (callclosure) and devirtualizes them into direct function
   calls (calldirect).
 
 *)
@@ -39,7 +39,7 @@ let calldirect_opt_func (aly : analysis_info) (fn : func) : unit =
       | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
       | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
-      | Tupuwrp _ | Veclit _ | Vecinit _
+      | Tupuwrp _ | Tupborr _ | Veclit _ | Vecinit _
       | Veclen _ | Vecread _ | Vecwrite _ | Vecinsert _
       | Vecslice _ | Vecextend _ -> ()
     ) bb.ops
@@ -54,9 +54,9 @@ let calldirect_opt_func (aly : analysis_info) (fn : func) : unit =
     | Some (DefPack (oldclos, newargs)) ->
         (match resolve oldclos.ssaid with
          | Some info ->
-             Some { 
-               base_func = info.base_func; 
-               captured_args = info.captured_args @ newargs 
+             Some {
+               base_func = info.base_func;
+               captured_args = info.captured_args @ newargs
              }
          | None -> None)
 
@@ -85,7 +85,7 @@ let calldirect_opt_func (aly : analysis_info) (fn : func) : unit =
 
 
 let calldirect_opt (b : builder) (aly : analysis_info) : unit =
-  FuncMap.iter (fun _fid fn -> 
+  FuncMap.iter (fun _fid fn ->
     match fn.extern_name with
     | Some _ -> ()
     | None -> calldirect_opt_func aly fn

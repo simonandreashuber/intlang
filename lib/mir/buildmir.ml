@@ -23,11 +23,11 @@ type builder = {
 }
 
 let create_builder () : builder = {
-  program = { 
-        globals = GlobalMap.empty; 
-        funcs = FuncMap.empty; 
-        init_globals_funcid = None; 
-        main_funcid = None; 
+  program = {
+        globals = GlobalMap.empty;
+        funcs = FuncMap.empty;
+        init_globals_funcid = None;
+        main_funcid = None;
         uninit_globals_funcid = None };
   next_funcid = 0;
   next_globalid = 0;
@@ -105,7 +105,7 @@ let find_global (b : builder) (gid : globalid) : global =
 let func_get_clos_mirtyp (b : builder) (fn : func) : mirtyp =
   TMIRClos (List.map (fun (ssaid, _) -> get_mirtyp_func fn ssaid) fn.args, fn.rettyp)
 
-(* 
+(*
   given some op, where all used ssaids funcids and globalids are known
   infer the type of the ssaids defined by the op, additionaly checks
   if the op is used right ie. are i32s used for indexs and so on
@@ -116,7 +116,7 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
   | Func (ssaid, funcid_ref, funcidopt_ref) -> (
     let ftyp1 = func_get_clos_mirtyp b (find_func b !funcid_ref) in
     match !funcidopt_ref with
-    | Some fid2 -> 
+    | Some fid2 ->
         let ftyp2 = func_get_clos_mirtyp b (find_func b fid2) in
         if ftyp1 = ftyp2 then
           [(ssaid, ftyp1)]
@@ -161,11 +161,11 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
   )
   | Drop gclst -> (
       if
-      List.for_all (fun gcssaid -> 
+      List.for_all (fun gcssaid ->
         match get_mirtyp b gcssaid with
         | TMIRUnit | TMIRI32 | TMIRI8 -> false
         | _ -> true
-        ) gclst; 
+        ) gclst;
       then
         []
       else
@@ -176,7 +176,7 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
         if get_mirtyp b loc.ssaid = global.typ then
           []
         else
-          raise (Errors.MirError ("Value type does not match global type in StoreGlobal operation. globaltyp: " 
+          raise (Errors.MirError ("Value type does not match global type in StoreGlobal operation. globaltyp: "
                                   ^ (Printmir.string_of_typ (global.typ))
                                   ^ "local typ: "
                                   ^ Printmir.string_of_typ (get_mirtyp b loc.ssaid)
@@ -187,11 +187,11 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
         if is_memtyp global.typ then
           []
         else
-          raise (Errors.MirError ("DropGlobal operation requires the global to be a memory type. globaltyp: " 
+          raise (Errors.MirError ("DropGlobal operation requires the global to be a memory type. globaltyp: "
                                   ^ (Printmir.string_of_typ (global.typ))
                                   ))
   )
-  | LoadGlobal (ssaid, gid) -> 
+  | LoadGlobal (ssaid, gid) ->
       let global = find_global b gid in
       [(ssaid, global.typ)]
   | Immi32 (ssaid, _) -> [(ssaid, TMIRI32)]
@@ -231,6 +231,12 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
     | TMIRTup _ -> raise (Errors.MirError "Number of elements to extract does not match the tuple type in Tupuwrp operation")
     | _ -> raise (Errors.MirError "Expected a tuple type for the tuple operand in Tupuwrp operation")
   )
+  | Tupborr (elms, tup) -> (
+    match get_mirtyp b tup with
+    | TMIRTup elem_typs when List.length elms = List.length elem_typs -> List.map2 (fun ssaid typ -> (ssaid, typ)) elms elem_typs
+    | TMIRTup _ -> raise (Errors.MirError "Number of elements to extract does not match the tuple type in Tupborr operation")
+    | _ -> raise (Errors.MirError "Expected a tuple type for the tuple operand in Tupborr operation")
+  )
   | Veclit (ssaid, lits) -> (
     match lits with
     | h :: tl -> (
@@ -242,7 +248,7 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
           | TMIRVec (dim, datatyp) -> TMIRVec (dim + 1, datatyp)
           | _ -> raise (Errors.MirError "Veclit operation requires all literal elements to be of type vector, i32 or i8")
         in
-        (if (Some vec_typ) = mirtyp_hint 
+        (if (Some vec_typ) = mirtyp_hint
         then [(ssaid, vec_typ)]
         else raise (Errors.MirError "Veclit operation mirtype hint and infered type dont match")  )
       else
@@ -275,7 +281,7 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
   | Vecread (ssaid, vec, idxlst) -> (
     if List.for_all (fun sz -> get_mirtyp b sz = TMIRI32) idxlst then
       let idx_depth = List.length idxlst in
-      let vec_typ = 
+      let vec_typ =
         match get_mirtyp b vec with
         | TMIRVec (dim, datatyp) when idx_depth = dim -> (match datatyp with | TMIRVECI32 -> TMIRI32 | TMIRVECI8 -> TMIRI8)
         | TMIRVec (dim, datatyp) when idx_depth < dim -> (TMIRVec (dim - idx_depth, datatyp))
@@ -289,7 +295,7 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
   | Vecwrite (ssaid, vec, ic, idxlst) -> (
     if List.for_all (fun sz -> get_mirtyp b sz = TMIRI32) idxlst then
       let idx_depth = List.length idxlst in
-      let vec_typ = 
+      let vec_typ =
         match get_mirtyp b vec.ssaid with
         | TMIRVec (dim, datatyp) when idx_depth = dim -> (
           let ic_expected_typ = match datatyp with | TMIRVECI32 -> TMIRI32 | TMIRVECI8 -> TMIRI8 in
@@ -310,8 +316,8 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
       let idx_depth = List.length idxlst in
       let vec_typ = (
         match get_mirtyp b vec.ssaid, get_mirtyp b vecins.ssaid with
-        | TMIRVec (dim_vec, datatyp_vec) , TMIRVec (dim_ins, datatyp_ins) 
-            when idx_depth + dim_ins = dim_vec && datatyp_vec = datatyp_ins -> 
+        | TMIRVec (dim_vec, datatyp_vec) , TMIRVec (dim_ins, datatyp_ins)
+            when idx_depth + dim_ins = dim_vec && datatyp_vec = datatyp_ins ->
             TMIRVec (dim_vec, datatyp_vec)
         | TMIRVec _ , TMIRVec _ -> raise (Errors.MirError "Vecinsert operation inner values dont match or idx depth + vecins dimension does not match vector dimension")
         | _, _ -> raise (Errors.MirError "Vecinsert operation requires vec and vecins arguments to be of type vector")
@@ -324,7 +330,7 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
   | Vecslice (ssaid, vec, start, len) -> (
       match get_mirtyp b vec, get_mirtyp b start, get_mirtyp b len with
       | TMIRVec (dim, datatyp), TMIRI32, TMIRI32 -> [ (ssaid, TMIRVec (dim, datatyp)) ]
-      | _, _, _ -> raise (Errors.MirError "Vecslice operation requires the vec argument to be of type vector and start and len arguments to be of type i32")    
+      | _, _, _ -> raise (Errors.MirError "Vecslice operation requires the vec argument to be of type vector and start and len arguments to be of type i32")
   )
   | Vecextend (ssaid, vec, lit, extsz) -> (
       match get_mirtyp b vec, get_mirtyp b extsz with
@@ -332,7 +338,7 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
         let lit_typ = get_mirtyp b lit in
         if dim = 1 then
           match datatyp, lit_typ with
-          | TMIRVECI32, TMIRI32 
+          | TMIRVECI32, TMIRI32
           | TMIRVECI8, TMIRI8 -> [(ssaid, TMIRVec (dim, datatyp))]
           | _ -> raise (Errors.MirError "Vecextend operation requires the lit argument to match the inner type of the vec argument")
         else
@@ -340,7 +346,7 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
           | TMIRVec (dim_lit, datatyp_lit) when dim_lit + 1 = dim && datatyp_lit = datatyp -> [(ssaid, TMIRVec (dim, datatyp))]
           | _ -> raise (Errors.MirError "Vecextend operation requires the lit argument to be a vector of the same inner type as the vec argument and of dimension one less than the vec argument")
       )
-      | _ -> raise (Errors.MirError "Vecextend operation requires the vec argument to be of type vector and extsz arguments to be of type i32")    
+      | _ -> raise (Errors.MirError "Vecextend operation requires the vec argument to be of type vector and extsz arguments to be of type i32")
   )
 
 (*
@@ -381,11 +387,17 @@ let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
   (* Tup extract and view triggers a redundant call on the type inference function but I feel to not enforce an order in which
      infer_ownership_from_op and infer_mirtyp_from_op are called is worth it*)
   | Tupuwrp (elms , tup) -> (
-    let elm_own = if tup.consume then Owned else Borrowed in
     List.map (fun (ssaid, mirtyp) ->
               match mirtyp with
               | TMIRUnit | TMIRI32 | TMIRI8 -> (ssaid, NoMem)
-              | _ -> (ssaid, elm_own)
+              | _ -> (ssaid, Owned)
+              ) (infer_mirtyp_from_op b op None)
+  )
+  | Tupborr (elms , tup) -> (
+    List.map (fun (ssaid, mirtyp) ->
+              match mirtyp with
+              | TMIRUnit | TMIRI32 | TMIRI8 -> (ssaid, NoMem)
+              | _ -> (ssaid, Borrowed)
               ) (infer_mirtyp_from_op b op None)
   )
   | Veclit (ssaid, _) -> [(ssaid, Owned)]
@@ -407,7 +419,7 @@ let check_branch (b : builder) (branch : branch) : unit =
           if List.length branch.args <> List.length target_bb.args then
             raise (Errors.MirError "Branch argument count does not match target basic block argument count")
           else
-            List.iter2 (fun arg_ssa target_arg_ssa -> 
+            List.iter2 (fun arg_ssa target_arg_ssa ->
               if get_mirtyp b arg_ssa.ssaid <> get_mirtyp b target_arg_ssa then
                 raise (Errors.MirError "Branch argument type does not match target basic block argument type")
             ) branch.args target_bb.args
@@ -436,7 +448,7 @@ let check_term (b : builder) (term : term) : unit =
 (* Create Functions & Basic Blocks & Globals                                 *)
 (* ========================================================================= *)
 
-let create_func (b : builder) 
+let create_func (b : builder)
                 (name : string)
                 (args_w_mirtyp : (ssaid * (string option) * mirtyp) list)
                 (rettyp : mirtyp)
@@ -449,7 +461,7 @@ let create_func (b : builder)
   let max_ssaid = List.fold_left (fun acc (arg_ssaid, _, _) -> max acc arg_ssaid) 0 args_w_mirtyp in
   let mirtyps = Dynarray.make (max_ssaid + 1) TMIRUnit in
   let memowns = Dynarray.make (max_ssaid + 1) NoMem in
-  List.iter (fun (arg_ssaid, _, mirtyp) -> 
+  List.iter (fun (arg_ssaid, _, mirtyp) ->
                 Dynarray.set mirtyps arg_ssaid mirtyp;
                 match mirtyp with
                 | TMIRUnit | TMIRI32 | TMIRI8 -> ()
@@ -475,23 +487,23 @@ let create_func (b : builder)
 let delete_func (b : builder) (func : func) : unit =
   b.program.funcs <- FuncMap.remove func.funcid b.program.funcs
 
-let create_bb (b : builder) 
-              (name : string) 
+let create_bb (b : builder)
+              (name : string)
               (args : (ssaid * mirtyp) list) : bb =
   match b.cursor with
   | (None, _) -> failwith "Builder Error: Cannot create basic block without an active function!"
   | (Some fn, _) ->
       let id = fn.next_bbid in
       fn.next_bbid <- fn.next_bbid + 1;
-      List.iter (fun (arg_ssaid, mirtyp) -> 
+      List.iter (fun (arg_ssaid, mirtyp) ->
         match mirtyp with
         | TMIRUnit | TMIRI32 | TMIRI8 -> set_mirtyp_ownership_func fn arg_ssaid mirtyp NoMem
         | _ -> set_mirtyp_ownership_func fn arg_ssaid mirtyp Owned (*hmmm have to think about this*)
       ) args;
-      let new_bb = { bbid = id; 
-                     name; 
-                     args = List.map fst args; 
-                     ops = []; 
+      let new_bb = { bbid = id;
+                     name;
+                     args = List.map fst args;
+                     ops = [];
                      term = None } in
       fn.bbs <- BBMap.add id new_bb fn.bbs;
       new_bb
@@ -516,7 +528,7 @@ let create_global (b : builder) (typ : mirtyp) : global =
 (* Copy Things                                                               *)
 (* ========================================================================= *)
 
-let copy_ssaconsume (ssaid_off : ssaid) (sc : ssaconsume) = 
+let copy_ssaconsume (ssaid_off : ssaid) (sc : ssaconsume) =
   { ssaid = ssaid_off + sc.ssaid; consume = sc.consume }
 
 let rec copy_op (ssaid_off : ssaid) (o : op) : op =
@@ -541,6 +553,7 @@ let rec copy_op (ssaid_off : ssaid) (o : op) : op =
   | Bopi8 (res, arg, a, b) -> Bopi8 (add res, arg, add a, add b)
   | Tupwrp (res, scs) -> Tupwrp (add res, List.map copy_sc scs)
   | Tupuwrp (res_list, sc) -> Tupuwrp (List.map add res_list, copy_sc sc)
+  | Tupborr (res_list, tup) -> Tupborr (List.map add res_list, add tup)
   | Veclit (res, scs) -> Veclit (add res, List.map copy_sc scs)
   | Vecinit (res, defval, dims) -> Vecinit (add res, add defval, List.map add dims)
   | Veclen (res, vec) -> Veclen (add res, add vec)
@@ -598,7 +611,7 @@ let emit_op_hint (b : builder) (op : op) (mirtyp_hint : mirtyp option) : unit =
   | (Some fn, Some bb) -> (
     let mirtyp_defs = infer_mirtyp_from_op b op mirtyp_hint in
     let ownership_defs = infer_ownership_from_op b op in
-    List.iter2 (fun (ssaid_typ, typ) (ssaid_own, own) -> 
+    List.iter2 (fun (ssaid_typ, typ) (ssaid_own, own) ->
       assert (ssaid_typ = ssaid_own);  (* Ensure the SSA IDs match *)
       set_mirtyp_ownership_func fn ssaid_typ typ own
     ) mirtyp_defs ownership_defs;
@@ -639,17 +652,17 @@ let fresh_ssaid (b : builder) : ssaid =
 (* Other Helpers                                                             *)
 (* ========================================================================= *)
 
-let sub_id submap id = 
+let sub_id submap id =
   match List.assoc_opt id submap with
   | Some new_id -> new_id
-  | None -> id 
+  | None -> id
 
-let sub_id_list submap ids = List.map (sub_id submap) ids 
+let sub_id_list submap ids = List.map (sub_id submap) ids
 
-let sub_sc submap sc = 
-  { ssaid = sub_id submap sc.ssaid; consume = sc.consume } 
+let sub_sc submap sc =
+  { ssaid = sub_id submap sc.ssaid; consume = sc.consume }
 
-let sub_sc_list submap scs = List.map (sub_sc submap) scs 
+let sub_sc_list submap scs = List.map (sub_sc submap) scs
 
 let sub_term_uses submap term_opt=
   match term_opt with
@@ -668,71 +681,74 @@ let sub_ops_uses submap ops =
 
   List.map (fun op ->
     match op with
-    | Func _ 
-    | LoadGlobal _ 
+    | Func _
+    | LoadGlobal _
     | DropGlobal _
-    | Immi32 _ 
-    | Immi8 _ 
+    | Immi32 _
+    | Immi8 _
     | ImmUnit _ -> op
-    
-    | Pack (dst, oldclos, args) -> 
+
+    | Pack (dst, oldclos, args) ->
         Pack (dst, sub_sc oldclos, sub_sc_list args)
-    
-    | CallClosure (dst, clos) -> 
+
+    | CallClosure (dst, clos) ->
         CallClosure (dst, sub_sc clos)
-    
-    | CallDirect (dst, fid, args) -> 
+
+    | CallDirect (dst, fid, args) ->
         CallDirect (dst, fid, sub_sc_list args)
 
-    | Copy (dst, a) -> 
+    | Copy (dst, a) ->
         Copy (dst, sub_id a)
 
-    | Drop mems -> 
+    | Drop mems ->
         Drop (sub_id_list mems)  (* Only uses! *)
-    
-    | StoreGlobal (gid, v) -> 
+
+    | StoreGlobal (gid, v) ->
         StoreGlobal (gid, sub_sc v)
-    
-    | Uopi32 (dst, uop, a) -> 
+
+    | Uopi32 (dst, uop, a) ->
         Uopi32 (dst, uop, sub_id a)
-    
-    | Uopi8 (dst, uop, a) -> 
+
+    | Uopi8 (dst, uop, a) ->
         Uopi8 (dst, uop, sub_id a)
-    
-    | Bopi32 (dst, bop, a, b) -> 
+
+    | Bopi32 (dst, bop, a, b) ->
         Bopi32 (dst, bop, sub_id a, sub_id b)
-    
-    | Bopi8 (dst, bop, a, b) -> 
+
+    | Bopi8 (dst, bop, a, b) ->
         Bopi8 (dst, bop, sub_id a, sub_id b)
-    
-    | Tupwrp (dst, elms) -> 
+
+    | Tupwrp (dst, elms) ->
         Tupwrp (dst, sub_sc_list elms)
-    
-    | Tupuwrp (elms, tup) -> 
+
+    | Tupuwrp (elms, tup) ->
         Tupuwrp (elms, sub_sc tup)
-    
-    | Veclit (dst, elms) -> 
+
+    | Tupborr (elms, tup) ->
+        Tupborr (elms, sub_id tup)
+
+    | Veclit (dst, elms) ->
         Veclit (dst, sub_sc_list elms)
-    
-    | Vecinit (dst, defval, dims) -> 
+
+    | Vecinit (dst, defval, dims) ->
         Vecinit (dst, sub_id defval, sub_id_list dims)
-    
-    | Veclen (dst, vec) -> 
+
+    | Veclen (dst, vec) ->
         Veclen (dst, sub_id vec)
-    
-    | Vecread (dst, vec, idxs) -> 
+
+    | Vecread (dst, vec, idxs) ->
         Vecread (dst, sub_id vec, sub_id_list idxs)
-    
-    | Vecwrite (dst, vec, v, idxs) -> 
+
+    | Vecwrite (dst, vec, v, idxs) ->
         Vecwrite (dst, sub_sc vec, sub_id v, sub_id_list idxs)
-    
-    | Vecinsert (dst, vec, vecins, idxs) -> 
+
+    | Vecinsert (dst, vec, vecins, idxs) ->
         Vecinsert (dst, sub_sc vec, sub_sc vecins, sub_id_list idxs)
-    
-    | Vecslice (dst, vec, start, len) -> 
+
+    | Vecslice (dst, vec, start, len) ->
         Vecslice (dst, sub_id vec, sub_id start, sub_id len)
-    
-    | Vecextend (dst, vec, lit, off) -> 
+
+    | Vecextend (dst, vec, lit, off) ->
         Vecextend (dst, sub_id vec, sub_id lit, sub_id off)
   ) ops
 

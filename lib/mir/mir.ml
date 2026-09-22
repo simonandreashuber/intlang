@@ -87,6 +87,7 @@ type op =                                                           (* Textual R
     | Bopi8 of ssaid * bopi8arg * ssaid * ssaid                     (* %res         = bopi8 arg %a %b                                                                   *)
     | Tupwrp of ssaid * (ssaconsume list)                           (* %res         = tupwrp %elm0 %elm1 ...                                                            *)
     | Tupuwrp of (ssaid list) * ssaconsume                          (* (%elm0, ...) = tupuwrp %tup                                                                      *)
+    | Tupborr of (ssaid list) * ssaid                               (* (%elm0, ...) = tupborr %tup                                                                      *)
     | Veclit of ssaid * (ssaconsume list)                           (* %res         = veclit %elm0 %elm1 ...                                                            *)
     | Vecinit of ssaid * ssaid * (ssaid list)                       (* %res         = vecinit %defval %dim0sz1 ...                                                      *)
     | Veclen of ssaid * ssaid                                       (* %res         = veclen %vec                                                                       *)
@@ -104,8 +105,8 @@ type op =                                                           (* Textual R
     | Func _ | Pack _ | CallClosure _ | CallDirect _
     | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _ | DropGlobal _
     | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
-    | Tupwrp _ | Tupuwrp _ | Veclit _ | Vecinit _ | Veclen _ | Vecread _
-    | Vecwrite _ | Vecinsert _ | Vecslice _ | Vecextend _ -> ()
+    | Tupwrp _ | Tupuwrp _ | Tupborr _ | Veclit _ | Vecinit _ | Veclen _
+    | Vecread _ | Vecwrite _ | Vecinsert _ | Vecslice _ | Vecextend _ -> ()
     *)
 
 type term =
