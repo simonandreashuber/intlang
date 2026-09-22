@@ -5,7 +5,7 @@ include graph
 let main = \() (
     let g = graph.genGraph (io.readln_i32 ()) in
     let g_res = vector.left_fold2 (graph.addEdge) g (io.readln_i32vec ()) (io.readln_i32vec ()) in
-    let g = if err.ok g_res then err.uwrp g_res else g end in
+    let g = if err.ok g_res then err.uwrp g_res else g end in --this is a shit pattern for graph consumption
     let checks0_res = vector.map2 (graph.checkEdge g) (io.readln_i32vec ()) (io.readln_i32vec ()) in
     let checks0 = if err.ok checks0_res then err.uwrp checks0_res else vec[] end in
     let g_res = vector.left_fold2 (graph.removeEdge) g (io.readln_i32vec ()) (io.readln_i32vec ()) in
