@@ -11,7 +11,7 @@
     2. callee is external
 
   There are two phases:
-  
+
     1. Single Call Site
       - functions of anysize with a single callsite
       - that are not exported are inlined
@@ -20,8 +20,8 @@
 
     2. Heuristics
       - small functions should be inlined (removes abi call overhead)
-      - function that have a closures as function args should be inlined 
-        (can enable callclosure => calldirect optimization which can avoid 
+      - function that have a closures as function args should be inlined
+        (can enable callclosure => calldirect optimization which can avoid
         potentially massive copies that happen due to the closure ownership semantics)
 
 *)
@@ -45,7 +45,18 @@ let get_post_order (func_map : func FuncMap.t) (visited : FuncidSet.t ref) (call
           | CallDirect (_, funcid_ref, _) ->
               let callee = !funcid_ref in
               call_counts.(callee) <- call_counts.(callee) + 1;
+              Printf.printf "detected direct call %d to callee @%d from caller @%d \"%s\"\n" call_counts.(callee) callee fn.funcid fn.name;
               dfs callee
+          | Func (_, funcid_ref, funcid_opt_ref) -> (
+            (* while func ops dont count in terms of the call graph, appearing in closure
+               creation matters as this closure will probably result in a call somewhere*)
+            let callee = !funcid_ref in
+            call_counts.(callee) <- call_counts.(callee) + 1;
+            Printf.printf "detected clos creation %d to callee @%d from caller @%d \"%s\"\n" call_counts.(callee) callee fn.funcid fn.name;
+            match !funcid_opt_ref with
+            | Some callee -> call_counts.(callee) <- call_counts.(callee) + 1;
+            | None -> ()
+          )
           | _ -> ()
         ) (List.rev bb.ops)
       ) fn.bbs;
@@ -55,10 +66,10 @@ let get_post_order (func_map : func FuncMap.t) (visited : FuncidSet.t ref) (call
   in
   dfs origin_funcid;
   List.rev !acc
-  
 
-let inline_opt_func (decide_inline : builder -> analysis_info -> funcid -> funcid -> bool) (b : builder) (aly : analysis_info) (fn : func) : bool = 
-  
+
+let inline_opt_func (decide_inline : builder -> analysis_info -> funcid -> funcid -> bool) (b : builder) (aly : analysis_info) (fn : func) : bool =
+
   let did_inline = ref false in
 
   (*create worklist with all bbs initially in the function*)
@@ -70,13 +81,13 @@ let inline_opt_func (decide_inline : builder -> analysis_info -> funcid -> funci
     let pre_inline_bb = find_bb_func fn pre_inline_bbid in
 
     (* find the first opportunity in bb to inline *)
-    let inline_callop_opt, pre_inline_ops, post_inline_ops = 
+    let inline_callop_opt, pre_inline_ops, post_inline_ops =
       List.fold_left (fun (inline_callop_opt, pre_inline_ops, post_inline_ops) op ->
         match op with
-        | CallDirect (def_ssaid, callee_funcid_ref, args_sc) 
-            when Option.is_none inline_callop_opt && decide_inline b aly fn.funcid !callee_funcid_ref 
+        | CallDirect (def_ssaid, callee_funcid_ref, args_sc)
+            when Option.is_none inline_callop_opt && decide_inline b aly fn.funcid !callee_funcid_ref
               -> (Some op, pre_inline_ops, post_inline_ops)
-        | _ when Option.is_some inline_callop_opt 
+        | _ when Option.is_some inline_callop_opt
               -> (inline_callop_opt, pre_inline_ops, op :: post_inline_ops)
         | _   -> (inline_callop_opt, op :: pre_inline_ops, post_inline_ops)
       ) (None, [], []) (List.rev pre_inline_bb.ops) in
@@ -97,7 +108,7 @@ let inline_opt_func (decide_inline : builder -> analysis_info -> funcid -> funci
       (*new inline cfg with all func args substituted and the ret substituted by br to post inline bb*)
       let callee_fn = try find_func b !callee_funcid_ref with Not_found -> failwith "inline_opt_func: callee function not found" in
 
-      (*main ssaid/bbid strat is to just "reserve" a number range above 
+      (*main ssaid/bbid strat is to just "reserve" a number range above
         the current max ssaid/bbid and then offset all inlined ssaids/bbids*)
       let ssaid_off = fn.next_ssaid in
       fn.next_ssaid <- ssaid_off + callee_fn.next_ssaid;
@@ -108,7 +119,7 @@ let inline_opt_func (decide_inline : builder -> analysis_info -> funcid -> funci
       fn.next_bbid <- bbid_off + callee_fn.next_bbid;
 
       (* callee function args need to be subed by the ssaids used in the direct call *)
-      let callee_sub = List.map2 (fun  (callee_arg_ssaid, _ ) caller_arg_sc -> 
+      let callee_sub = List.map2 (fun  (callee_arg_ssaid, _ ) caller_arg_sc ->
           (ssaid_off + callee_arg_ssaid, caller_arg_sc.ssaid) (* already use the ssaid_offset *)
       ) callee_fn.args args_sc in
 
@@ -119,13 +130,13 @@ let inline_opt_func (decide_inline : builder -> analysis_info -> funcid -> funci
 
       (* take callee cfg copy with the right offset and substitution *)
       let inline_bbs = ref BBMap.empty in
-      BBMap.iter (fun bbid bb -> 
+      BBMap.iter (fun bbid bb ->
         let nbb = copy_bb ssaid_off bbid_off bb in
         nbb.ops <- sub_ops_uses callee_sub nbb.ops;
         nbb.term <- sub_term_uses callee_sub nbb.term;
         nbb.term <- (
           match nbb.term with
-          | Some (Ret (ret_ssaid)) -> 
+          | Some (Ret (ret_ssaid)) ->
               (if !caller_sub = [] then
                 caller_sub := [def_ssaid, ret_ssaid]
               else
@@ -141,13 +152,13 @@ let inline_opt_func (decide_inline : builder -> analysis_info -> funcid -> funci
       pre_inline_bb.term <- Some (Br (inline_entry_bbid, []));
 
       (*sub old ret ssaid*)
-      BBMap.iter (fun _bbid bb -> 
+      BBMap.iter (fun _bbid bb ->
         bb.ops <- sub_ops_uses !caller_sub bb.ops;
         bb.term <- sub_term_uses !caller_sub bb.term;
       ) fn.bbs;
 
       (*merge inline bbs*)
-      fn.bbs <- BBMap.union (fun bbid bb_caller bb_callee -> 
+      fn.bbs <- BBMap.union (fun bbid bb_caller bb_callee ->
         failwith (Printf.sprintf "Merge inline bbs conflict on bbid: %d caller_bbid: %d callee_bbid: %d, next_bbid: %d, bbid_off: %d"
          bbid bb_caller.bbid bb_callee.bbid fn.next_bbid bbid_off)
         ) fn.bbs !inline_bbs;
@@ -170,39 +181,48 @@ let inline_opt (b : builder) (aly : analysis_info) : unit =
   (*Phase 1: Single Callsite*)
   let visited = ref FuncidSet.empty in
   let call_counts = Array.make (FuncMap.cardinal b.program.funcs) 0 in
-  let aux origin_funcid_opt =
-    match origin_funcid_opt with
-    | Some origin_funcid -> get_post_order b.program.funcs visited call_counts origin_funcid
-    | None -> []
-  in
-  let init_globals_post_order = aux b.program.init_globals_funcid in
-  let main_func_post_order = aux b.program.main_funcid in
-  let uninit_globals_post_order = aux b.program.uninit_globals_funcid in
-  let post_order = uninit_globals_post_order @ main_func_post_order @ init_globals_post_order in
 
-  let singlecallsite_decide_inline (b : builder) (aly : analysis_info) (caller : funcid) (callee : funcid) : bool = 
+  let post_order = ref [] in
+
+  let aux origin_funcid_opt : unit =
+    match origin_funcid_opt with
+    | Some origin_funcid -> post_order := (get_post_order b.program.funcs visited call_counts origin_funcid) @ !post_order
+    | None -> ()
+  in
+  aux b.program.init_globals_funcid;
+  aux b.program.main_funcid;
+  aux b.program.uninit_globals_funcid;
+  FuncMap.iter (fun _fid fn ->
+    if Option.is_none fn.extern_name && fn.exported then
+      post_order := (get_post_order b.program.funcs visited call_counts fn.funcid) @ !post_order
+    else
+      ()
+  ) b.program.funcs;
+
+  let singlecallsite_decide_inline (b : builder) (aly : analysis_info) (caller : funcid) (callee : funcid) : bool =
     let callee_fn = try find_func b callee with Not_found -> failwith "singlecallsite_decide_inline: callee not found" in
     if Option.is_some callee_fn.extern_name || callee = caller || callee_fn.exported
     then false
-    else call_counts.(callee) = 1
+    else if call_counts.(callee) = 1 then (Printf.printf "inline single call function %s \n" callee_fn.name; true) else false (* to do make smarter inline heuristics *)
   in
 
-  List.iter (fun funcid -> 
+  List.iter (fun funcid ->
     let fn = try find_func b funcid with Not_found -> failwith "inline_opt: phase 1 function not found" in
     ignore(inline_opt_func singlecallsite_decide_inline b aly fn)
-  ) post_order;
+  ) !post_order;
 
   (*Phase 2: Heuristics*)
   let heuristics_decide_inline (b : builder) (aly : analysis_info) (caller : funcid) (callee : funcid) : bool =
     let callee_fn = try find_func b callee with Not_found -> failwith "heuristics_decide_inline: callee not found" in
     if Option.is_some callee_fn.extern_name || callee = caller
     then false
-    else BBMap.cardinal callee_fn.bbs < 6 (* to do make smarter inline heuristics *)
+    else if BBMap.cardinal callee_fn.bbs < 6 then (Printf.printf "inline function %s \n" callee_fn.name; true) else false (* to do make smarter inline heuristics *)
   in
 
   let q = Queue.create () in
-  (*Queue.add_seq q (Seq.map (fun (funcid, fn) -> assert (funcid = fn.funcid); fn) (FuncMap.to_seq b.program.funcs));*)
+  Queue.add_seq q (Seq.map (fun (funcid, fn) -> assert (funcid = fn.funcid); fn) (FuncMap.to_seq b.program.funcs));
 
+  Printf.printf "starting phase 2 \n";
   while not (Queue.is_empty q) do
     let fn = Queue.pop q in
     ignore(inline_opt_func heuristics_decide_inline b aly fn)

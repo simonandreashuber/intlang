@@ -28,7 +28,7 @@ type mirtyp =
 
 and vecinnertype = | TMIRVECI32 | TMIRVECI8
 
-(* 
+(*
   Borrowed: no gc obligation, no consumption allowed
   Owned: gc obligation, consumption allowed
   NoMem: mirtyp is TMIRUnit or TMIRI32 or TMIRI8, this ssa value does not represent a memory object
@@ -39,10 +39,10 @@ type ownership = | Borrowed | Owned | NoMem
 (* MIR Operations and Terminators                                            *)
 (* ========================================================================= *)
 
-type uopi32arg = 
+type uopi32arg =
     | Negi32 | Noti32
 
-type bopi32arg = 
+type bopi32arg =
     | Eqi32 | Neqi32 | Lti32 | Gti32 | LtEqi32 | GtEqi32
     | ULti32 | UGti32 | ULtEqi32 | UGtEqi32
     | Muli32 | Subi32 | Addi32 | Divi32 | Modi32
@@ -50,10 +50,10 @@ type bopi32arg =
     | Andi32 | Ori32 | Xori32
     | Shli32 | Shri32 | UShri32
 
-type uopi8arg = 
+type uopi8arg =
     | Negi8 | Noti8
 
-type bopi8arg = 
+type bopi8arg =
     | Eqi8 | Neqi8 | Lti8 | Gti8 | LtEqi8 | GtEqi8
     | Addi8 | Subi8
     | Andi8 | Ori8 | Xori8
@@ -97,8 +97,19 @@ type op =                                                           (* Textual R
     | Vecextend of ssaid * ssaid * ssaid * ssaid                    (* %res         = vecextend %vec %lit %off                                                          *)
 
 
+    (* matching each op expicitly instead of a _ can avoid bugs if:
+       a new ops is added and would require a specific behavior in some match,
+       with a blank this can easyly go unnoticed but like this the compiler
+       forces the programer to check each place explicitly
+    | Func _ | Pack _ | CallClosure _ | CallDirect _
+    | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _ | DropGlobal _
+    | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
+    | Tupwrp _ | Tupuwrp _ | Veclit _ | Vecinit _ | Veclen _ | Vecread _
+    | Vecwrite _ | Vecinsert _ | Vecslice _ | Vecextend _ -> ()
+    *)
+
 type term =
-    | Br of bbid * (ssaconsume list) 
+    | Br of bbid * (ssaconsume list)
     | Cbr of ssaid * bbid * bbid
     | Ret of ssaid
 
@@ -111,7 +122,7 @@ type bb = {
     mutable name: string;         (* only debug info *)
     mutable args: ssaid list;     (* mutable for TCO *)
     mutable ops: op list;         (* rev order, to make building faster*)
-    mutable term: term option;    
+    mutable term: term option;
 }
 module BBMap = Map.Make(Int)
 
@@ -124,13 +135,13 @@ type func = {
     funcid: funcid;                                       (* unique identifier of func *)
     name: string;                                         (* only debug info *)
     mutable args: ( ssaid * (string option) ) list;       (* string only debug info, mutable for TCO *)
-    rettyp: mirtyp;                                       
+    rettyp: mirtyp;
     extern_name: string option;                           (* if Some externalname then bbs is ignored and a extern function gets linked *)
     exported : bool;                                      (* if true this function is needed by other modules and should not be inlined or removed, not much use now mainly for future *)
     mutable next_ssaid: ssaid;                            (* lowest unused ssaid, should always be in sync with the length of ssatyps and memown *)
     mutable next_bbid: bbid;                              (* lowest unused bbid *)
     mutable entry_bb: bbid option;                        (* entry basic block id *)
-    mutable bbs: bb BBMap.t;                              
+    mutable bbs: bb BBMap.t;
     ssatyps: mirtyp Dynarray.t;                           (* stores mirtypes of all ssa values *)
     memown: ownership Dynarray.t;                         (* stores ownership information of all ssa values *)
 }

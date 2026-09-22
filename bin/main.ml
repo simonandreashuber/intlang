@@ -20,7 +20,7 @@ let main () =
   let outputfile_passed = ref false in
   let outputfilename = ref "" in
   let inputfilename = ref "" in
-  
+
   (* Initialize with your current path as the default value *)
   let default_path = (Sys.getcwd ()) ^ "/test/intlangstdlib/" in
   let stdlib_path = ref default_path in
@@ -89,7 +89,7 @@ let main () =
   end;
 
   (* Ensure the path ends with a trailing slash so file concatenation doesn't break *)
-  let intlang_std_lib_path = 
+  let intlang_std_lib_path =
     let p = !stdlib_path in
     if String.length p > 0 && p.[String.length p - 1] = '/' then p else p ^ "/"
   in
@@ -138,7 +138,7 @@ let main () =
     if !print_mir || !outputmir_name <> "" then begin
       let mir_str =  Printmir.string_of_program mir !add_analysis_printmir in
       if !print_mir then begin
-        Printf.printf "%sMIR:\n%s" headerline mir_str; flush stdout 
+        Printf.printf "%sMIR:\n%s" headerline mir_str; flush stdout
       end;
       if !outputmir_name <> "" then begin
         try
@@ -169,7 +169,7 @@ let main () =
     if !print_llvm || !outputllvm_name <> "" then begin
       let llvm_str = Llvm.string_of_llmodule llmod in
       if !print_llvm then begin
-        Printf.printf "%sLLVM IR:\n%s" headerline llvm_str; flush stdout 
+        Printf.printf "%sLLVM IR:\n%s" headerline llvm_str; flush stdout
       end;
       if !outputllvm_name <> "" then begin
         try
@@ -205,7 +205,7 @@ let main () =
       );
 
       (* Compile the LLVM IR to a binary using clang *)
-      let clang_cmd = Printf.sprintf "clang-19 %s %s -o %s" ll_name !clang_flags bin_name in
+      let clang_cmd = Printf.sprintf "clang-19 %s %s -fverify-intermediate-code -o %s" ll_name !clang_flags bin_name in
       let exit_code = Sys.command clang_cmd in
       if exit_code <> 0 then (
         prerr_endline ("Error: clang failed to compile LLVM IR to binary. Exit code: " ^ string_of_int exit_code);
@@ -213,7 +213,7 @@ let main () =
       );
       Sys.remove ll_name
     );
-    
+
     exit 0
 
   with exn ->

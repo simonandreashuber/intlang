@@ -8,7 +8,7 @@
        enabling uses to consume memory objects. Theses run on and produce new
        optimized versions of functions (Memopt).
     2(.5). After Memopt I run Funcdceopt which is Ownership agnostic... ;)
-    
+
 *)
 
 open Mir
@@ -35,6 +35,9 @@ let run_pipeline (b : builder) (optimize : bool) : unit =
     if optimize then(
       Calldirectopt.calldirect_opt b aly;
       Tco.tco_opt b aly;
+      Dceopt.dce_opt b aly;
+      Inlineopt.inline_opt b aly;
+      Calldirectopt.calldirect_opt b aly;
       Inlineopt.inline_opt b aly;
       Calldirectopt.calldirect_opt b aly;
       Dceopt.dce_opt b aly;
@@ -48,12 +51,12 @@ let run_pipeline (b : builder) (optimize : bool) : unit =
     if optimize then (
       Funcdceopt.funcdce_opt b aly
     )
-    
+
   with e ->
     let msg = Printexc.to_string e in
     let backtrace = Printexc.get_backtrace () in
     Printf.eprintf "%s\n" (Printmir.string_of_program b.program false);
-    let curr_fun, curr_bb = 
+    let curr_fun, curr_bb =
       match b.cursor with
       | (Some func, Some bb) -> ("func_" ^ string_of_int func.funcid, "bb_" ^ string_of_int bb.bbid)
       | _,_ -> ("None", "None")

@@ -203,7 +203,7 @@ let string_of_func (aly : analysis_info) (f : func) : string =
       ) f.args)
   in
   let functionlocation = if Option.is_none f.extern_name then "fn" else "externalfn" in
-  let header = Printf.sprintf "%s %s %s \"%s\" (%s)" functionlocation (string_of_typ f.rettyp) (string_of_funcid f.funcid) f.name args_str in
+  let header = Printf.sprintf "%s %s %s \"%s\"%s (%s)" functionlocation (string_of_typ f.rettyp) (string_of_funcid f.funcid) f.name (if f.exported then " (exported)" else "") args_str in
   let body_str =
   match f.extern_name with
   | Some _ -> " {}"
