@@ -95,6 +95,33 @@ let request_func_vers (opt : mem_optimizer) (funcid : funcid) (ownsig : ownershi
 let pop_func_to_opt opt = Queue.pop opt.opt_queue
 let has_func_to_opt opt = not (Queue.is_empty opt.opt_queue)
 
+
+
+(* ========================================================================= *)
+(* tupborr to tupuwrp Promotion                                              *)
+(* ========================================================================= *)
+
+let tupuwrp opt fn =
+  BBMap.iter (fun _ bb ->
+    bb.ops <- List.map (fun op ->
+      match op with
+      | Tupborr (elm_defs, tup) -> (
+        if List.for_all (fun elm_def -> not @@ is_on_own_path opt.aly fn elm_def) elm_defs then
+          op
+        else
+          let elm_own = memsig_all_to (List.map (get_ownership_func fn) elm_defs) Owned in
+          List.iter2 (fun elm_def elm_new_own -> set_ownership_func fn elm_def elm_new_own) elm_defs elm_own;
+          Tupuwrp (elm_defs, ssac tup)
+      )
+      | Func _ | Pack _ | CallClosure _ | CallDirect _
+      | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _ | DropGlobal _
+      | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
+      | Tupwrp _ | Tupuwrp _ | Veclit _ | Vecinit _ | Veclen _
+      | Vecread _ | Vecwrite _ | Vecinsert _ | Vecslice _ | Vecextend _ -> op
+    ) bb.ops
+  ) fn.bbs
+
+
 (* ========================================================================= *)
 (* BB Arg Borrowed Promotion                                                 *)
 (* ========================================================================= *)
@@ -146,6 +173,7 @@ let has_func_to_opt opt = not (Queue.is_empty opt.opt_queue)
 
 let bbarg opt fn =
 
+  (*
   let pred_info = get_preds_info opt.aly fn in
 
   let canret = ref [] in
@@ -168,7 +196,7 @@ let bbarg opt fn =
     match bb.term with | Some (Ret retval) -> bbid :: acc | _ -> acc ) fn.bbs [] with
   | [retbbid] -> find_canret [] (-1) retbbid
   | _ -> failwith (Printf.sprintf "borrbbarg_opt_func: funcid %d has no or multiple ret bbs" fn.funcid));
-
+  *)
 
   (* Check for each bb arg if its legal and desirable
      to promote it to borrowed *)
@@ -179,11 +207,12 @@ let bbarg opt fn =
            (get_ownership_func fn arg = Owned) then (
           let pot_owners = find_funclocal_owners opt.aly fn arg in
           if
-          List.for_all (fun owner_ssaid ->
-            let (owner_bbid,_) = live_info.def.(owner_ssaid) in
-            (does_strictly_dominate opt.aly fn owner_bbid bb.bbid) &&
-            (not @@ List.mem arg !canret)
-          ) pot_owners
+            (List.for_all (fun owner_ssaid ->
+              let (owner_bbid,_) = live_info.def.(owner_ssaid) in
+              does_strictly_dominate opt.aly fn owner_bbid bb.bbid)
+            pot_owners) &&
+            (not @@ is_on_own_path opt.aly fn arg) &&
+            (is_reached_by_borrsrc opt.aly fn arg)
           then (
             set_ownership_func fn arg Borrowed
           )
@@ -223,102 +252,86 @@ let consume (opt : mem_optimizer) fn =
 
   let live_info = get_live_info opt.aly fn in
 
-  let changed = ref true in
+  BBMap.iter (fun bbid bb ->
 
-  while !changed do
-    changed := false;
-    BBMap.iter (fun bbid bb ->
+    (*prep used later with live out plus the bbargs in case the term is a br*)
+    let ul = ref live_info.live_out.(bbid) in
+    (match bb.term with
+    | Some (Br (brbbid, _)) -> (
+      let succbb = find_bb_func fn brbbid in
+      List.iter (fun succbbarg ->
+        if get_ownership_func fn succbbarg = Borrowed then
+          ul := SsaSet.add succbbarg !ul
+      ) succbb.args
+    )
+    | Some (Cbr _) | Some (Ret _) | None-> ());
 
-      let ul = ref live_info.live_out.(bbid) in
-      (
-      match bb.term with
-      | Some (Br (brbbid, _)) -> (
-        let succbb = find_bb_func fn brbbid in
-        List.iter (fun succbbarg ->
-          if get_ownership_func fn succbbarg = Borrowed then
-            ul := SsaSet.add succbbarg !ul
-        ) succbb.args
-      )
-      | Some (Cbr _) | Some (Ret _) | None-> ()
-      );
-
-      let try_consume sc =
-        if get_ownership_func fn sc.ssaid = Owned then (
-          let cannot_be_used_later = sc.ssaid :: find_borrowers opt.aly fn sc.ssaid in
-          if List.for_all (fun ssaid -> not (SsaSet.mem ssaid !ul)) cannot_be_used_later then (
-            sc.consume <- true
-          )
-        );
-        ul := SsaSet.add sc.ssaid !ul;
-      in
-
-      let add_use ssaid = ul := SsaSet.add ssaid !ul in
-
-      (*lists get reversed since the mir is left to right and we go backwards*)
-      let try_consume_lst scs = List.iter (try_consume) (List.rev scs) in
-
-      let add_uses ssaids = List.iter (add_use) (List.rev ssaids) in
-
-      let try_consume_br brbbid brargs =
-        let target_bb = match BBMap.find_opt brbbid fn.bbs with
-          | Some bb -> bb | None -> failwith (Printf.sprintf "try_consume_br: bb %d has no target bb %d" bbid brbbid) in
-
-        let bbargs_memsig = List.map (fun ssa -> get_ownership_func fn ssa) target_bb.args in
-        List.iter2 (fun sc own ->
-            if own = Owned then try_consume sc (*only consume if the target bb arg is owned*)
-            else add_use sc.ssaid
-          ) (List.rev brargs) (List.rev bbargs_memsig)
-      in
-
-
-      (match bb.term with
-      | Some (Br (brbbid, brargs)) -> try_consume_br brbbid brargs
-      | Some (Cbr (cond , _, _)) ->
-          add_use cond
-      | Some (Ret retval) -> add_use retval
-      | _ -> failwith (Printf.sprintf "consume_opt_func: bb %d has no term" bbid)
-      );
-
-      List.iter (fun op ->
-        match op with
-        | Func _ -> ()
-        | Pack (_, sc, scs) -> try_consume_lst scs; try_consume sc
-        | CallClosure (_, sc) -> try_consume sc
-        | CallDirect (_, funcid_ref, scs) -> try_consume_lst scs
-        | Copy (_, orig) -> add_use orig
-        | Drop mems -> add_uses mems
-        | LoadGlobal _ -> ()
-        | DropGlobal _ -> ()
-        | StoreGlobal (_, sc) -> try_consume sc
-        | Immi32 _ | Immi8 _ | ImmUnit _ -> ()
-        | Uopi32 (_, _, a) | Uopi8 (_, _, a) ->  add_use a
-        | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) -> add_use b; add_use a
-        | Tupwrp (_, scs) ->  try_consume_lst scs
-        | Tupuwrp (elms, sc) -> (
-          if get_ownership_func fn sc.ssaid = Owned && (not sc.consume) then (
-            let cannot_be_used_later = sc.ssaid :: find_borrowers_excludelist elms opt.aly fn sc.ssaid in
-            if List.for_all (fun ssaid -> not (SsaSet.mem ssaid !ul)) cannot_be_used_later then (
-              sc.consume <- true;
-              List.iter (fun elmssaid ->
-                let elmtyp = get_mirtyp_func fn elmssaid in
-                if is_memtyp (elmtyp) then set_mirtyp_ownership_func fn elmssaid elmtyp Owned ) elms;
-              changed := true
-            )
-          );
-          ul := SsaSet.add sc.ssaid !ul
+    (*helpers*)
+    let try_consume sc =
+      if get_ownership_func fn sc.ssaid = Owned then (
+        let cannot_be_used_later = sc.ssaid :: find_borrowers opt.aly fn sc.ssaid in
+        if List.for_all (fun ssaid -> not (SsaSet.mem ssaid !ul)) cannot_be_used_later then (
+          sc.consume <- true
         )
-        | Tupborr _ -> failwith "todo new memopt"
-        | Veclit (_, scs) ->  try_consume_lst scs
-        | Vecinit (_, defval, dims) ->  add_uses dims; add_use defval
-        | Veclen (_, vec) ->  add_use vec
-        | Vecread (_, vec, idxs) -> add_uses idxs; add_use vec
-        | Vecwrite (_, sc, vec, idxs) -> add_uses idxs; add_use vec; try_consume sc;
-        | Vecinsert (_, vec_sc, vecins_sc, idxs) ->  add_uses idxs; try_consume vecins_sc; try_consume vec_sc
-        | Vecslice (_, vec, start, len) ->  add_use len; add_use start; add_use vec
-        | Vecextend (_, vec, lit, off) ->  add_use off; add_use lit; add_use vec
-      )  bb.ops
-    ) fn.bbs;
-  done
+      );
+      ul := SsaSet.add sc.ssaid !ul;
+    in
+
+    let add_use ssaid = ul := SsaSet.add ssaid !ul in
+
+    (*lists get reversed since the mir is left to right and we go backwards*)
+    let try_consume_lst scs = List.iter (try_consume) (List.rev scs) in
+
+    let add_uses ssaids = List.iter (add_use) (List.rev ssaids) in
+
+    let try_consume_br brbbid brargs =
+      let target_bb = match BBMap.find_opt brbbid fn.bbs with
+        | Some bb -> bb | None -> failwith (Printf.sprintf "try_consume_br: bb %d has no target bb %d" bbid brbbid) in
+
+      let bbargs_memsig = List.map (fun ssa -> get_ownership_func fn ssa) target_bb.args in
+      List.iter2 (fun sc own ->
+          if own = Owned then try_consume sc (*only consume if the target bb arg is owned*)
+          else add_use sc.ssaid
+        ) (List.rev brargs) (List.rev bbargs_memsig)
+    in
+
+    (*check terms*)
+    (match bb.term with
+    | Some (Br (brbbid, brargs)) -> try_consume_br brbbid brargs
+    | Some (Cbr (cond , _, _)) ->
+        add_use cond
+    | Some (Ret retval) -> add_use retval
+    | _ -> failwith (Printf.sprintf "consume_opt_func: bb %d has no term" bbid)
+    );
+
+    (*check ops*)
+    List.iter (fun op ->
+      match op with
+      | Func _ -> ()
+      | Pack (_, sc, scs) -> try_consume_lst scs; try_consume sc
+      | CallClosure (_, sc) -> try_consume sc
+      | CallDirect (_, funcid_ref, scs) -> try_consume_lst scs
+      | Copy (_, orig) -> add_use orig
+      | Drop mems -> add_uses mems
+      | LoadGlobal _ -> ()
+      | DropGlobal _ -> ()
+      | StoreGlobal (_, sc) -> try_consume sc
+      | Immi32 _ | Immi8 _ | ImmUnit _ -> ()
+      | Uopi32 (_, _, a) | Uopi8 (_, _, a) ->  add_use a
+      | Bopi32 (_, _, a, b) | Bopi8 (_, _, a, b) -> add_use b; add_use a
+      | Tupwrp (_, scs) ->  try_consume_lst scs
+      | Tupuwrp (elms, sc) -> try_consume sc
+      | Tupborr (elms, tup) -> add_use tup
+      | Veclit (_, scs) ->  try_consume_lst scs
+      | Vecinit (_, defval, dims) ->  add_uses dims; add_use defval
+      | Veclen (_, vec) ->  add_use vec
+      | Vecread (_, vec, idxs) -> add_uses idxs; add_use vec
+      | Vecwrite (_, sc, vec, idxs) -> add_uses idxs; add_use vec; try_consume sc;
+      | Vecinsert (_, vec_sc, vecins_sc, idxs) ->  add_uses idxs; try_consume vecins_sc; try_consume vec_sc
+      | Vecslice (_, vec, start, len) ->  add_use len; add_use start; add_use vec
+      | Vecextend (_, vec, lit, off) ->  add_use off; add_use lit; add_use vec
+    )  bb.ops (*ops are stored in reverse so in the correct order for this use case*)
+  ) fn.bbs
 
 
 (* ========================================================================= *)
@@ -606,8 +619,9 @@ let mem_opt (b : builder) (aly : analysis_info) (optimize : bool) =
     while has_func_to_opt opt do
       let fn = pop_func_to_opt opt in
       if optimize then (
-        bbarg opt fn;             (* select bb args should borrow *)
-        consume opt fn            (* try to consume in as many places as possible *)
+        tupuwrp opt fn;           (* optimize by replacing tupborr by tupuwrp in relevant places *)
+        bbarg opt fn;             (* optimized by setting legal and relavant bbargs to borrow *)
+        consume opt fn            (* make all legal places consume *)
       );
       monofunc opt fn;          (* Monomorphize Functions suited to the specific signature of what args can be consumed *)
       inscopy opt fn;           (* inserts explicit copies for term uses that cant be consumed but need to be consumed *)

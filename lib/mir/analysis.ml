@@ -55,12 +55,11 @@ type dom_info = {
 }
 
 type data_info = {
-  data_graph : (ssaid list) array;    (* edges in data graph, has edges for bbargs and tupuwrp *)
-  reaching_srcs : SsaSet.t array;     (* all the srcs that can reach this ssa def in the data graph *)
-  mutable own_srcs : SsaSet.t;        (* all owned srcs ie. ssa defs that are guaranteed owned *)
-  mutable borr_srcs : SsaSet.t;       (* all borrowed srcs ie. ssa defs that are guaranteed borrowed *)
-  mutable own_sinks : ssaid list;     (* all owned sinks ie. ssa uses that will trigger a copy if the arg can not be consumed *)
-  mutable own_path_srcs : SsaSet.t;   (* all owned srcs that have a path to a owned sink *)
+  data_graph : (ssaid list) array;          (* edges in data graph, has edges for bbargs and tupuwrp *)
+  data_rev_graph : (ssaid list) array;      (* edges in data graph in reversed direction *)
+  reaching_own_srcs : bool array;           (* true iff own_src can reach in data_graph *)
+  reaching_borr_srcs : bool array;          (* true iff borr_src can reach in data_graph *)
+  reaching_own_sinks : bool array;          (* true iff own_sinks can reach in data_rev_graph *)
 }
 
 type analysis_info = {
@@ -594,24 +593,21 @@ let compute_data (aly : analysis_info) (fn : func) =
   let n = fn.next_ssaid in
   let data_info = {
     data_graph = Array.make n ([]);
-    reaching_srcs = Array.make n (SsaSet.empty);
-    own_srcs = SsaSet.empty;
-    borr_srcs = SsaSet.empty;
-    own_sinks = [];
-    own_path_srcs = SsaSet.empty;
+    data_rev_graph = Array.make n ([]);
+    reaching_own_srcs = Array.make n false;
+    reaching_borr_srcs = Array.make n false;
+    reaching_own_sinks = Array.make n false;
   } in
 
   let add_edge u v = if is_memtyp @@ get_mirtyp_func fn u then (
-                     assert(get_mirtyp_func fn u = get_mirtyp_func fn v);
-                     data_info.data_graph.(u) <- v :: data_info.data_graph.(u) ) in
+                     data_info.data_graph.(u) <- v :: data_info.data_graph.(u);
+                     data_info.data_rev_graph.(v) <- u :: data_info.data_rev_graph.(v) ) in
   let add_ownsrc s = if is_memtyp @@ get_mirtyp_func fn s then (
-                     data_info.own_srcs <- SsaSet.add s data_info.own_srcs;
-                     assert(SsaSet.is_empty data_info.reaching_srcs.(s)); data_info.reaching_srcs.(s) <- SsaSet.singleton s) in
+                     assert(not @@ data_info.reaching_own_srcs.(s)); data_info.reaching_own_srcs.(s) <- true) in
   let add_borrsrc s = if is_memtyp @@ get_mirtyp_func fn s then (
-                      data_info.borr_srcs <- SsaSet.add s data_info.borr_srcs;
-                      assert(SsaSet.is_empty data_info.reaching_srcs.(s)); data_info.reaching_srcs.(s) <- SsaSet.singleton s ) in
+                      assert(not @@ data_info.reaching_borr_srcs.(s)); data_info.reaching_borr_srcs.(s) <- true) in
   let add_ownsink s = if is_memtyp @@ get_mirtyp_func fn s then (
-                      data_info.own_sinks <- s :: data_info.own_sinks ) in
+                      data_info.reaching_own_sinks.(s) <- true) in
 
   (*iterate cfg and populate data structures*)
 
@@ -699,29 +695,25 @@ let compute_data (aly : analysis_info) (fn : func) =
   ) fn.bbs;
 
   (*run a fix point until for reaching_srcs on the data_graph*)
-  let changed = ref true in
-  while !changed do
-    changed := false;
-    Array.iteri (fun u vs ->
-      let u_srcs = data_info.reaching_srcs.(u) in
-      List.iter (fun v ->
-        let v_srcs = data_info.reaching_srcs.(v) in
-        let v_srcs_size = SsaSet.cardinal v_srcs in
-        let v_srcs' = SsaSet.union v_srcs u_srcs in
-        let v_srcs_size' = SsaSet.cardinal v_srcs' in
-        if v_srcs_size < v_srcs_size' then begin
-         changed := true;
-         data_info.reaching_srcs.(v) <- v_srcs' end
-      ) vs;
-      ()
-    ) data_info.data_graph
-  done;
-
-  (*compute own_path_srcs*)
-  List.iter (fun own_sink ->
-    data_info.own_path_srcs <- SsaSet.union data_info.own_path_srcs data_info.reaching_srcs.(own_sink)
-  ) data_info.own_sinks;
-  data_info.own_path_srcs <- SsaSet.inter data_info.own_path_srcs data_info.own_srcs;
+  let flood (g : (ssaid list) array) (marked : bool array) : unit =
+    let changed = ref true in
+    while !changed do
+      changed := false;
+      Array.iteri (fun u vs ->
+        if marked.(u) then (
+          List.iter (fun v ->
+            if not @@ marked.(v) then (
+              changed := true;
+              marked.(v) <- true
+            )
+          ) vs
+        )
+      ) g
+    done
+  in
+  flood data_info.data_graph data_info.reaching_own_srcs;
+  flood data_info.data_graph data_info.reaching_borr_srcs;
+  flood data_info.data_rev_graph data_info.reaching_own_sinks;
 
   data_info
 
@@ -737,8 +729,8 @@ let get_data_info (aly : analysis_info) (func : func) : data_info =
 
 let is_on_own_path (aly : analysis_info) (fn : func) (def_ssaid : ssaid) : bool =
   let data_info = get_data_info aly fn in
-  not @@ SsaSet.disjoint data_info.reaching_srcs.(def_ssaid) data_info.own_path_srcs
+  data_info.reaching_own_srcs.(def_ssaid) && data_info.reaching_own_sinks.(def_ssaid)
 
 let is_reached_by_borrsrc (aly : analysis_info) (fn : func) (def_ssaid : ssaid) : bool =
   let data_info = get_data_info aly fn in
-  not @@ SsaSet.disjoint data_info.reaching_srcs.(def_ssaid) data_info.borr_srcs
+  data_info.reaching_borr_srcs.(def_ssaid)

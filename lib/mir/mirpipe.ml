@@ -35,11 +35,11 @@ let run_pipeline (b : builder) (optimize : bool) : unit =
     if optimize then(
       Calldirectopt.calldirect_opt b aly;
       Tco.tco_opt b aly;
-      Dceopt.dce_opt b aly;
+      (*Dceopt.dce_opt b aly;
       Inlineopt.inline_opt b aly;
       Calldirectopt.calldirect_opt b aly;
       Inlineopt.inline_opt b aly;
-      Calldirectopt.calldirect_opt b aly;
+      Calldirectopt.calldirect_opt b aly;*)
       Dceopt.dce_opt b aly;
       Compactcfgopt.compactcfg_opt b aly
     );
