@@ -21,7 +21,7 @@ let rec veccheck_typ (t : typ) : unit =
   | TVec inner ->
       let resolved_inner = repr inner in
       begin match resolved_inner with
-      | TI32 | TI8 | TVec _ -> 
+      | TI32 | TI8 | TVec _ ->
           (* valid inner type => check inner type *)
           veccheck_typ resolved_inner
       | TVar v -> raise (Errors.VecCheckError ("Polymorphic vector found: inner type is unsolved tvar t" ^ string_of_int v.id))
@@ -34,7 +34,7 @@ let rec veccheck_typ (t : typ) : unit =
 let rec veccheck_tlexp (e : tlexp) : unit =
 
   veccheck_typ (tlexp_get_type e);
-  
+
   match e with
   | VarT _ | I32LitT _ | I8LitT _ | UnitLitT _ -> ()
   | LamT (_, _, body, _) -> veccheck_tlexp body
@@ -51,24 +51,24 @@ let rec veccheck_tlexp (e : tlexp) : unit =
   | BopI32T (_, e1, e2, _) -> veccheck_tlexp e1; veccheck_tlexp e2
   | BopI8T (_, e1, e2, _) -> veccheck_tlexp e1; veccheck_tlexp e2
   | VecLitT (es, _) -> List.iter veccheck_tlexp es
-  | VecmkT (e_def, es_sizes, _) -> 
-      veccheck_tlexp e_def; 
+  | VecmkT (e_def, es_sizes, _) ->
+      veccheck_tlexp e_def;
       List.iter veccheck_tlexp es_sizes
   | VeclenT (e, _) -> veccheck_tlexp e
-  | VecgetT (e_vec, es_idxs, _) -> 
-      veccheck_tlexp e_vec; 
+  | VecgetT (e_vec, es_idxs, _) ->
+      veccheck_tlexp e_vec;
       List.iter veccheck_tlexp es_idxs
-  | VecsetT (e_vec, e_val, es_idxs, _) -> 
-      veccheck_tlexp e_vec; 
-      veccheck_tlexp e_val; 
+  | VecsetT (e_vec, e_val, es_idxs, _) ->
+      veccheck_tlexp e_vec;
+      veccheck_tlexp e_val;
       List.iter veccheck_tlexp es_idxs
-  | VecsliceT (e_vec, e_start, e_len, _) -> 
-      veccheck_tlexp e_vec; 
-      veccheck_tlexp e_start; 
+  | VecsliceT (e_vec, e_start, e_len, _) ->
+      veccheck_tlexp e_vec;
+      veccheck_tlexp e_start;
       veccheck_tlexp e_len
-  | VecextendT (e_vec, e_lit, e_off, _) -> 
-      veccheck_tlexp e_vec; 
-      veccheck_tlexp e_lit; 
+  | VecextendT (e_vec, e_lit, e_off, _) ->
+      veccheck_tlexp e_vec;
+      veccheck_tlexp e_lit;
       veccheck_tlexp e_off
 
 let veccheck_monotast (ast : monotast) : unit =

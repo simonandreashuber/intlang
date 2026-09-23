@@ -27,7 +27,7 @@ let get_builtin_fun (name : string) : (value -> value) =
   match name with
   | "readi8" -> (fun _ -> VI8 (input_char stdin))
   | "writei8" -> (fun v -> match v with
-                            | VI8 c -> let _ = output_char stdout c in VUnit 
+                            | VI8 c -> let _ = output_char stdout c in VUnit
                             | _ -> raise (Errors.InterpError "writei8 expects an i8"))
   | "flush" -> (fun _ -> flush stdout; VUnit)
   | "i32_to_i8" -> (fun v -> match v with
@@ -40,7 +40,7 @@ let get_builtin_fun (name : string) : (value -> value) =
 
 let rec lookup uuid env =
   match List.assoc_opt uuid !env, List.assoc_opt uuid Ast.builtin_uuid_to_name with
-  | Some VBlackhole, None -> 
+  | Some VBlackhole, None ->
       raise (Errors.InterpError ("Circular dependency detected: uuid " ^ string_of_int uuid ^ " used before initialization"))
   | Some v, None -> v
   | None, Some builtin_name -> VBuiltin (get_builtin_fun builtin_name)
@@ -51,7 +51,7 @@ and eval (e : tlexp) (env : env) : value =
   match e with
     | VarT (_, uuid_ref, _) -> lookup !uuid_ref env
     | LamT (x, param_uuid, body, _) -> VClosure (param_uuid, body, env)
-    | LamUnitT (body, _) -> VClosureUnit (body, env) 
+    | LamUnitT (body, _) -> VClosureUnit (body, env)
     | AppT (e1, e2, _) -> (
             (* left to right eval order because its more intuitive *)
             match eval e1 env with
@@ -76,11 +76,11 @@ and eval (e : tlexp) (env : env) : value =
         (match interp_cond with
         | VI32 n -> if n <> 0l then eval then_branch env else eval else_branch env
         | _ -> raise (Errors.InterpError "Condition in if must be an integer"))
-    | LetinT (x, param_uuid, e1, e2, _) -> 
+    | LetinT (x, param_uuid, e1, e2, _) ->
         let v1 = eval e1 env in
         let param_env = ref ((param_uuid, v1) :: !env) in
         eval e2 param_env
-    | LetrecinT (x, param_uuid, e1, e2, _) -> 
+    | LetrecinT (x, param_uuid, e1, e2, _) ->
         let param_env = ref ((param_uuid, VBlackhole) :: !env) in
         let v1 = eval e1 param_env in
         param_env := (param_uuid, v1) :: !env;
@@ -170,13 +170,13 @@ and eval (e : tlexp) (env : env) : value =
             | Xori8 -> VI8 (Char.chr (Int.logand ((Char.code c1) lxor (Char.code c2)) 0xFF))
         )
         | _ -> raise (Errors.InterpError "Binary operation on non-i8"))
-    | VecLitT (es, _) -> 
+    | VecLitT (es, _) ->
         let vals = Array.of_list (List.map (fun e -> eval e env) es) in
         VVec vals
     | VecmkT (defval, size_list, _) -> (
         List.fold_right (fun size_exp defval ->
             match eval size_exp env with
-            | VI32 n when n >= 0l -> 
+            | VI32 n when n >= 0l ->
                 let new_arr = Array.make (Int32.to_int n) defval in
                 VVec new_arr
             | _ -> raise (Errors.InterpError "vecmk size must be a non-negative integer")
@@ -186,7 +186,7 @@ and eval (e : tlexp) (env : env) : value =
         (match eval v env with
          | VVec arr -> VI32 (Int32.of_int @@ Array.length arr)
          | _ -> raise (Errors.InterpError "veclen expects a vector"))
-    | VecgetT (v, idx_list, _) -> 
+    | VecgetT (v, idx_list, _) ->
         List.fold_left (fun v_val idx_val ->
             let idx = match eval idx_val env with
                 | VI32 n -> Int32.to_int n
@@ -197,7 +197,7 @@ and eval (e : tlexp) (env : env) : value =
             | VVec arr -> raise ((Errors.InterpError ("index out of bounds on:\n" ^ PrintIntlang.sprint_tlexp 0 e ^ "\n (index: " ^ string_of_int idx ^ ", vector length: " ^ string_of_int (Array.length arr) ^ ")")))
             | _ -> raise ((Errors.InterpError ("vecget expects a vector ")))
         ) (eval v env) idx_list
-    | VecsetT (v, setval, idx_list, _) -> 
+    | VecsetT (v, setval, idx_list, _) ->
         let rec vecsetaux (v_val : value) (idx_list : tlexp list) : value =
             match idx_list with
             | [idx_exp] -> (
@@ -223,8 +223,8 @@ and eval (e : tlexp) (env : env) : value =
         vecsetaux (eval v env) idx_list
     | VecsliceT (v, start, len, _) -> (
         match eval v env, eval start env, eval len env with
-        | VVec arr, VI32 start, VI32 len when 0 <= (Int32.to_int start) && 
-                                              (Int32.to_int start) < Array.length arr && 
+        | VVec arr, VI32 start, VI32 len when 0 <= (Int32.to_int start) &&
+                                              (Int32.to_int start) < Array.length arr &&
                                               0 <= (Int32.to_int len) &&
                                               (Int32.to_int start) + (Int32.to_int len) <= Array.length arr -> ( VVec (Array.init (Int32.to_int len) (fun i -> arr.(i+(Int32.to_int start))) ) )
         | _, _, _ -> raise (Errors.InterpError "vecslice expects a vector and valid integer indices")
@@ -235,15 +235,15 @@ and eval (e : tlexp) (env : env) : value =
         | VVec arr, VI32 off-> (
             let offint = Int32.to_int off in
             let newlen = (Array.length arr) + (Int32.to_int @@ Int32.abs off) in
-            let new_arr = 
+            let new_arr =
                 if 0 <= offint then
-                    Array.init newlen (fun i -> 
+                    Array.init newlen (fun i ->
                         if (Array.length arr) <= i then lit_val else arr.(i))
-                else 
-                    Array.init newlen (fun i -> 
+                else
+                    Array.init newlen (fun i ->
                         if offint < -i then lit_val else arr.(i+offint))
                 in
-            VVec new_arr 
+            VVec new_arr
         )
         | _, _ -> raise (Errors.InterpError "vecextend expects a vector and valid integer offset")
     )
@@ -253,19 +253,19 @@ let interp_monotast (mtast : monotast) : unit =
   let global_env_ref = ref [] in
 
   (* stitch all bindings into the env, but with VBlackhole *)
-  List.iter (fun (_, uuid, _) -> 
+  List.iter (fun (_, uuid, _) ->
     global_env_ref := (uuid, VBlackhole) :: !global_env_ref
   ) mtast;
-    
-  List.iter (fun (name, uuid, e) -> 
+
+  List.iter (fun (name, uuid, e) ->
     try
         let v = eval e global_env_ref in
         (* go and replace the VBlackhole used before in the env reference *)
-        global_env_ref := List.map (fun (uuid', v') -> 
+        global_env_ref := List.map (fun (uuid', v') ->
         if uuid' = uuid then (uuid', v) else (uuid', v')
         ) !global_env_ref;
     with
-    | exn -> 
+    | exn ->
         let msg = Printexc.to_string exn in
         raise (Errors.InterpError ("Error while evaluating binding " ^ name ^ ": " ^ msg))
   ) mtast;
@@ -274,6 +274,6 @@ let interp_monotast (mtast : monotast) : unit =
         | Some (_,_ , main_fun) -> ignore (eval (AppT (main_fun, UnitLitT (TUnit), TUnit)) global_env_ref)
         | None -> ()
   with
-    | exn -> 
+    | exn ->
         let msg = Printexc.to_string exn in
         raise (Errors.InterpError ("Error while evaluating main function " ^ ": " ^ msg))

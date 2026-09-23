@@ -6,7 +6,7 @@ include queue
 let main = \() (
     let rounds = io.readln_i32 () in
     let q = queue.mkQueue () in
-    let rec aux = \i q. 
+    let rec aux = \i q.
         if i < rounds then
             let q = vector.left_fold (queue.enQueue) q (io.readln_i32vec ()) in
             let q =(
@@ -19,7 +19,7 @@ let main = \() (
                         (io.write_i32 e; writei8 ',';
                         rep (j+1) q)
                     else
-                        (writei8 '\n'; 
+                        (writei8 '\n';
                         q
                         )
                     end
@@ -27,7 +27,7 @@ let main = \() (
                 rep 0 q
             ) in
             aux (i+1) q
-        else 
+        else
             q
         end in
     let _ = aux 0 q in ()

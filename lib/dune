@@ -3,8 +3,8 @@
 (library
  (name intlang_lib)
  (libraries llvm llvm.target llvm.executionengine)
- (modules ast errors printIntlang 
-          lexer parser include reccheck typecheck monomorph veccheck interp 
+ (modules ast errors printIntlang
+          lexer parser include reccheck typecheck monomorph veccheck interp
           mir analysis buildmir printmir
           calldirectopt tco inlineopt dceopt compactcfgopt memopt funcdceopt
           mirgen mirpipe simmir

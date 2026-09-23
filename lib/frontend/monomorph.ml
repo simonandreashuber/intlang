@@ -2,7 +2,7 @@
 
   Monomorphizes a TAST
 
-  Monomorphization removes all polymorphic types from the TAST ie. 
+  Monomorphization removes all polymorphic types from the TAST ie.
   there are not more unlinked type variable in any type of the TAST.
 
 *)
@@ -35,7 +35,7 @@ let rec cmp_mono_typs (t1 : typ) (t2 : typ) : bool =
   | _ -> false
 
 let find_mono_version (poly_uuid : uuid) (spec_typ : typ) : uuid option =
-  match List.find_opt 
+  match List.find_opt
     (fun (p_uuid, (m_uuid, m_typ)) -> p_uuid = poly_uuid && cmp_mono_typs m_typ spec_typ)
     !poly_to_mono_map with
   | Some (_, (m_uuid,_)) -> Some m_uuid
@@ -54,15 +54,15 @@ let extract_specialization_map (polyt : typ) (monot : typ) : specmap =
     | (TI8, TI8) -> acc
     | (TUnit, TUnit) -> acc
     | (TFun (arg_polyt, ret_polyt), TFun (arg_monot, ret_monot)) -> let acc' = aux acc arg_polyt arg_monot in aux acc' ret_polyt ret_monot
-    | (TTup polyt_list, TTup monot_list) -> 
+    | (TTup polyt_list, TTup monot_list) ->
         if List.length polyt_list <> List.length monot_list then
           raise (Errors.TypeError "Monomorphization Error: Tuple length mismatch during specialization map extraction.")
         else
           List.fold_left2 aux acc polyt_list monot_list
-    | (TVec polyt', TVec monot') -> aux acc polyt' monot' 
+    | (TVec polyt', TVec monot') -> aux acc polyt' monot'
     | (TVar {id = var_id; _}, t) -> (var_id, t) :: acc
     | _ -> raise (Errors.TypeError "Monomorphization Error: Type structure mismatch during specialization map extraction.")
-  in 
+  in
   (* I have an urge to sanitize the map here, but I think it should work without doing so... *)
   aux [] polyt monot
 
@@ -74,7 +74,7 @@ let rec specialize_typ (smap : specmap) (t : typ) : typ =
   | TFun (arg, ret) -> TFun (specialize_typ smap arg, specialize_typ smap ret)
   | TTup ts -> TTup (List.map (specialize_typ smap) ts)
   | TVec t' -> TVec (specialize_typ smap t')
-  | TVar {id; link} -> 
+  | TVar {id; link} ->
       (match List.assoc_opt id smap with
       | Some t_subst -> t_subst
       | None -> TVar {id; link})
@@ -112,7 +112,7 @@ let specialize_polytletbnd ((name, uuid, _, lhs) : polytletbnd) (smap : specmap)
         LetrecinT (n, nuuid, aux e, aux b, sub oldtyp)
       )
     | LetinTupleT (tupls, e, b, oldtyp) -> (
-      let ntupls = List.map 
+      let ntupls = List.map
       (fun iduuid_opt ->
         match iduuid_opt with
         | Some (n, u) -> (
@@ -137,7 +137,7 @@ let specialize_polytletbnd ((name, uuid, _, lhs) : polytletbnd) (smap : specmap)
     | VecsetT (v, setval, idxls, oldtyp) -> VecsetT (aux v, aux setval, List.map aux idxls, sub oldtyp)
     | VecsliceT (v, start, len, oldtyp) -> VecsliceT (aux v, aux start, aux len, sub oldtyp)
     | VecextendT (v, lit, off, oldtyp) -> VecextendT (aux v, aux lit, aux off, sub oldtyp)
-  in 
+  in
   let sub_lhs = aux lhs in
   let mono_typ = tlexp_get_type sub_lhs in
   let mono_name = mangle_mono_name name mono_typ in
@@ -151,8 +151,8 @@ let rec genmonovers_tlexp (l : tlexp) : (uuid * monotletbnd) list =
     | Some polybnd -> (
       match find_mono_version !uuidref typ with
       | Some monouuid -> (
-        nameref := (mangle_mono_name !nameref typ); 
-        uuidref := monouuid; 
+        nameref := (mangle_mono_name !nameref typ);
+        uuidref := monouuid;
         []
       )
       | None -> (
@@ -161,8 +161,8 @@ let rec genmonovers_tlexp (l : tlexp) : (uuid * monotletbnd) list =
         let smap = extract_specialization_map st typ in
         let nmv = specialize_polytletbnd polybnd smap in
         let (nmname, nmuuid, _) = nmv in
-        nameref := nmname; 
-        uuidref := nmuuid; 
+        nameref := nmname;
+        uuidref := nmuuid;
         register_mono_version polyuuid nmuuid typ;
         [(polyuuid, nmv)]
       )
@@ -211,11 +211,11 @@ let monomorph (ptast_input : polytast) : monotast =
   (* split TAST int monomorphic and polymorphic part *)
   let ptast_part, mtast_part = List.fold_right
                               (fun (name, uuid, vars, lhs) (pp, mp) ->
-                                if List.length vars > 0 then 
+                                if List.length vars > 0 then
                                   ((name, uuid, vars, lhs)::pp, mp)
-                                else 
-                                  (pp, (name, uuid, lhs)::mp)    
-                              ) 
+                                else
+                                  (pp, (name, uuid, lhs)::mp)
+                              )
                               ptast_input ([],[])
   in
 
@@ -232,14 +232,14 @@ let monomorph (ptast_input : polytast) : monotast =
   in
   let gen_monovers = fixpoint mtast_part in
 
-  let get_all_monovers (polyuuid : uuid) : monotast = 
+  let get_all_monovers (polyuuid : uuid) : monotast =
     let _, mvs = List.split (List.filter (fun (pu, mv) -> pu = polyuuid) gen_monovers) in mvs
   in
 
   (* sew the new binding into the place where the old poly bnd was *)
-  List.fold_right 
+  List.fold_right
   (fun (name, uuid, vars, lhs) mbacc ->
-    if List.length vars > 0 then 
+    if List.length vars > 0 then
       let mvs = get_all_monovers uuid in
       mvs @ mbacc
     else

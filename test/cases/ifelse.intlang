@@ -1,4 +1,4 @@
-let main = \() ( 
+let main = \() (
     let c = i8_to_i32 (readi8 ()) in
     let et = readi8 () in
     let ef = readi8 () in

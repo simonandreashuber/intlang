@@ -15,7 +15,7 @@ open Errors
 %token AND_I8 OR_I8 XOR_I8 NOT_I8
 %token LPAR RPAR            (* ( ) *)
 %token LET REC LETAND ASS SEM          (* let = ; *)
-%token IN                   
+%token IN
 %token LAM COLON OUTTYP DOT              (* \ . *)
 %token IF THEN ELSE END     (* if then else end *)
 %token INCLUDE              (* include *)
@@ -28,7 +28,7 @@ open Errors
 %token <string> STR
 %token <string>ID           (* name of some thing *)
 
-%start start         
+%start start
 %type <Ast.ast> start
 %%
 
@@ -61,11 +61,11 @@ lexp:
     | LET; LPAR; idlst = id_list; RPAR; ASS; e1 = lexp; IN; e2 = lexp               { LetinTuple(idlst, e1, e2) }
     | IF; c = lexp; THEN; t = lexp; ELSE; e = lexp; END                             { If(c, t, e) }
     | LAM; lamls = lamlst; DOT; l = lexp                                            { List.fold_right (fun (id, t, _) acc -> Lam(id, t, None, acc)) lamls l }
-    | LAM; lamls = lamlst; OUTTYP; outT = typ_anot; DOT; l = lexp                   { 
+    | LAM; lamls = lamlst; OUTTYP; outT = typ_anot; DOT; l = lexp                   {
                                                                                         let lamlsout = List.rev (match List.rev lamls with
                                                                                                        | (id, inT, None) :: tl -> (id, inT, Some outT) :: tl
                                                                                                        | _ -> raise (ParseError "internal: multi lambda combination")) in
-                                                                                        List.fold_right (fun (id, inT, outT) acc -> Lam(id, inT, outT, acc)) lamlsout l 
+                                                                                        List.fold_right (fun (id, inT, outT) acc -> Lam(id, inT, outT, acc)) lamlsout l
                                                                                     }
     | LAM; id = ID; COLON; t = typ_anot; DOT; l = lexp                              { Lam(id, Some t, None, l) }
     | LAM; id = ID; COLON; inT = typ_anot; OUTTYP; outT = typ_anot; DOT; l = lexp   { Lam(id, Some inT, Some outT, l) }
@@ -94,7 +94,7 @@ typ_tuple_list:
     | ltyp = typ_anot_atom; MUL_I32; rtyp = typ_tuple_list  { ltyp :: rtyp }
     | ltyp = typ_anot_atom; MUL_I32; rtyp = typ_anot_atom   { [ltyp; rtyp] }
 
-typ_anot_atom: 
+typ_anot_atom:
     | I32TYP                                                { TI32 }
     | I8TYP                                                 { TI8 }
     | UNITTYP                                               { TUnit }
@@ -174,11 +174,11 @@ lexp_atom:
     | LPAR; RPAR;                                                                                       { UnitLit }
     | i32lit = I32                                                                                      { I32Lit i32lit }
     | i8lit = I8                                                                                        { I8Lit i8lit }
-    | str = STR                                                                                         { 
+    | str = STR                                                                                         {
                                                                                                             if String.length str = 0 then
                                                                                                                 Vecmk(I8Lit (Char.chr 0), [I32Lit 0]) (*empty vector is only possible with vecmk*)
                                                                                                             else
-                                                                                                                VecLit (List.map (fun x -> I8Lit x) (List.of_seq (String.to_seq str))) 
+                                                                                                                VecLit (List.map (fun x -> I8Lit x) (List.of_seq (String.to_seq str)))
                                                                                                         }
     | LPAR; ls = exp_seq_list_min2; RPAR;                                                               { Tuple ls }
     | VECLIT; LBRACK; lit_list = exp_seq_list_min0; RBRACK                                              { VecLit lit_list }

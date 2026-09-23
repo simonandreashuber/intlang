@@ -28,7 +28,7 @@ let binarysearch = \cmpf arr target.
                     if (0 < i) then
                         if cmpf vecget[arr, (i-1)] target == 0 then -- no logic shortcutting as of now :(
                             findleft (i-1)
-                        else 
+                        else
                             i
                         end
                     else

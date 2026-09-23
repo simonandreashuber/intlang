@@ -1,4 +1,4 @@
-let main = \() ( 
+let main = \() (
     let c = readi8 () in
     (
     writei8 (~i8 c);

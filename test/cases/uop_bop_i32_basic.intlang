@@ -4,7 +4,7 @@
 -- basic language futures. So here I test just some basics, ie. more of
 -- a sanity test rather than a systematic testing approach
 
-let main = \() ( 
+let main = \() (
     (
     writei8 (i32_to_i8 (1 == 2)); -- 0
     writei8 (i32_to_i8 (5 == 5)); -- 1

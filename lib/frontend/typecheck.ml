@@ -67,9 +67,9 @@ let rec unify (msg : string) (t1 : typ) (t2 : typ) : unit =
       | TFun (t1, t2) -> occurscheck v t1; occurscheck v t2
       | TTup ts -> List.iter (occurscheck v) ts
       | TVec t_inner -> occurscheck v t_inner
-      | TVar v' ->  if v.id = v'.id then 
-                      raise (Errors.TypeError ("[occurscheck] Occurs Check Failed: Recursive types are not allowed. Found tvar: t" ^ string_of_int v.id ^ " again")) 
-                    else 
+      | TVar v' ->  if v.id = v'.id then
+                      raise (Errors.TypeError ("[occurscheck] Occurs Check Failed: Recursive types are not allowed. Found tvar: t" ^ string_of_int v.id ^ " again"))
+                    else
                       ()
   in
 
@@ -77,7 +77,7 @@ let rec unify (msg : string) (t1 : typ) (t2 : typ) : unit =
   | (TUnit, TUnit) -> ()
   | (TI32, TI32) -> ()
   | (TI8, TI8) -> ()
-  | (TFun (t1f, t1x), TFun (t2f, t2x)) -> 
+  | (TFun (t1f, t1x), TFun (t2f, t2x)) ->
       unify msg t1f t2f;
       unify msg t1x t2x
   | (TTup ts1, TTup ts2) ->
@@ -95,7 +95,7 @@ let rec unify (msg : string) (t1 : typ) (t2 : typ) : unit =
           v.link <- Some t
       )
     )
-  | _ -> raise (Errors.TypeError ("Type mismatch: Cannot unify " ^ spt (repr t1) ^ " with " ^ spt (repr t2) ^ ". " ^ msg))  
+  | _ -> raise (Errors.TypeError ("Type mismatch: Cannot unify " ^ spt (repr t1) ^ " with " ^ spt (repr t2) ^ ". " ^ msg))
 
 let generalize (t : typ) : schema =
   let rec freevars (t : typ) : int list =
@@ -124,11 +124,11 @@ let instantiate (Forall (vars, t) : schema) : typ =
           match List.assoc_opt v.id varmap with
             | Some fresh_t -> TVar fresh_t
             | None -> t)
-  in 
+  in
   instaux fresh_tvar_map t
 
 
-let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp = 
+let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
   let constr_msg (msg : string) = spf "%s %s" msg (sples e) in
   match e with
     | Var x -> (
@@ -210,15 +210,15 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       (ncs @ cs_e @ cs_b, LetrecinT (x, uuid, et, bt, t_b))
     )
     | LetinTuple (ids, exp, b) -> (
-      (*uuid and tvar for each of the non blank tuple elements is needed all over the place 
+      (*uuid and tvar for each of the non blank tuple elements is needed all over the place
         so here I create them once and then transform the list when needed*)
       let id_uuid_tv = List.map (fun id -> if id <> "_" then Some (id, fresh_uuid (), TVar (fresh_tvar ())) else None) ids in
-      let env' = List.fold_left (fun envacc tup_opt-> 
+      let env' = List.fold_left (fun envacc tup_opt->
                                   match tup_opt with
                                   | Some (id, uuid, tv) -> (id, (schema_of_typ tv, uuid)) :: envacc
                                   | None -> envacc
                                 ) env id_uuid_tv in
-      (*While the blanks dont need an uuid and their tvar not tracked, 
+      (*While the blanks dont need an uuid and their tvar not tracked,
         it is most convinient to just put some tvar in the constructed type even for blanks*)
       let t_tup_constr = TTup (List.map (fun tup_opt -> match tup_opt with | Some (_, _, tv) -> tv | None -> TVar (fresh_tvar ())) id_uuid_tv) in
       let id_uuids = List.map (fun tup_opt -> match tup_opt with | Some (id, uuid, _) -> Some (id, uuid) | None -> None) id_uuid_tv in
@@ -227,8 +227,8 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let t_e = tlexp_get_type et in
       let t_b = tlexp_get_type bt in
       let ncs = [(t_e, t_tup_constr, constr_msg "Tuple does not match the number of types of the extracted elements in")] in
-      log_appendln (spf "LetinTupleT %s: (id, uuid, tv) = %s, constr= %s" (sples e) 
-        (String.concat ", " (List.map (fun tup_opt -> match tup_opt with | Some (id, uuid, tv) -> spf "(%s, %d, %s)" id uuid (spt tv) | None -> "_") id_uuid_tv)) 
+      log_appendln (spf "LetinTupleT %s: (id, uuid, tv) = %s, constr= %s" (sples e)
+        (String.concat ", " (List.map (fun tup_opt -> match tup_opt with | Some (id, uuid, tv) -> spf "(%s, %d, %s)" id uuid (spt tv) | None -> "_") id_uuid_tv))
         (spcs ncs) );
       (ncs @ cs_e @ cs_b, LetinTupleT (id_uuids, et, bt, t_b))
     )
@@ -336,7 +336,7 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
       let t_len = tlexp_get_type len_t in
       let t_vec_of = TVar (fresh_tvar ()) in
       let t_vec_constr = TVec (t_vec_of) in
-      let ncs = [(t_v, t_vec_constr, constr_msg "Type of input vector does not match type expected of ouput vector for"); 
+      let ncs = [(t_v, t_vec_constr, constr_msg "Type of input vector does not match type expected of ouput vector for");
                  (t_start, TI32, constr_msg "Type of start in vecslice needs to be i32 for");
                  (t_len, TI32, constr_msg "Type of len needs to be i32 in")] in
       log_appendln (spf "Vecslice %s: t_vec_of=%s, constr= %s" (sples e) (spt t_vec_of) (spcs ncs) );
@@ -361,12 +361,12 @@ let rec typecheck_lexp (env : typenv) (e : lexp) : constraints * tlexp =
 let typecheck_let (id: string) (e: lexp) (env : typenv) : typenv * polytast =
 
   log_appendln "------------------------ LET -------------------------";
-  
+
   (*interate left expression*)
   let cs, et = typecheck_lexp env e in
 
   (*unify constraints*)
-  List.iter (fun (t1, t2, msg) -> 
+  List.iter (fun (t1, t2, msg) ->
     unify msg t1 t2;
   ) cs;
 
@@ -385,17 +385,17 @@ let typecheck_letrecblk (letblk : (string * lexp) list) (env : typenv) : typenv 
   log_appendln "----------------------- LETBLK -----------------------";
 
   (*add all let defs to env*)
-  let env_with_letdefs = List.fold_left 
-    (fun env' (name, lexp) -> 
+  let env_with_letdefs = List.fold_left
+    (fun env' (name, lexp) ->
       let let_tvar = TVar (fresh_tvar ()) in
       let uuid = fresh_uuid () in
       (name, (schema_of_typ let_tvar, uuid)) :: env'
-    )  
+    )
     env letblk in
-  
+
   (*interate AST*)
-  let constraints, lexptblk = List.fold_left 
-    (fun (cs,ltb) (name, lexp) -> 
+  let constraints, lexptblk = List.fold_left
+    (fun (cs,ltb) (name, lexp) ->
       let (Forall (_, let_tvar), uuid) = List.assoc name env_with_letdefs in (*it is impossible to have something generalized here*)
       log_appendln (spf "let %s = : tvar=%s, uuid=%d" name (spt let_tvar) uuid);
       let cs', lt = typecheck_lexp env_with_letdefs lexp  in (*we add this binding in the step before, it must exist so no need to check *)
@@ -406,13 +406,13 @@ let typecheck_letrecblk (letblk : (string * lexp) list) (env : typenv) : typenv 
     ([],[]) letblk in
 
   (*unify all constraints*)
-  List.iter (fun (t1, t2, msg) -> 
+  List.iter (fun (t1, t2, msg) ->
     unify msg t1 t2;
   ) constraints;
 
   (*generalize all types and add to env*)
-  let generalized_env, lexptblk_gen = List.fold_right 
-    (fun (name, uuid, vars, lt) (env', letblkt')  -> 
+  let generalized_env, lexptblk_gen = List.fold_right
+    (fun (name, uuid, vars, lt) (env', letblkt')  ->
       let (olds, _) = List.assoc name env_with_letdefs in
       let tv = typ_of_schema olds in
       let s = generalize tv in
@@ -431,8 +431,8 @@ let typecheck (ast : ast) : polytast =
 
   try
     (*iterate AST*)
-    let env, tast = List.fold_left 
-      (fun (env, tast) stmt -> 
+    let env, tast = List.fold_left
+      (fun (env, tast) stmt ->
         match stmt with
         | Let (id, e) -> (
             let env', tast' = typecheck_let id e env in
@@ -444,7 +444,7 @@ let typecheck (ast : ast) : polytast =
           )
         | _ -> raise (Errors.TypeError "encountered Include AST node in typechecker, probably a include pass bug"))
     (Ast.builtins, []) ast in
-    
+
     (*Make sure there is no main or main is of type unit -> unit*)
     match List.assoc_opt "main" env with
     | Some (Forall ([], maintyp), _) when cmp_typ maintyp (TFun (TUnit, TUnit)) -> (

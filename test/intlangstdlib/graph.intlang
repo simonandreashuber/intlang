@@ -4,22 +4,22 @@ include search
 include sort
 
 --make empty assoc vector of size n
-let genGraph = \n. vecmk[-1,n,0] 
+let genGraph = \n. vecmk[-1,n,0]
 
 -- if g has edge from v to u return 1 else 0, UNSAFE, does not check if v or u are a valid vertices
 let _checkEdgeUnsave = \g v u. if (search.linearsearch_i32 vecget[g,v] u) == -1 then 0 else 1 end
 
 -- if g has edge from v to u return 1 else 0
-let checkEdge = \g v u. 
+let checkEdge = \g v u.
             let validverts = math.inbounds 0 (veclen[g]) in
             if (validverts v) & (validverts u) then
                 _checkEdgeUnsave g v u
-            else 
+            else
                 0
             end
 
 -- adds edge from v to u
-let addEdge = \g v u. 
+let addEdge = \g v u.
             let validverts = math.inbounds 0 (veclen[g]) in
             if (validverts v) & (validverts u) then
                 if _checkEdgeUnsave g v u then
@@ -27,47 +27,47 @@ let addEdge = \g v u.
                 else
                     let oldneighbors = vecget[g,v] in
                     let m1idx = search.linearsearch_i32 oldneighbors (-1) in
-                    let newneighbors = 
+                    let newneighbors =
                         if m1idx == -1 then
                             vecextend[oldneighbors, u, 1]
                         else
                             vecset[oldneighbors, u, m1idx]
                         end
-                    in 
+                    in
                     vecset[g, newneighbors, v]
-                end                
-            else 
+                end
+            else
                 g
             end
 
 -- removes edge from v to u
-let removeEdge = \g v u. 
+let removeEdge = \g v u.
             let validverts = math.inbounds 0 (veclen[g]) in
             if (validverts v) & (validverts u) then
                 if _checkEdgeUnsave g v u then
                     let oldneighbors = vecget[g,v] in
                     let uidx = search.linearsearch_i32 oldneighbors u in
-                    let newneighbors = vecset[oldneighbors, -1, uidx] in
+                    let newneighbors = vecset[oldneighbors, -1, uidx] in -- both ops should be one to avoid performance penalty
                     vecset[g, newneighbors, v]
                 else
                     g
-                end                
-            else 
+                end
+            else
                 g
             end
 
--- dfs: 
+-- dfs:
     -- assumes that all the entries in the graph and start are in [0,n-1] where n is veclen[g]
     -- and that ord only permutes
     -- ord is used to define the traversal order of neighbors
     -- g is the graph
     -- start is the starting vertex
     -- returned the discover time, finish time, and parent vectors
-let dfs = \ (ord : [i32] -> [i32]) (g : [[i32]]) (start : i32) => [i32]*[i32]*[i32]. 
+let dfs = \ (ord : [i32] -> [i32]) (g : [[i32]]) (start : i32) => [i32]*[i32]*[i32].
     let n = veclen[g] in
     let rec dfsaux = \p acc v.
         let (t, disct, fint, par) = acc in
-        if vecget[disct, v] >= 0 then 
+        if vecget[disct, v] >= 0 then
             --already visited case
             (t, disct, fint, par)
         else

@@ -1,4 +1,4 @@
-let main = \() ( 
+let main = \() (
     writei8 '\x00';
     writei8 '\x01';
     writei8 '\x02';

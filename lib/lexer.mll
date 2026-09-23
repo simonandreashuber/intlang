@@ -5,8 +5,8 @@ exception LexErr of string
 let next_line lexbuf =
   let pos = lexbuf.Lexing.lex_curr_p in
   lexbuf.Lexing.lex_curr_p <-
-    { pos with 
-      pos_lnum = pos.pos_lnum + 1;  
+    { pos with
+      pos_lnum = pos.pos_lnum + 1;
       pos_bol = lexbuf.lex_curr_p.pos_cnum; (*set begining of line char number to char number*)
     }
 
@@ -23,7 +23,7 @@ let parse_i8 s : char =
       | '\\' -> '\\'
       | '\'' -> '\''
       | '"'  -> '"'
-      | 'x'  -> 
+      | 'x'  ->
           (* Extract the two hex digits after '\x' *)
           let hex_digits = String.sub inner 2 2 in
           Char.chr (int_of_string ("0x" ^ hex_digits))
@@ -64,7 +64,7 @@ rule token = parse
   | "="         { ASS }
   | ";"         { SEM }
   | ":"         { COLON }
-  | "=>"        { OUTTYP }  
+  | "=>"        { OUTTYP }
   | "if"        { IF }
   | "then"      { THEN }
   | "else"      { ELSE }

@@ -9,4 +9,4 @@ let main = \() (
         io.writeln_i32 (search.linearsearch_i32 arr target);
         io.writeln_i32 (search.binarysearch_i32 sorted target)
     )
-) 
+)

@@ -3,10 +3,10 @@
   MIR Compat the Control Flow Graph
 
   There are 3 compaction scenarios:
-    - No predecessors 
+    - No predecessors
               => remove BB
     - No ssa definitions (ie. no ops and bbargs) and a direct branch term with no branch arguments
-              => predecessors "skip" this bb, 
+              => predecessors "skip" this bb,
     - direct branch to a successor with single predecessor
               => "absorb" successor into bb, requires ssaid substitution for successors with bbargs
 
@@ -32,7 +32,7 @@ let compactcfg_opt_func (aly : analysis_info) (fn : func) : unit =
   BBMap.iter (fun bbid _ -> Queue.push bbid wl) fn.bbs;
 
   while Queue.is_empty wl = false do
-    let bbid = Queue.pop wl in    
+    let bbid = Queue.pop wl in
     match BBMap.find_opt bbid fn.bbs with
     | Some bb -> (
       let preds = get_preds bbid in
@@ -56,9 +56,9 @@ let compactcfg_opt_func (aly : analysis_info) (fn : func) : unit =
             fun predbbid ->
               let predbb = BBMap.find predbbid fn.bbs in
                 (match predbb.term with
-                | Some (Br (pbrbbid, [])) when bbid = pbrbbid-> 
+                | Some (Br (pbrbbid, [])) when bbid = pbrbbid->
                     predbb.term <- Some (Br (tbrbbid, []))
-                | Some (Cbr (cond, pibrbbid, pebrbbid)) -> 
+                | Some (Cbr (cond, pibrbbid, pebrbbid)) ->
                     let pibrbbid' = if pibrbbid = bbid then tbrbbid else pibrbbid in
                     let pebrbbid' = if pebrbbid = bbid then tbrbbid else pebrbbid in
                     predbb.term <- Some (Cbr (cond, pibrbbid', pebrbbid'))
@@ -95,7 +95,7 @@ let compactcfg_opt_func (aly : analysis_info) (fn : func) : unit =
         | Some (Ret ret) -> (
           bb.term <- Some (Ret (sub_id sub ret));
         )
-        | None -> failwith "compactcfg_opt_func: succbb term is not of the fromat expected for a trampoline bb with args"); 
+        | None -> failwith "compactcfg_opt_func: succbb term is not of the fromat expected for a trampoline bb with args");
         fn.bbs <- BBMap.remove brbbid fn.bbs;
         rem_pred bbid brbbid;
         (*while only the dominated bbs are affected since ssa form us used iterating the entire cfg is possible and valid*)
@@ -110,7 +110,7 @@ let compactcfg_opt_func (aly : analysis_info) (fn : func) : unit =
     invalidate_all_analysis aly fn.funcid
 
 let compactcfg_opt (b : builder) (aly : analysis_info) : unit =
-  FuncMap.iter (fun _fid fn -> 
+  FuncMap.iter (fun _fid fn ->
     match fn.extern_name with
     | Some _ -> ()
     | None -> compactcfg_opt_func aly fn

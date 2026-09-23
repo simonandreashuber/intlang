@@ -1,5 +1,5 @@
 -- basic Result Type Simulation
--- main downsides of doing this library side are: 
+-- main downsides of doing this library side are:
             -- 1. to return an error one still needs a value of the type that is returned when computation
             --    runs normally
             -- 2. No enforcement, that the value is checked with ok before its unwrapped

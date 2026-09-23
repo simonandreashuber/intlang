@@ -1,10 +1,10 @@
 (*
 
-  Resolves include statements 
+  Resolves include statements
 
   Actually integrates the Lexer and Parser (is kinda practical
   since the included files also need to be Lexed and Parsed).
-  So actually this is (lex_parse_include) is the first thing the 
+  So actually this is (lex_parse_include) is the first thing the
   compiler runs.
 
 *)
@@ -17,7 +17,7 @@ open Lexer
 open Errors
 
 let lex_parse (filepath: string) : ast =
-  let ch = 
+  let ch =
     try open_in filepath
     with Sys_error msg -> raise (Errors.IncludeError ("Cannot open file: " ^ filepath ^ " (" ^ msg ^ ")"))
   in
@@ -26,7 +26,7 @@ let lex_parse (filepath: string) : ast =
     let ast = Parser.start Lexer.token lexbuf in
     close_in ch;
     ast
-  with e   -> 
+  with e   ->
     close_in ch;
     raise (Errors.ParseError ("Parse error in file: " ^ filepath ^ " at line " ^ string_of_int lexbuf.lex_curr_p.pos_lnum ^ " (" ^  (Printexc.to_string e) ^ ")"))
 
@@ -36,8 +36,8 @@ let validate_include_relative (path : string) : string =
     (* First character must be alpha or underscore *)
     (match s.[0] with 'a'..'z' | 'A'..'Z' | '_' -> true | _ -> false) &&
     (* Rest must be alpha, digit, or underscore *)
-    String.for_all (function 
-      | 'a'..'z' | 'A'..'Z' | '_' | '0'..'9' -> true 
+    String.for_all (function
+      | 'a'..'z' | 'A'..'Z' | '_' | '0'..'9' -> true
       | _ -> false
   ) s in
   (* Enforces that there is a slash, and the final piece is a valid ID *)
@@ -75,14 +75,14 @@ let lex_parse_include (std_lib_path: string) (filepath: string) (prohibit_relati
       | Vecextend(v, lit, off) -> Vecextend(vars_add_prefix prefix locbound v, vars_add_prefix prefix locbound lit, vars_add_prefix prefix locbound off)
   in
       (*
-    example 
+    example
     /src/
       - main.intlang
       - lib/
         - somelib.intlang
     then:
       dirstem = '/src/'                               this is changed as the program moves through the includes
-      name = 'main' or 'lib/somelib'                  here I use the relative path since it is then easy to just get the final filename 
+      name = 'main' or 'lib/somelib'                  here I use the relative path since it is then easy to just get the final filename
       handled_includes = 'main' or 'somelib'          here I use the file name only since this is what we use as the include identifier in the code so it can ever be doubly used; if someone were to include two files with the same name from different dirs they go to intlang jail
   *)
   let handled_includes = ref [] in
@@ -93,9 +93,9 @@ let lex_parse_include (std_lib_path: string) (filepath: string) (prohibit_relati
     else (
     handled_includes := basename :: !handled_includes;
     let ast = lex_parse (Filename.concat dirstem (inclname ^ ".intlang")) in
-    List.iter 
+    List.iter
       (
-        fun stmt -> 
+        fun stmt ->
             match stmt with
               | IncludeGlobal newinclname -> (acc_includes std_lib_path newinclname true)
               | IncludeRelative newinclname -> (
@@ -104,14 +104,14 @@ let lex_parse_include (std_lib_path: string) (filepath: string) (prohibit_relati
                   else
                     let valid_newinclname = validate_include_relative newinclname in
                     let updt_dirstem = Filename.dirname (Filename.concat dirstem inclname) in
-                    acc_includes updt_dirstem valid_newinclname true 
+                    acc_includes updt_dirstem valid_newinclname true
                 )
               | Let (name, e) -> (
                   let nl = if is_include then Let (basename ^ "." ^ name, vars_add_prefix basename builtin_names e) else Let (name, e) in
                   letacc := nl :: !letacc;
                 )
               | Letrec lst -> (
-                  let ltuplst = List.map (fun (name, e) -> 
+                  let ltuplst = List.map (fun (name, e) ->
                     if is_include then (basename ^ "." ^ name, vars_add_prefix basename builtin_names e) else (name, e)
                   ) lst in
                   letacc := (Letrec ltuplst) :: !letacc;
@@ -121,4 +121,3 @@ let lex_parse_include (std_lib_path: string) (filepath: string) (prohibit_relati
   in
   acc_includes (Filename.dirname filepath) (Filename.chop_extension @@ Filename.basename filepath) false;
   List.rev !letacc
-  

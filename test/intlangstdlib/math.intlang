@@ -2,11 +2,11 @@
 -- Note: as of now they are not optimized just written to work :)
 
 -- exp < 1 is just return base
-let abstracpow = \mulf. \base. \exp. 
+let abstracpow = \mulf. \base. \exp.
     let rec apowaux = \acc. \cnt.
         if cnt < exp then
             apowaux (mulf acc base) (cnt+1)
-        else 
+        else
             acc
         end
     in
@@ -21,9 +21,9 @@ let min = \a. \b. if a < b then a else b end
 
 let max = \a. \b. if a > b then a else b end
 
--- sqrt only makes sense for possitive numbers, so the input will be 
+-- sqrt only makes sense for possitive numbers, so the input will be
 -- treated as unsigned
-let sqrt = \x. 
+let sqrt = \x.
     let rec sqrtaux = \guess.
         if guess*guess <=u x then
             sqrtaux (guess+1)
@@ -37,14 +37,14 @@ let sqrt = \x.
 -- one could want a gcd for signed numbers but
 -- this would mean more complexity for something not really needed
 -- so the gcd is only defined for unsigned numbers
-let rec gcd = \a. \b. 
-            if b == 0 then 
-                a 
-            else 
+let rec gcd = \a. \b.
+            if b == 0 then
+                a
+            else
                 gcd b (a %u b)
             end
 
-let prime = \n. 
+let prime = \n.
     let rec isprimeaux = \i.
         if i*i <=u n then
             if n %u i == 0 then
@@ -56,19 +56,19 @@ let prime = \n.
             1
         end
     in
-    if n < 2 then 
-        0 
-    else 
-        isprimeaux 2 
+    if n < 2 then
+        0
+    else
+        isprimeaux 2
     end
 
 
-let cmp_i32 = \a. \b. 
-    if a < b then 
+let cmp_i32 = \a. \b.
+    if a < b then
         -1
-    else if a > b then 
+    else if a > b then
         1
-    else 
+    else
         0
     end end
 

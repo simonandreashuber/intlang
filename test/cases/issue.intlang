@@ -14,6 +14,6 @@ let map = \f v.
         mapaux vecmk[f vecget[v, 0], veclen[v]] 0
     end
 let main = \() (
-        let double = map (\x. 2*x) vec[1,2,3] in 
+        let double = map (\x. 2*x) vec[1,2,3] in
         io.writeln_i32vec double
         )

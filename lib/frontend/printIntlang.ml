@@ -12,7 +12,7 @@ let rec sprint_typ (t : typ) : string =
     | TUnit -> "()"
     | TI32 -> "i32"
     | TI8 -> "i8"
-    | TTup t_list -> 
+    | TTup t_list ->
         let t_lst_str = List.map sprint_typ t_list in
         "(" ^ (String.concat "*" t_lst_str) ^ ")"
     | TVec t_inner -> "[" ^ (sprint_typ t_inner)  ^ "]"
@@ -32,7 +32,7 @@ let sprint_schema (Forall (vars, t) : schema) : string =
   vars_str ^ sprint_typ t
 
 let sprint_env (env : typenv) : string =
-  let bindings = List.map (fun (name, (Forall (vars, t), uuid)) -> 
+  let bindings = List.map (fun (name, (Forall (vars, t), uuid)) ->
     let vars_str = if vars = [] then "" else "forall " ^ String.concat " " (List.map (fun v -> "t" ^ string_of_int v) vars) ^ ". " in
     name ^ "(uuid=" ^ string_of_int uuid ^ ")" ^ " : " ^ vars_str ^ sprint_typ t
   ) env in
@@ -99,7 +99,7 @@ let rec sprint_lexp_wdepth (d_opt : int option) (tab : int) (l : lexp) : string 
   match d_opt with
   | Some d when d <= 0 -> "..."
   | _ -> (
-  let next_d = 
+  let next_d =
     match d_opt with
     | Some d -> Some (d-1)
     | None -> None in
@@ -111,7 +111,7 @@ let rec sprint_lexp_wdepth (d_opt : int option) (tab : int) (l : lexp) : string 
   | I8Lit c -> "'" ^ Char.escaped c ^ "'"
   | UnitLit -> "()"
   | LamUnit body -> "\\().\n" ^ ind_next ^ sprint_lexp_wdepth next_d (tab + 1) body
-  
+
   | Lam (id, inT_opt, outT_opt, body) -> (
       let typ_str = match inT_opt, outT_opt with
         | None, None -> ""
@@ -178,8 +178,8 @@ let sprint_stmt (tab : int) (st : stmt) : string =
   | Let (id, e) ->  ind ^ "let " ^ id ^ " = " ^ sprint_lexp (tab + 1) e
   | Letrec lst -> (
       match lst with
-      | ((id, e) :: tl) -> List.fold_left 
-                              (fun acc (id, e) -> acc ^ "\n" ^ ind ^ "and " ^ id ^ " = " ^ sprint_lexp (tab + 1) e) 
+      | ((id, e) :: tl) -> List.fold_left
+                              (fun acc (id, e) -> acc ^ "\n" ^ ind ^ "and " ^ id ^ " = " ^ sprint_lexp (tab + 1) e)
                               (ind ^ "let rec " ^ id ^ " = " ^ sprint_lexp (tab + 1) e) tl
       | _ -> raise (Errors.PrintError "Empty Letrec")
   )
@@ -203,9 +203,9 @@ let rec sprint_tlexp (tab : int) (l : tlexp) : string =
   | VarT (sref, uuidref, t) -> (fatred !sref) ^ puuid !uuidref ^ pt t
   | LamT (id, uuid, body, t) -> (
       match body with
-      (*mb. readability would profit from adding the type only on the outer most lam 
+      (*mb. readability would profit from adding the type only on the outer most lam
         but it is not trivial to implement (ie. needs a ref or passing one moore param)*)
-      | LamT _ -> (fatred @@ "\\" ^ id ^ ". " ^ sprint_tlexp tab body) ^ pt t 
+      | LamT _ -> (fatred @@ "\\" ^ id ^ ". " ^ sprint_tlexp tab body) ^ pt t
       | _ -> (fatred @@ "\\" ^ id ^ ".\n" ^ ind_next ^ sprint_tlexp (tab + 1) body) ^ pt t
     )
   | LamUnitT (body, t) -> (fatred @@ "\\().\n" ^ ind_next ^ sprint_tlexp (tab + 1) body) ^ pt t
@@ -226,8 +226,8 @@ let rec sprint_tlexp (tab : int) (l : tlexp) : string =
       (fatred @@ "let rec " ^ id ^ " =\n" ^ ind_next ^ sprint_tlexp (tab + 1) e ^ "\n" ^
       ind ^ "in\n" ^ ind_next ^ sprint_tlexp (tab + 1) body) ^ puuid uuid ^ pt t
   | LetinTupleT (elmlst , e, body, t) -> (
-      let elmlst_str = String.concat ", " ( List.map 
-            (fun elm_opt -> 
+      let elmlst_str = String.concat ", " ( List.map
+            (fun elm_opt ->
               match elm_opt with
               | Some (id, uuid) -> fatred id ^ puuid uuid
               | None -> "_"

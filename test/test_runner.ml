@@ -13,26 +13,26 @@ let read_all_channel ic =
       loop ()
     end
   in
-  try 
-    loop (); 
+  try
+    loop ();
     Buffer.contents buf
-  with End_of_file -> 
+  with End_of_file ->
     Buffer.contents buf
 
 (* Generates a clean, line-by-line diff pointing to the first mismatch *)
 let generate_diff expected actual =
   let exp_lines = String.split_on_char '\n' expected in
   let act_lines = String.split_on_char '\n' actual in
-  
+
   let rec find_mismatch line_num l1 l2 =
     match l1, l2 with
     | [], [] -> None
     | h1::t1, h2::t2 when h1 = h2 -> find_mismatch (line_num + 1) t1 t2
-    | h1::_, h2::_ -> 
+    | h1::_, h2::_ ->
         Some (Printf.sprintf "Mismatch at line %d:\n  - EXPECTED: %S\n  + ACTUAL  : %S" line_num h1 h2)
-    | [], h2::_ -> 
+    | [], h2::_ ->
         Some (Printf.sprintf "Mismatch at line %d:\n  - EXPECTED: <End of Output>\n  + ACTUAL  : %S\n    (Interpreter emitted extra lines)" line_num h2)
-    | h1::_, [] -> 
+    | h1::_, [] ->
         Some (Printf.sprintf "Mismatch at line %d:\n  - EXPECTED: %S\n  + ACTUAL  : <End of Output>\n    (Interpreter stopped early)" line_num h1)
   in
   match find_mismatch 1 exp_lines act_lines with
@@ -42,15 +42,15 @@ let generate_diff expected actual =
 (* Runs a single process, feeds it input, and returns the output/error *)
 let execute_process cmd input_data =
   let (stdout_ch, stdin_ch, stderr_ch) = Unix.open_process_full cmd (Unix.environment ()) in
-  
+
   (* Thread-safe references to capture string data *)
   let stdout_output = ref "" in
   let stderr_output = ref "" in
-  
+
   (* Spawn concurrent threads to drain stdout and stderr parallelly *)
   let stdout_thread = Thread.create (fun () -> stdout_output := read_all_channel stdout_ch) () in
   let stderr_thread = Thread.create (fun () -> stderr_output := read_all_channel stderr_ch) () in
-  
+
   try
     (* Main thread pushes data into stdin *)
     output_string stdin_ch input_data;
@@ -63,7 +63,7 @@ let execute_process cmd input_data =
     let status = Unix.close_process_full (stdout_ch, stdin_ch, stderr_ch) in
     match status with
     | Unix.WEXITED 0 -> Ok !stdout_output
-    | Unix.WEXITED code -> 
+    | Unix.WEXITED code ->
         Error (Printf.sprintf "Non-zero exit code %d.\nStderr:\n%s\nInput:\n%s" code !stderr_output input_data)
     | _ -> Error "Process terminated abnormally."
   with e ->
@@ -75,7 +75,7 @@ let execute_process cmd input_data =
 let run_interp_batch interpflag compiler_binary case =
   let input_buf = Buffer.create 4096 in
   let expect_buf = Buffer.create 4096 in
-  
+
   for i = 0 to case.iterations - 1 do
     let (in_str, exp_str) = case.generator i in
     Buffer.add_string input_buf in_str;
@@ -84,11 +84,11 @@ let run_interp_batch interpflag compiler_binary case =
 
   let all_input = Buffer.contents input_buf in
   let all_expected = Buffer.contents expect_buf in
-  let cmd = Printf.sprintf "%s --stdlibpath %s %s %d %s" 
-      (Filename.quote compiler_binary) 
-      (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/")) 
+  let cmd = Printf.sprintf "%s --stdlibpath %s %s %d %s"
+      (Filename.quote compiler_binary)
+      (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/"))
       interpflag
-      case.iterations 
+      case.iterations
       (Filename.quote case.filename) in
 
   match execute_process cmd all_input with
@@ -99,12 +99,12 @@ let run_interp_batch interpflag compiler_binary case =
 
 (* SEPARATE MODE: Runs a new process for every iteration *)
 let run_interp_separate interpflag compiler_binary case =
-  let cmd = Printf.sprintf "%s --stdlibpath %s %s 1 %s" 
-      (Filename.quote compiler_binary) 
-      (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/")) 
+  let cmd = Printf.sprintf "%s --stdlibpath %s %s 1 %s"
+      (Filename.quote compiler_binary)
+      (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/"))
       interpflag
       (Filename.quote case.filename) in
-  
+
   let rec loop i =
     if i >= case.iterations then None
     else
@@ -119,17 +119,17 @@ let run_interp_separate interpflag compiler_binary case =
 
 let run_bin compiler_binary case =
   let testbin_name = "testbin" in
-  let compile_cmd = Printf.sprintf "%s --stdlibpath %s -O1 --asan -o %s %s" 
-      (Filename.quote compiler_binary) 
-      (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/")) 
+  let compile_cmd = Printf.sprintf "%s --stdlibpath %s -O1 --asan -o %s %s"
+      (Filename.quote compiler_binary)
+      (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/"))
       (Filename.quote testbin_name)
       (Filename.quote case.filename) in
-  
+
   let exit_code = Sys.command compile_cmd in
   if exit_code <> 0 then Some (Printf.sprintf "Compilation failed for %s with exit code %d" case.filename exit_code)
   else (
     let cmd = "./" ^ testbin_name in
-    
+
     let rec loop i =
       if i >= case.iterations then None
       else
@@ -160,7 +160,7 @@ let () =
     ("--intermir", Arg.Set test_intermir, "Run tests for the MIR simulator");
   ] in
   let usage_msg = "Usage: test_runner [--separate] <compiler_binary>" in
-  
+
   Arg.parse speclist (fun s -> compiler_binary := s) usage_msg;
 
   if !compiler_binary = "" then begin
@@ -170,7 +170,7 @@ let () =
 
   let run_test =
     match (!separate_mode, !test_interpast, !test_intermir) with
-    | (true, true, false) -> run_interp_separate "--testast" 
+    | (true, true, false) -> run_interp_separate "--testast"
     | (true, false, true) -> run_interp_separate "--testmir"
     | (false, false, false) -> run_bin
     | _ -> failwith "Invalid combination of flags."
@@ -183,7 +183,7 @@ let () =
   List.iter (fun (testgroupname, testcases) ->
     (* Evaluate all cases in the group first *)
     let results = List.map (fun case -> (case, run_test !compiler_binary case)) testcases in
-    
+
     let group_failed = List.exists (fun (_, res) -> res <> None) results in
 
     if not group_failed then begin
@@ -194,11 +194,11 @@ let () =
       (* Print detailed lines if something failed *)
       global_failed := true;
       Printf.printf "\n=== TEST GROUP FAILED: %s ===\n" testgroupname;
-      
+
       List.iter (fun (case, res) ->
         match res with
         | None -> Printf.printf "  [PASS] %s\n" case.testname
-        | Some err -> 
+        | Some err ->
             Printf.printf "  [FAIL] %s\n" case.testname;
             Printf.printf "         %s\n" (String.concat "\n         " (String.split_on_char '\n' err))
       ) results;

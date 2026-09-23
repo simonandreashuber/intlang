@@ -5,20 +5,20 @@ let bubblesort = \cmpf arr.
     let rec bubblesortaux = \arr n i.
         let arrupdt =
                     let left = vecget[arr, i] in
-                    let right = vecget[arr, n] in 
-                    if cmpf left right < 0 then 
+                    let right = vecget[arr, n] in
+                    if cmpf left right < 0 then
                         arr
                     else
                         let temp = right in
                         let arr1 = vecset[arr, left, n] in
                         vecset[arr1, temp, i]
-                    end 
+                    end
         in
-        if i < (len-1) then 
+        if i < (len-1) then
             bubblesortaux arrupdt n (i+1)
         else if n < (len-1) then
             bubblesortaux arrupdt (n+1) 0
-        else 
+        else
             arr
         end end
     in
@@ -27,5 +27,5 @@ let bubblesort = \cmpf arr.
     else
         bubblesortaux arr 0 0
     end
-    
+
 let bubblesort_i32 = bubblesort math.cmp_i32

@@ -81,7 +81,7 @@ let concat = \v1 v2.
     let rec concataux = \acc i.
         if i < veclen[v2] then
             concataux (vecset[acc, vecget[v2, i], i + veclen[v1]]) (i+1)
-        else 
+        else
             acc
         end
     in
@@ -106,7 +106,7 @@ let rev = \v.
         revaux vecmk[vecget[v,0], veclen[v]] 0 (veclen[v]-1)
     end
 
-    
+
 
 let cmp = \cmpelm v1 v2.
     let n1 = veclen[v1] in

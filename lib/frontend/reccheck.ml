@@ -14,7 +14,7 @@ let rec is_lambda e =
   | Letin (_, _, e2) | LetinTuple (_, _, e2) | Letrecin (_, _, e2) -> is_lambda e2
   | _ -> false
 
-let rec reccheck_lexp (e : lexp) : unit = 
+let rec reccheck_lexp (e : lexp) : unit =
   match e with
   | Var v -> ()
   | Lam (_, _, _, body) -> reccheck_lexp body
