@@ -51,7 +51,7 @@ let rand_int32tuplst_ranged seed i min max maxlen =
   let len = 1 + Int32.to_int (Int32.unsigned_rem (rand_int32 seed0 0) maxlen) in
   List.init len (fun j -> (rand_int32_ranged seed0 (2*j) min max, rand_int32_ranged seed0 (2*j+1) min max))
 
-let rand_int32array_ranged seed i min max len = 
+let rand_int32array_ranged seed i min max len =
   let seed0 = rand_int32 seed i in
   Array.init (Int32.to_int len) (fun j -> rand_int32_ranged seed0 j min max)
 
@@ -92,7 +92,7 @@ let iobasic_tests = [
   the (IOBasic Tests). Some futures are so essential to a minimal program
   that they cant really be tested in isolation. These include: Application,
   Unit Lambda, Unit Literal, Sequence and the top level main let binding.
-  Before these test the IOBasic tests should run since these test rely on 
+  Before these test the IOBasic tests should run since these test rely on
   the builtin IO and Cast functions
 *)
 let langbasic_tests = [
@@ -140,7 +140,7 @@ let langbasic_tests = [
     iterations = 256; (*dont even think about running this in separate mode it takes forever *)
     generator = (fun i -> let (i0, i1) = (i / 256, i mod 256) in
       (sim256 i0 ^ sim256 i1,
-        sim256 (if i0 = i1 then 1 else 0) ^ 
+        sim256 (if i0 = i1 then 1 else 0) ^
         sim256 (if i0 <> i1 then 1 else 0) ^
         sim256 (if i0 < i1 then 1 else 0) ^
         sim256 (if i0 > i1 then 1 else 0) ^
@@ -180,7 +180,7 @@ let langbasic_tests = [
     testname = "letrecin";
     filename = "cases/letrecin.intlang";
     iterations = 13;
-    generator = (fun i -> 
+    generator = (fun i ->
                   let rec fib n = if n < 2 then n else fib (n-1) + fib (n-2) in
                 (sim256 i, sim256 (fib i))
                 );
@@ -189,7 +189,7 @@ let langbasic_tests = [
     testname = "tuple";
     filename = "cases/tuple.intlang";
     iterations = 32;
-    generator = (fun i -> 
+    generator = (fun i ->
                   let inout = sim256 i ^ sim256 (i+1) ^ sim256 (i+2) ^ sim256 (i+3) in
                   (inout, inout);
                 );
@@ -253,7 +253,7 @@ let langbasic_tests = [
     filename = "cases/comments.intlang";
     iterations = 1;
     generator = (fun _ -> ("", sim256 0x55));
-  };
+    };
 ]
 
 (*
@@ -319,7 +319,7 @@ let iolib_tests = [
     filename = "cases/read_write_csi32.intlang";
     iterations = 4;
     generator = (fun i ->
-      let csi32 = 
+      let csi32 =
       if i = 0 then
         "0,0,0,0,0,0\n" (*minimal string len => maximal vec len*)
       else if i = 1 then
@@ -368,7 +368,7 @@ let lang_tests = [
       let expected =
         prln_int32 (b32 (x = y)) ^
         prln_int32 (b32 (x <> y)) ^
-        prln_int32 (b32 (x < y)) ^ 
+        prln_int32 (b32 (x < y)) ^
         prln_int32 (b32 (x > y)) ^
         prln_int32 (b32 (x <= y)) ^
         prln_int32 (b32 (x >= y)) ^
@@ -406,13 +406,13 @@ let lang_tests = [
   };
 ]
 
-(* 
+(*
   ==== Monomorphism Tests ====
   These test the monomorphism pass of the compiler. The test suite is not designed
   to test this well (very focused on the io) but still they provide a certain level of confidence
   since these examples would not work without the monomorphism pass. Also note that these tests are more
   meaningfull for the compiler than for the interpreter since the interpreter is not really in need
-  of the monomorphism pass. 
+  of the monomorphism pass.
 *)
 
 let monomorphism_tests = [
@@ -465,13 +465,13 @@ let legacy_tests = [
     filename = "cases/funclist.intlang";
     iterations = 1;
     generator = (fun _ -> ("", "2\n"));
-  }; 
+  };
   {
     testname = "pipe";
     filename = "cases/pipe.intlang";
     iterations = 1;
     generator = (fun _ -> ("", "11\n"));
-  }; 
+  };
   {
     testname = "quad";
     filename = "cases/quad.intlang";
@@ -479,7 +479,7 @@ let legacy_tests = [
     generator = (fun _ -> ("", "4\n"));
   }
 ]
-  
+
 
 
 (*
@@ -520,7 +520,7 @@ let cmp_int32_lists lst0 lst1 =
   if List.compare elcmp lst0 lst1 < 0 then -1l else if List.compare elcmp lst0 lst1 > 0 then 1l else 0l
 
 let search_int32lst (lst : int32 list) (target : int32) =
-  List.fold_right (fun (idx, x) acc -> if Int32.compare x target = 0 then idx else acc) (List.mapi (fun idx x -> (Int32.of_int idx, x)) lst) (-1l) 
+  List.fold_right (fun (idx, x) acc -> if Int32.compare x target = 0 then idx else acc) (List.mapi (fun idx x -> (Int32.of_int idx, x)) lst) (-1l)
 
 let lib_tests = [
   {
@@ -635,7 +635,7 @@ let lib_tests = [
       let input_vec = input_vec0 @ [target] @ input_vec1 in
       let sorted_vec = List.sort Int32.compare input_vec in
       let input = prln_int32 target ^
-                  prln_int32lst input_vec ^ 
+                  prln_int32lst input_vec ^
                   prln_int32lst sorted_vec in
       let expected =  prln_int32 (search_int32lst input_vec target) ^
                       prln_int32 (search_int32lst sorted_vec target) in
@@ -758,7 +758,7 @@ let dfs_canonicalord_ocamlvers g size start =
   if G.is_empty g then ([||], [||], [||])
   else
     (*1. Make sure start vertex exists*)
-    let g = G.add_vertex g start in 
+    let g = G.add_vertex g start in
 
     (* 2. Initialize arrays with int32 fallback values (-1l) *)
     let discover_arr = Array.make size (-1l) in
@@ -771,7 +771,7 @@ let dfs_canonicalord_ocamlvers g size start =
       let u_idx = Int32.to_int u in
       discover_arr.(u_idx) <- !time;
       time := Int32.add !time 1l;
-      
+
       G.iter_succ (fun v ->
         let v_idx = Int32.to_int v in
         (* If discover time is still -1l, it hasn't been visited *)
@@ -780,7 +780,7 @@ let dfs_canonicalord_ocamlvers g size start =
           dfs_visit v
         end
       ) g u;
-      
+
       finish_arr.(u_idx) <- !time;
       time := Int32.add !time 1l
     in

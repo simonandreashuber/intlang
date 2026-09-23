@@ -35,12 +35,14 @@ let run_pipeline (b : builder) (optimize : bool) : unit =
     if optimize then(
       Calldirectopt.calldirect_opt b aly;
       Tco.tco_opt b aly;
-      (*Dceopt.dce_opt b aly;
-      Inlineopt.inline_opt b aly;
-      Calldirectopt.calldirect_opt b aly;
-      Inlineopt.inline_opt b aly;
-      Calldirectopt.calldirect_opt b aly;*)
       Dceopt.dce_opt b aly;
+      let count = ref 0 in
+      while !count < 5 do (*5 rounds should make many cases work*)
+        count := !count + 1;
+        Inlineopt.inline_opt b aly;
+        Calldirectopt.calldirect_opt b aly;
+        Dceopt.dce_opt b aly;
+      done;
       Compactcfgopt.compactcfg_opt b aly
     );
 

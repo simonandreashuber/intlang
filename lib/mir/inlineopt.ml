@@ -31,45 +31,6 @@ open Printmir
 open Buildmir
 open Analysis
 
-module FuncidSet = Set.Make(Int)
-
-let get_post_order (func_map : func FuncMap.t) (visited : FuncidSet.t ref) (call_counts : int array) (origin_funcid : funcid) : funcid list =
-  let acc = ref [] in
-
-  let rec dfs (funcid : funcid) =
-    if not (FuncidSet.mem funcid !visited) then begin
-      visited := FuncidSet.add funcid !visited;
-      let fn = try FuncMap.find funcid func_map with Not_found -> failwith "Function not found" in
-      BBMap.iter (fun _ bb ->
-        List.iter (function
-          | CallDirect (_, funcid_ref, _) ->
-              let callee = !funcid_ref in
-              call_counts.(callee) <- call_counts.(callee) + 1;
-              Printf.printf "detected direct call %d to callee @%d from caller @%d \"%s\"\n" call_counts.(callee) callee fn.funcid fn.name;
-              dfs callee
-          | Func (_, funcid_ref, funcid_opt_ref) -> (
-            (* while func ops dont count in terms of the call graph, appearing in closure
-               creation matters as this closure will probably result in a call somewhere*)
-            let callee = !funcid_ref in
-            call_counts.(callee) <- call_counts.(callee) + 1;
-            Printf.printf "detected clos creation %d to callee @%d from caller @%d \"%s\"\n" call_counts.(callee) callee fn.funcid fn.name;
-            match !funcid_opt_ref with
-            | Some callee -> call_counts.(callee) <- call_counts.(callee) + 1;
-            | None -> ()
-          )
-          | Pack _ | CallClosure _
-          | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _ | DropGlobal _
-          | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
-          | Tupwrp _ | Tupuwrp _ | Tupborr _ | Veclit _ | Vecinit _ | Veclen _ | Vecread _
-          | Vecwrite _ | Vecinsert _ | Vecslice _ | Vecextend _ -> ()
-        ) (List.rev bb.ops)
-      ) fn.bbs;
-      (* post order: append node after all reachable callees are visited *)
-      acc := funcid :: !acc
-    end
-  in
-  dfs origin_funcid;
-  List.rev !acc
 
 
 let inline_opt_func (decide_inline : builder -> analysis_info -> funcid -> funcid -> bool) (b : builder) (aly : analysis_info) (fn : func) : bool =
@@ -180,17 +141,64 @@ let inline_opt_func (decide_inline : builder -> analysis_info -> funcid -> funci
   !did_inline
 
 
+module FuncidSet = Set.Make(Int)
+
+let get_post_order (func_map : func FuncMap.t) (visited : FuncidSet.t ref) (call_counts : int array) (rec_marked : bool array) (origin_funcid : funcid) : funcid list =
+  let acc = ref [] in
+
+  let rec dfs (stack : funcid list) (funcid : funcid) =
+    let stack = funcid :: stack in
+    if not (FuncidSet.mem funcid !visited) then begin
+      visited := FuncidSet.add funcid !visited;
+      let fn = try FuncMap.find funcid func_map with Not_found -> failwith "Function not found" in
+      BBMap.iter (fun _ bb ->
+        List.iter (function
+          | CallDirect (_, funcid_ref, _) ->
+              let callee = !funcid_ref in
+              call_counts.(callee) <- call_counts.(callee) + 1;
+              if List.mem callee stack then rec_marked.(callee) <- true;
+              (*Printf.printf "detected direct call %d to callee @%d from caller @%d \"%s\"\n" call_counts.(callee) callee fn.funcid fn.name;*)
+              dfs stack callee
+          | Func (_, funcid_ref, funcid_opt_ref) -> (
+            (* while func ops dont count in terms of the call graph, appearing in closure
+               creation matters as this closure will probably result in a call somewhere*)
+            let callee = !funcid_ref in
+            call_counts.(callee) <- call_counts.(callee) + 1;
+            if List.mem callee stack then rec_marked.(callee) <- true;
+            (*Printf.printf "detected clos creation %d to callee @%d from caller @%d \"%s\"\n" call_counts.(callee) callee fn.funcid fn.name;*)
+            match !funcid_opt_ref with
+            | Some callee -> (
+              call_counts.(callee) <- call_counts.(callee) + 1;
+              if List.mem callee stack then rec_marked.(callee) <- true;
+            )
+            | None -> ()
+          )
+          | Pack _ | CallClosure _
+          | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _ | DropGlobal _
+          | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
+          | Tupwrp _ | Tupuwrp _ | Tupborr _ | Veclit _ | Vecinit _ | Veclen _ | Vecread _
+          | Vecwrite _ | Vecinsert _ | Vecslice _ | Vecextend _ -> ()
+        ) (List.rev bb.ops)
+      ) fn.bbs;
+      (* post order: append node after all reachable callees are visited *)
+      acc := funcid :: !acc
+    end
+  in
+  dfs [] origin_funcid;
+  List.rev !acc
+
 let inline_opt (b : builder) (aly : analysis_info) : unit =
 
   (*Phase 1: Single Callsite*)
   let visited = ref FuncidSet.empty in
   let call_counts = Array.make (FuncMap.cardinal b.program.funcs) 0 in
+  let rec_marked = Array.make (FuncMap.cardinal b.program.funcs) false in
 
   let post_order = ref [] in
 
   let aux origin_funcid_opt : unit =
     match origin_funcid_opt with
-    | Some origin_funcid -> post_order := (get_post_order b.program.funcs visited call_counts origin_funcid) @ !post_order
+    | Some origin_funcid -> post_order := (get_post_order b.program.funcs visited call_counts rec_marked origin_funcid) @ !post_order
     | None -> ()
   in
   aux b.program.init_globals_funcid;
@@ -198,7 +206,7 @@ let inline_opt (b : builder) (aly : analysis_info) : unit =
   aux b.program.uninit_globals_funcid;
   FuncMap.iter (fun _fid fn ->
     if Option.is_none fn.extern_name && fn.exported then
-      post_order := (get_post_order b.program.funcs visited call_counts fn.funcid) @ !post_order
+      post_order := (get_post_order b.program.funcs visited call_counts rec_marked fn.funcid) @ !post_order
     else
       ()
   ) b.program.funcs;
@@ -207,7 +215,7 @@ let inline_opt (b : builder) (aly : analysis_info) : unit =
     let callee_fn = try find_func b callee with Not_found -> failwith "singlecallsite_decide_inline: callee not found" in
     if Option.is_some callee_fn.extern_name || callee = caller || callee_fn.exported
     then false
-    else if call_counts.(callee) = 1 then (Printf.printf "inline single call function %s \n" callee_fn.name; true) else false (* to do make smarter inline heuristics *)
+    else if call_counts.(callee) = 1 then ((*Printf.printf "inline single call function %s \n" callee_fn.name;*) true) else false (* to do make smarter inline heuristics *)
   in
 
   List.iter (fun funcid ->
@@ -220,13 +228,14 @@ let inline_opt (b : builder) (aly : analysis_info) : unit =
     let callee_fn = try find_func b callee with Not_found -> failwith "heuristics_decide_inline: callee not found" in
     if Option.is_some callee_fn.extern_name || callee = caller
     then false
-    else if BBMap.cardinal callee_fn.bbs < 6 then (Printf.printf "inline function %s \n" callee_fn.name; true) else false (* to do make smarter inline heuristics *)
+    else if BBMap.cardinal callee_fn.bbs < 10 && (not @@ rec_marked.(callee))
+    then ((*Printf.printf "inline function %s \n" callee_fn.name;*) true)
+    else ((*Printf.printf "NOT inlining function %s, bbs: %d, rec_mark: %b \n" callee_fn.name (BBMap.cardinal callee_fn.bbs) rec_marked.(callee);*) false) (* to do make smarter inline heuristics *)
   in
 
   let q = Queue.create () in
   Queue.add_seq q (Seq.map (fun (funcid, fn) -> assert (funcid = fn.funcid); fn) (FuncMap.to_seq b.program.funcs));
 
-  Printf.printf "starting phase 2 \n";
   while not (Queue.is_empty q) do
     let fn = Queue.pop q in
     ignore(inline_opt_func heuristics_decide_inline b aly fn)
