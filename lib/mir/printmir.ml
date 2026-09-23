@@ -27,6 +27,14 @@ let string_of_ssaconsume (c : ssaconsume) : string =
   then Printf.sprintf "%%%d!" c.ssaid
   else Printf.sprintf "%%%d" c.ssaid
 
+(* use: %\d+c\b regex to find all places a copy is made *)
+let string_of_consumeorcopy (fn : func) (c : ssaconsume) : string =
+  match is_memtyp @@ get_mirtyp_func fn c.ssaid, c.consume with
+  | true, true -> Printf.sprintf "%%%d!" c.ssaid
+  | true, false -> Printf.sprintf "%%%dc" c.ssaid
+  | false, false -> Printf.sprintf "%%%d" c.ssaid
+  | false, true -> failwith "consumed non memory type detected during printing"
+
 let string_of_funcid (id : funcid) : string =
   Printf.sprintf "@%d" id
 
@@ -64,6 +72,9 @@ let string_of_ssaids (args : ssaid list) : string =
 
 let string_of_ssaconsumes (args : ssaconsume list) : string =
   String.concat " " (List.map string_of_ssaconsume args)
+
+let string_of_consumeorcopys (fn : func) (args : ssaconsume list) : string =
+  String.concat " " (List.map (string_of_consumeorcopy fn) args)
 
 (* ========================================================================= *)
 (* Operators                                                                 *)
@@ -103,20 +114,20 @@ let string_of_op (fn : func) = function
       | None -> Printf.sprintf "%s = func %s" (string_of_ssa_def fn dst) (string_of_funcid !fid_ref)
   )
   | Pack (dst, oldclos, args) ->
-      let args_str = if args = [] then "" else " " ^ string_of_ssaconsumes args in
-      Printf.sprintf "%s = pack %s%s" (string_of_ssa_def fn dst) (string_of_ssaconsume oldclos) args_str
+      let args_str = if args = [] then "" else " " ^ string_of_consumeorcopys fn args in
+      Printf.sprintf "%s = pack %s%s" (string_of_ssa_def fn dst) (string_of_consumeorcopy fn oldclos) args_str
   | CallClosure (dst, clos) ->
-      Printf.sprintf "%s = callclosure %s" (string_of_ssa_def fn dst) (string_of_ssaconsume clos)
+      Printf.sprintf "%s = callclosure %s" (string_of_ssa_def fn dst) (string_of_consumeorcopy fn clos)
   | CallDirect (dst, fid, args) ->
       let args_str = if args = [] then "" else " " ^ string_of_ssaconsumes args in
       Printf.sprintf "%s = calldirect %s%s" (string_of_ssa_def fn dst) (string_of_funcid !fid) args_str
   | Copy (dst, src) ->
-      Printf.sprintf "%s = copy %s" (string_of_ssa_def fn dst) (string_of_ssa src)
+      Printf.sprintf "%s = copy %sc" (string_of_ssa_def fn dst) (string_of_ssa src)
   | Drop mems ->
       let mems_str = if mems = [] then "" else " " ^ string_of_ssaids mems in
       Printf.sprintf "drop%s" mems_str
   | StoreGlobal (gid, v) ->
-      Printf.sprintf "storeglobal %s %s" (string_of_globalid gid) (string_of_ssaconsume v)
+      Printf.sprintf "storeglobal %s %s" (string_of_globalid gid) (string_of_consumeorcopy fn v)
   | LoadGlobal (dst, gid) ->
       Printf.sprintf "%s = loadglobal %s" (string_of_ssa_def fn dst) (string_of_globalid gid)
   | DropGlobal gid ->
@@ -136,13 +147,13 @@ let string_of_op (fn : func) = function
   | Bopi8 (dst, bop, a, b) ->
       Printf.sprintf "%s = bopi8 %s %s %s" (string_of_ssa_def fn dst) (string_of_bopi8 bop) (string_of_ssa a) (string_of_ssa b)
   | Tupwrp (dst, elms) ->
-      Printf.sprintf "%s = tupwrp %s" (string_of_ssa_def fn dst) (string_of_ssaconsumes elms)
+      Printf.sprintf "%s = tupwrp %s" (string_of_ssa_def fn dst) (string_of_consumeorcopys fn elms)
   | Tupuwrp (elms, tup) ->
-      Printf.sprintf "%s = tupuwrp %s" (string_of_ssa_defs fn elms) (string_of_ssaconsume tup)
+      Printf.sprintf "%s = tupuwrp %s" (string_of_ssa_defs fn elms) (string_of_consumeorcopy fn tup)
   | Tupborr (elms, tup) ->
       Printf.sprintf "%s = tupborr %s" (string_of_ssa_defs fn elms) (string_of_ssa tup)
   | Veclit (dst, elms) ->
-      Printf.sprintf "%s = veclit %s" (string_of_ssa_def fn dst) (string_of_ssaconsumes elms)
+      Printf.sprintf "%s = veclit %s" (string_of_ssa_def fn dst) (string_of_consumeorcopys fn elms)
   | Vecinit (dst, defval, dims) ->
       Printf.sprintf "%s = vecinit %s %s" (string_of_ssa_def fn dst) (string_of_ssa defval) (string_of_ssaids dims)
   | Veclen (dst, vec) ->
@@ -150,9 +161,9 @@ let string_of_op (fn : func) = function
   | Vecread (dst, vec, idxs) ->
       Printf.sprintf "%s = vecread %s %s" (string_of_ssa_def fn dst) (string_of_ssa vec) (string_of_ssaids idxs)
   | Vecwrite (dst, vec, v, idxs) ->
-      Printf.sprintf "%s = vecwrite %s %s %s" (string_of_ssa_def fn dst) (string_of_ssaconsume vec) (string_of_ssa v) (string_of_ssaids idxs)
+      Printf.sprintf "%s = vecwrite %s %s %s" (string_of_ssa_def fn dst) (string_of_consumeorcopy fn vec) (string_of_ssa v) (string_of_ssaids idxs)
   | Vecinsert (dst, vec, vecins, idxs) ->
-      Printf.sprintf "%s = vecinsert %s %s %s" (string_of_ssa_def fn dst) (string_of_ssaconsume vec) (string_of_ssaconsume vecins) (string_of_ssaids idxs)
+      Printf.sprintf "%s = vecinsert %s %s %s" (string_of_ssa_def fn dst) (string_of_consumeorcopy fn vec) (string_of_consumeorcopy fn vecins) (string_of_ssaids idxs)
   | Vecslice (dst, vec, start, len) ->
       Printf.sprintf "%s = vecslice %s %s %s" (string_of_ssa_def fn dst) (string_of_ssa vec) (string_of_ssa start) (string_of_ssa len)
   | Vecextend (dst, vec, lit, off) ->
