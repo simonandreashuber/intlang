@@ -113,6 +113,9 @@ let main () =
     (* Monomorphization Pass *)
     let monotast = Monomorph.monomorph polytast in
 
+    (* Top Level Eta-Expansions *)
+    let monotast = Toplvletaexpand.toplvl_eta_expand monotast in
+
     if !print_monotast then begin
       Printf.printf "%sMONOTAST:\n%s" headerline (PrintIntlang.sprint_monotast monotast); flush stdout end;
 

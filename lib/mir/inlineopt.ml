@@ -228,7 +228,7 @@ let inline_opt (b : builder) (aly : analysis_info) : unit =
     let callee_fn = try find_func b callee with Not_found -> failwith "heuristics_decide_inline: callee not found" in
     if Option.is_some callee_fn.extern_name || callee = caller
     then false
-    else if BBMap.cardinal callee_fn.bbs < 10 && (not @@ rec_marked.(callee))
+    else if BBMap.cardinal callee_fn.bbs < 20 && (not @@ rec_marked.(callee))
     then ((*Printf.printf "inline function %s \n" callee_fn.name;*) true)
     else ((*Printf.printf "NOT inlining function %s, bbs: %d, rec_mark: %b \n" callee_fn.name (BBMap.cardinal callee_fn.bbs) rec_marked.(callee);*) false) (* to do make smarter inline heuristics *)
   in
