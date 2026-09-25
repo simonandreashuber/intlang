@@ -157,7 +157,7 @@ let () =
   let speclist = [
     ("--separate", Arg.Set separate_mode, "Run each test iteration in a separate process");
     ("--interpast", Arg.Set test_interpast, "Run tests for the AST interpreter");
-    ("--intermir", Arg.Set test_intermir, "Run tests for the MIR simulator");
+    ("--interpmir", Arg.Set test_intermir, "Run tests for the MIR simulator");
   ] in
   let usage_msg = "Usage: test_runner [--separate] <compiler_binary>" in
 
@@ -170,8 +170,8 @@ let () =
 
   let run_test =
     match (!separate_mode, !test_interpast, !test_intermir) with
-    | (true, true, false) -> run_interp_separate "--testast"
-    | (true, false, true) -> run_interp_separate "--testmir"
+    | (true, true, false) -> run_interp_separate "--interpmonotast"
+    | (true, false, true) -> run_interp_separate "--interpmir"
     | (false, false, false) -> run_bin
     | _ -> failwith "Invalid combination of flags."
   in
