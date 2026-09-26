@@ -41,10 +41,11 @@ let enQueue = \q x.
 
 
 let deQueue = \q.
-            let (front, back, v) = q in
             if isemptyQueue q then
-                err.err (vecget[v, 0], q)
+                let (front, back, v) = q in
+                err.err (vecget[v, 0], (front, back, v))
             else
+                let (front, back, v) = q in
                 let elm = vecget[v, front] in
                 let newfront = (front + 1) % veclen[v] in
                 err.res (elm, (newfront, back, v))

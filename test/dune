@@ -8,8 +8,13 @@
  (deps (glob_files cases/*.intlang) (glob_files cases/inclfoldr/*.intlang) (glob_files intlangstdlib/*.intlang) ../bin/main.exe)
  (action (run %{exe:test_runner.exe} %{exe:../bin/main.exe})))
 
- ; Separate mode: runs with `dune build @test-separate
+ ; Separate mode: runs with `dune build @test-ast` or `dune build @test-mir`
 (rule
- (alias test-separate)
+ (alias test-ast)
+ (deps (glob_files cases/*.intlang) (glob_files cases/inclfoldr/*.intlang) (glob_files intlangstdlib/*.intlang) ../bin/main.exe)
+ (action (run %{exe:test_runner.exe} --separate --interpast %{exe:../bin/main.exe})))
+
+(rule
+ (alias test-mir)
  (deps (glob_files cases/*.intlang) (glob_files cases/inclfoldr/*.intlang) (glob_files intlangstdlib/*.intlang) ../bin/main.exe)
  (action (run %{exe:test_runner.exe} --separate --interpmir %{exe:../bin/main.exe})))

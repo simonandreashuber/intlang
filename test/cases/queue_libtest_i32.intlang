@@ -13,15 +13,13 @@ let main = \() (
                 io.writeln_i32 (queue.sizeQueue q);
                 let toremove = io.readln_i32 () in
                 let rec rep = \j q.
-                    let deq_res = queue.deQueue q in
-                    if (j < toremove) & (err.ok deq_res) then
+                    if (j < toremove) & (~ (queue.isemptyQueue q)) then
+                        let deq_res = queue.deQueue q in
                         let (e, q) = err.uwrp deq_res in
                         (io.write_i32 e; writei8 ',';
                         rep (j+1) q)
                     else
-                        (writei8 '\n';
-                        q
-                        )
+                        (writei8 '\n'; q)
                     end
                 in
                 rep 0 q

@@ -170,7 +170,7 @@ let () =
 
   let run_test =
     match (!separate_mode, !test_interpast, !test_intermir) with
-    | (true, true, false) -> run_interp_separate "--interpmonotast"
+    | (true, true, false) -> run_interp_separate "--interpast"
     | (true, false, true) -> run_interp_separate "--interpmir"
     | (false, false, false) -> run_bin
     | _ -> failwith "Invalid combination of flags."
