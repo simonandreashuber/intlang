@@ -226,9 +226,21 @@ let inline_opt (b : builder) (aly : analysis_info) : unit =
   (*Phase 2: Heuristics*)
   let heuristics_decide_inline (b : builder) (aly : analysis_info) (caller : funcid) (callee : funcid) : bool =
     let callee_fn = try find_func b callee with Not_found -> failwith "heuristics_decide_inline: callee not found" in
+    let rec mirtyp_is_closure_free (mirtyp : mirtyp) : bool =
+      match mirtyp with
+      | TMIRClos _ -> false
+      | TMIRTup elmlst -> List.for_all mirtyp_is_closure_free elmlst
+      | TMIRUnit | TMIRI8 | TMIRI32 | TMIRVec _ -> true
+    in
     if Option.is_some callee_fn.extern_name || callee = caller
     then false
-    else if BBMap.cardinal callee_fn.bbs < 20 && (not @@ rec_marked.(callee))
+    else if (
+      (* funciton with 1 bb is likely a small helper that is probably not worth the call overhead *)
+      BBMap.cardinal callee_fn.bbs == 1 ||
+      (* passing a closure means not devirtualizing => inline *)
+      (not @@ List.for_all (fun (arg_ssaid, _) -> mirtyp_is_closure_free (get_mirtyp_func callee_fn arg_ssaid) ) callee_fn.args)
+      (* callees that are marked as recurive are not worth inlining *)
+      ) && (not @@ rec_marked.(callee))
     then ((*Printf.printf "inline function %s \n" callee_fn.name;*) true)
     else ((*Printf.printf "NOT inlining function %s, bbs: %d, rec_mark: %b \n" callee_fn.name (BBMap.cardinal callee_fn.bbs) rec_marked.(callee);*) false) (* to do make smarter inline heuristics *)
   in
