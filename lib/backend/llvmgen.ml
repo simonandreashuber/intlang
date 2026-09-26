@@ -1031,7 +1031,7 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     set_llssa fgen_ctx ssa_def tup_llval
   )
   | Tupuwrp (ssa_defs, tup_consume) -> (
-    let tup_llval = get_llssa fgen_ctx tup_consume.ssaid in
+    let tup_llval = consume_or_copy fgen_ctx tup_consume in
     List.iteri (fun i ssa_def ->
       let elm_llval = build_extractvalue tup_llval i ("tup_elm_" ^ string_of_int i) builder in
       set_llssa fgen_ctx ssa_def elm_llval
