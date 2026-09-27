@@ -1,4 +1,3 @@
-include err
 
 -- READING
 let read_str = \ (len : i32) => [i8].
@@ -58,28 +57,26 @@ let ascii_dig_to_i32 = \c : i8 => i32. i8_to_i32 c - 48
 
 let i32_dig_to_ascii = \i : i32 => i8. i32_to_i8 (i + 48)
 
-let str_to_i32 = \s : [i8] => i32 * i32.
-    let rec strtoi32aux = \ (s : [i8]) (i : i32) (acc : i32) => i32 * i32.
+let str_to_i32 = \s : [i8] => i32.
+    let rec strtoi32aux = \ (s : [i8]) (i : i32) (acc : i32) => i32.
         if i < veclen[s] then
             let c = vecget[s, i] in
             if ascii_is_dig c then
                 let digit = ascii_dig_to_i32 c in
                 strtoi32aux s (i+1) (acc * 10 + digit)
             else
-                err.err acc
+                acc
             end
         else
-            err.res acc
+            acc
         end
     in
     if (0 < veclen[s]) & (vecget[s, 0] ==i8 '-') then
-        let res = strtoi32aux s 1 0 in
-        if err.ok res then err.res (-(err.uwrp res)) else err.err 0 end
+        -(strtoi32aux s 1 0)
     else
         strtoi32aux s 0 0
     end
 
--- one could add error handling (or automatic buffer extension) here but it is a method that
 -- should only be called form inside the io lib so I trust that the acc buffer that is passed is long enough
 let i32_to_str_buff = \ (i : i32) -- i32 to convert
                         (idx : i32) -- buffer index to count down from
@@ -126,30 +123,22 @@ let i32_to_str = \i : i32 => [i8].
 
 
 -- COMMA SEPARATED I32
-let csi32str_to_i32vec = \s : [i8] => i32 * [i32].
+let csi32str_to_i32vec = \s : [i8] => [i32].
     let n = veclen[s] in
-    let rec aux = \ (l : i32) (r : i32) (idx : i32) (acc : [i32]) => i32 * [i32].
+    let rec aux = \ (l : i32) (r : i32) (idx : i32) (acc : [i32]) => [i32].
         if r < n then
             let c = vecget[s, r] in
             if c ==i8 ',' then
                 let num_str = vecslice[s, l, r-l] in
-                let num_res = str_to_i32 num_str in
-                if err.ok num_res then
-                    aux (r+1) (r+1) (idx+1) vecset[acc, err.uwrp num_res, idx]
-                else
-                    err.err vec[]
-                end
+                let num = str_to_i32 num_str in
+                aux (r+1) (r+1) (idx+1) vecset[acc, num, idx]
             else
                 aux l (r+1) idx acc
             end
         else
             let num_str = vecslice[s, l, n-l] in
-            let num_res = str_to_i32 num_str in
-            if err.ok num_res then
-                err.res vecslice[vecset[acc, err.uwrp num_res, idx], 0, idx+1]
-            else
-                err.err vec[]
-            end
+            let num = str_to_i32 num_str in
+            vecslice[vecset[acc, num, idx], 0, idx+1]
         end
     in
     aux 0 0 0 vecmk[0, n/2 + 1] -- there are at most veclen[s]/2 numbers in the string (only 0 to 9 for all numbers)
@@ -176,14 +165,8 @@ let i32vec_to_csi32str = \v : [i32] => [i8].
     end
 
 -- Some shorthands for convenience
--- the read short hands do use functions that can return errors
--- but for the sake of simplicity they will return a default value on fail
--- but not 0 or similar since these small numbers might appear in the test sometimes
--- so just some big random number, it is a bit dirty but just makes the code in the test
--- so much more readable. This would be different if the Result Type was builtin
--- and well integrated
-let readln_i32 = \() let res = str_to_i32 (read_ln ()) in if err.ok res then err.uwrp res else 987654 end
-let readln_i32vec = \() let res = csi32str_to_i32vec (read_ln ()) in if err.ok res then err.uwrp res else vec[987654] end
+let readln_i32 = \() str_to_i32 (read_ln ())
+let readln_i32vec = \() csi32str_to_i32vec (read_ln ())
 
 let writeln_i32 = \i : i32 => unit. write_ln (i32_to_str i)
 let write_i32 = \i : i32 => unit. write_str (i32_to_str i)

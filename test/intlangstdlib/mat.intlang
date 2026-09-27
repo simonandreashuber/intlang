@@ -40,9 +40,9 @@ let matmul = \n l m A B.
                 end end end
     in
     if (veclen[A] == n*l)*(veclen[B] == l*m) then
-        err.res (matmulaux vecmk[0,n*m] 0 0 0)
+        matmulaux vecmk[0,n*m] 0 0 0
     else
-        err.err vec[]
+        vec[]
     end
 
 let matadd = \A B.
@@ -58,9 +58,9 @@ let matadd = \A B.
                 end
     in
     if (veclen[A] == veclen[B]) then
-        err.res (mataddaux vecmk[0,veclen[A]] 0)
+        mataddaux vecmk[0,veclen[A]] 0
     else
-        err.err vec[]
+        vec[]
     end
 
 let matsmul = \A s. vector.map (\x. x*s) A
@@ -81,7 +81,7 @@ let sqmattrans = \n A.
         end end
     in
     if veclen[A] == n*n then
-        err.res (sqmattransaux A 0 0)
+        sqmattransaux A 0 0
     else
-        err.err vec[]
+        vec[]
     end

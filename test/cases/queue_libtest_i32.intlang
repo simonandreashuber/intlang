@@ -1,4 +1,3 @@
-include err
 include io
 include vector
 include queue
@@ -14,8 +13,7 @@ let main = \() (
                 let toremove = io.readln_i32 () in
                 let rec rep = \j q.
                     if (j < toremove) & (~ (queue.isemptyQueue q)) then
-                        let deq_res = queue.deQueue q in
-                        let (e, q) = err.uwrp deq_res in
+                        let (e, q) = queue.deQueue q in
                         (io.write_i32 e; writei8 ',';
                         rep (j+1) q)
                     else

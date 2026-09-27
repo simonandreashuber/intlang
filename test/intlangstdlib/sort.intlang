@@ -19,7 +19,7 @@ let bubblesort = \cmpf arr.
         else if n < (len-1) then
             bubblesortaux arrupdt (n+1) 0
         else
-            arr
+            arrupdt
         end end
     in
     if len <= 1 then

@@ -1,7 +1,5 @@
 -- lib for vectors
 
-include err
-
 let map = \f v.
     let rec mapaux = \acc i.
         if i < veclen[v] then
@@ -25,11 +23,11 @@ let map2 = \f v0 v1.
         end
     in
     if veclen[v0] != veclen[v1] then
-        err.err vec[]
+        vec[]
     else if veclen[v0] == 0 then
-        err.res vec[]
+        vec[]
     else
-        err.res (mapaux vecmk[f vecget[v0, 0] vecget[v1, 0], veclen[v0]] 0)
+        mapaux vecmk[f vecget[v0, 0] vecget[v1, 0], veclen[v0]] 0
     end end
 
 let left_fold = \f acc v.
@@ -51,9 +49,9 @@ let left_fold2 = \f acc v0 v1.
         end
     in
     if veclen[v0] != veclen[v1] then
-        err.err acc
+        acc
     else
-        err.res (leftfoldaux acc 0)
+        leftfoldaux acc 0
     end
 
 let right_fold = \f v acc.

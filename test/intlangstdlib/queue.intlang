@@ -1,9 +1,7 @@
 -- a queue is (front, back, vec) where
 -- the actual elements start at index front and end at index back-1 (all in the mod n group)
 
-include err
 include math
-
 
 let mkQueue = \() (0,0, vec[])
 
@@ -43,10 +41,11 @@ let enQueue = \q x.
 let deQueue = \q.
             if isemptyQueue q then
                 let (front, back, v) = q in
-                err.err (vecget[v, 0], (front, back, v))
+                let retval = vecget[v,0] in -- called on a queue that had never had an element added this faults at runtime
+                (retval, (front, back, v))
             else
                 let (front, back, v) = q in
                 let elm = vecget[v, front] in
                 let newfront = (front + 1) % veclen[v] in
-                err.res (elm, (newfront, back, v))
+                (elm, (newfront, back, v))
             end
