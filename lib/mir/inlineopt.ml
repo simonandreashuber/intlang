@@ -187,7 +187,9 @@ let get_post_order (func_map : func FuncMap.t) (visited : FuncidSet.t ref) (call
   dfs [] origin_funcid;
   List.rev !acc
 
-let inline_opt (b : builder) (aly : analysis_info) : unit =
+let inline_opt (b : builder) (aly : analysis_info) : bool =
+
+  let did_inline = ref false in
 
   (*Phase 1: Single Callsite*)
   let visited = ref FuncidSet.empty in
@@ -220,7 +222,7 @@ let inline_opt (b : builder) (aly : analysis_info) : unit =
 
   List.iter (fun funcid ->
     let fn = try find_func b funcid with Not_found -> failwith "inline_opt: phase 1 function not found" in
-    ignore(inline_opt_func singlecallsite_decide_inline b aly fn)
+    did_inline:= !did_inline || inline_opt_func singlecallsite_decide_inline b aly fn
   ) !post_order;
 
   (*Phase 2: Heuristics*)
@@ -234,15 +236,13 @@ let inline_opt (b : builder) (aly : analysis_info) : unit =
     in
     if Option.is_some callee_fn.extern_name || callee = caller
     then false
-    else if (
+    else (
       (* funciton with 1 bb is likely a small helper that is probably not worth the call overhead *)
       BBMap.cardinal callee_fn.bbs == 1 ||
       (* passing a closure means not devirtualizing => inline *)
       (not @@ List.for_all (fun (arg_ssaid, _) -> mirtyp_is_closure_free (get_mirtyp_func callee_fn arg_ssaid) ) callee_fn.args)
       (* callees that are marked as recurive are not worth inlining *)
       ) && (not @@ rec_marked.(callee))
-    then ((*Printf.printf "inline function %s \n" callee_fn.name;*) true)
-    else ((*Printf.printf "NOT inlining function %s, bbs: %d, rec_mark: %b \n" callee_fn.name (BBMap.cardinal callee_fn.bbs) rec_marked.(callee);*) false) (* to do make smarter inline heuristics *)
   in
 
   let q = Queue.create () in
@@ -250,5 +250,6 @@ let inline_opt (b : builder) (aly : analysis_info) : unit =
 
   while not (Queue.is_empty q) do
     let fn = Queue.pop q in
-    ignore(inline_opt_func heuristics_decide_inline b aly fn)
-  done
+    did_inline := !did_inline || inline_opt_func heuristics_decide_inline b aly fn
+  done;
+  !did_inline

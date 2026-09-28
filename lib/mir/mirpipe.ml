@@ -24,33 +24,43 @@ open Memopt
 open Funcdceopt
 
 
-let run_pipeline (b : builder) (optimize : bool) : unit =
+let run_pipeline (b : builder) (opt_lvl : int) : unit =
   try
+
+    assert(0 <= opt_lvl);
 
     let aly = create_analysis_info () in
 
     (* Run the passes in the order they are defined in the pipeline *)
 
     (* 1. Ownership agnostic Passes *)
-    if optimize then(
+    if opt_lvl > 0 then (
       Calldirectopt.calldirect_opt b aly;
       Tco.tco_opt b aly;
       Dceopt.dce_opt b aly;
+    );
+
+    if opt_lvl > 1 then (
+      let max_count = 42 in
       let count = ref 0 in
-      while !count < 5 do (*5 rounds should make many cases work*)
+      let did_inline = ref true in
+      while !count < max_count && !did_inline do
         count := !count + 1;
-        Inlineopt.inline_opt b aly;
+        did_inline := Inlineopt.inline_opt b aly;
         Calldirectopt.calldirect_opt b aly;
-        Dceopt.dce_opt b aly;
-      done;
+        Dceopt.dce_opt b aly
+      done
+    );
+
+    if opt_lvl > 0 then (
       Compactcfgopt.compactcfg_opt b aly
     );
 
     (* 2. Ownership and Consumption Passes *)
-    Memopt.mem_opt b aly optimize;
+    Memopt.mem_opt b aly opt_lvl;
 
     (*2(.5). Function DCE*)
-    if optimize then (
+    if opt_lvl > 0 then (
       Funcdceopt.funcdce_opt b aly
     )
 

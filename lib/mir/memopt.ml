@@ -106,7 +106,7 @@ let tupuwrp opt fn =
     bb.ops <- List.map (fun op ->
       match op with
       | Tupborr (elm_defs, tup) -> (
-        if List.for_all (fun elm_def -> not @@ is_on_own_path opt.aly fn elm_def) elm_defs then
+        if List.for_all (fun elm_def -> not @@ is_on_own_path opt.aly opt.b.program fn elm_def) elm_defs then
           op
         else
           let elm_own = memsig_all_to (List.map (get_ownership_func fn) elm_defs) Owned in
@@ -211,8 +211,8 @@ let bbarg opt fn =
               let (owner_bbid,_) = live_info.def.(owner_ssaid) in
               does_strictly_dominate opt.aly fn owner_bbid bb.bbid)
             pot_owners) &&
-            (not @@ is_on_own_path opt.aly fn arg) &&
-            (is_reached_by_borrsrc opt.aly fn arg)
+            (not @@ is_on_own_path opt.aly opt.b.program fn arg) &&
+            (is_reached_by_borrsrc opt.aly opt.b.program fn arg)
           then (
             set_ownership_func fn arg Borrowed
           )
@@ -612,13 +612,14 @@ let finalize_mem_optimizer opt =
   ) opt.orig_vers
 
 
-let mem_opt (b : builder) (aly : analysis_info) (optimize : bool) =
+let mem_opt (b : builder) (aly : analysis_info) (opt_lvl : int) =
+    assert(0 <= opt_lvl);
     let opt = create_mem_optimizer b aly in
     push_canonical_funcvers opt;                  (* starts the optimizer worklist with a all borrowed and all owned function versions *)
 
     while has_func_to_opt opt do
       let fn = pop_func_to_opt opt in
-      if optimize then (
+      if opt_lvl > 0 then (
         tupuwrp opt fn;           (* optimize by replacing tupborr by tupuwrp in relevant places *)
         bbarg opt fn;             (* optimized by setting legal and relavant bbargs to borrow *)
         consume opt fn            (* make all legal places consume *)

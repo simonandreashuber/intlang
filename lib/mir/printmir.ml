@@ -317,7 +317,41 @@ let string_of_dom_info (d : dom_info) =
   ) d.idom;
   !s
 
-let string_of_analysis (aly : analysis_info) (f : func) : string =
+(* 6. Data *)
+let string_of_data_info (info : data_info) : string =
+  let fmt_ssaid_list lst =
+    "[" ^ String.concat ", " (List.map string_of_int lst) ^ "]"
+  in
+  let fmt_graph name arr =
+    let lines =
+      Array.mapi
+        (fun i targets ->
+          if targets <> [] then
+            Printf.sprintf "    %s -> %s" (string_of_int i) (fmt_ssaid_list targets)
+          else
+            ""
+        )
+        arr
+    in
+    Printf.sprintf "  %s = [\n%s\n  ];" name (String.concat "\n" (List.filter (fun s -> s <> "") (Array.to_list lines)))
+  in
+  let fmt_bool_array name arr =
+    let true_indices =
+      Array.to_list arr
+      |> List.mapi (fun i b -> if b then Some (string_of_int i) else None)
+      |> List.filter_map (fun x -> x)
+    in
+    Printf.sprintf "  %s (true for nodes) = [%s];" name (String.concat ", " true_indices)
+  in
+  Printf.sprintf
+    "{\n%s\n%s\n%s\n%s\n%s\n}"
+    (fmt_graph "data_graph" info.data_graph)
+    (fmt_graph "data_rev_graph" info.data_rev_graph)
+    (fmt_bool_array "reaching_own_srcs" info.reaching_own_srcs)
+    (fmt_bool_array "reaching_borr_srcs" info.reaching_borr_srcs)
+    (fmt_bool_array "reaching_own_sinks" info.reaching_own_sinks)
+
+let string_of_analysis (aly : analysis_info) (p : program) (f : func) : string =
     if f.extern_name <> None then "external func: no Analysis"
     else
     string_of_ssa_info_table f.ssatyps f.memown ^
@@ -325,7 +359,8 @@ let string_of_analysis (aly : analysis_info) (f : func) : string =
     string_of_rpo_info (get_rpo_info aly f) ^
     string_of_live_info (get_live_info aly f) ^
     string_of_borrow_info (get_borrow_info aly f) ^
-    string_of_dom_info (get_dom_info aly f)
+    string_of_dom_info (get_dom_info aly f) ^
+    string_of_data_info (get_data_info aly p f)
 
 let string_of_program (prog : program) (with_analysis : bool) : string =
   (* 1. Print special entry point metadata *)
@@ -356,7 +391,7 @@ let string_of_program (prog : program) (with_analysis : bool) : string =
     FuncMap.bindings prog.funcs
     |> List.map (fun (_, f) ->
           string_of_func aly f ^
-          (if with_analysis then "\n" ^ string_of_analysis aly f else ""))
+          (if with_analysis then "\n" ^ string_of_analysis aly prog f else ""))
     |> List.filter (fun s -> s <> "")
     |> String.concat "\n\n"
   in

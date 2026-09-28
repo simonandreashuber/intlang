@@ -587,150 +587,162 @@ let does_strictly_dominate aly fn dominator dominated =
 
 *)
 
-let compute_data (aly : analysis_info) (fn : func) =
+let compute_data (aly : analysis_info) (p : program) (fn : func) =
 
-  (*create data structures*)
-  let n = fn.next_ssaid in
-  let data_info = {
-    data_graph = Array.make n ([]);
-    data_rev_graph = Array.make n ([]);
-    reaching_own_srcs = Array.make n false;
-    reaching_borr_srcs = Array.make n false;
-    reaching_own_sinks = Array.make n false;
-  } in
+  let rec compute_data_aux (aly : analysis_info) (p : program) (check_calldirect : bool) (fn : func) =
+    (*create data structures*)
+    let n = fn.next_ssaid in
+    let data_info = {
+      data_graph = Array.make n ([]);
+      data_rev_graph = Array.make n ([]);
+      reaching_own_srcs = Array.make n false;
+      reaching_borr_srcs = Array.make n false;
+      reaching_own_sinks = Array.make n false;
+    } in
 
-  let add_edge u v = if is_memtyp @@ get_mirtyp_func fn u then (
-                     data_info.data_graph.(u) <- v :: data_info.data_graph.(u);
-                     data_info.data_rev_graph.(v) <- u :: data_info.data_rev_graph.(v) ) in
-  let add_ownsrc s = if is_memtyp @@ get_mirtyp_func fn s then (
-                     assert(not @@ data_info.reaching_own_srcs.(s)); data_info.reaching_own_srcs.(s) <- true) in
-  let add_borrsrc s = if is_memtyp @@ get_mirtyp_func fn s then (
-                      assert(not @@ data_info.reaching_borr_srcs.(s)); data_info.reaching_borr_srcs.(s) <- true) in
-  let add_ownsink s = if is_memtyp @@ get_mirtyp_func fn s then (
-                      data_info.reaching_own_sinks.(s) <- true) in
+    let add_edge u v = if is_memtyp @@ get_mirtyp_func fn u then (
+                      data_info.data_graph.(u) <- v :: data_info.data_graph.(u);
+                      data_info.data_rev_graph.(v) <- u :: data_info.data_rev_graph.(v) ) in
+    let add_ownsrc s = if is_memtyp @@ get_mirtyp_func fn s then (
+                      assert(not @@ data_info.reaching_own_srcs.(s)); data_info.reaching_own_srcs.(s) <- true) in
+    let add_borrsrc s = if is_memtyp @@ get_mirtyp_func fn s then (
+                        assert(not @@ data_info.reaching_borr_srcs.(s)); data_info.reaching_borr_srcs.(s) <- true) in
+    let add_ownsink s = if is_memtyp @@ get_mirtyp_func fn s then (
+                        data_info.reaching_own_sinks.(s) <- true) in
 
-  (*iterate cfg and populate data structures*)
+    (*iterate cfg and populate data structures*)
 
-  (*funciton args*)
-  List.iter (fun (farg_ssaid, _ ) ->
-    match get_ownership_func fn farg_ssaid with
-    | Owned -> add_ownsrc farg_ssaid
-    | Borrowed -> add_borrsrc farg_ssaid
-    | NoMem -> ()
-  ) fn.args;
+    (*funciton args*)
+    List.iter (fun (farg_ssaid, _ ) ->
+      match get_ownership_func fn farg_ssaid with
+      | Owned -> add_ownsrc farg_ssaid
+      | Borrowed -> add_borrsrc farg_ssaid
+      | NoMem -> ()
+    ) fn.args;
 
-  (*bbs*)
-  BBMap.iter (fun _ bb ->
-    (*ops*)
-    List.iter (fun op ->
-      match op with
-      | Func (def, _, _) -> add_ownsrc def
-      | Pack (def, clos_sc, args_sc) -> (
-        add_ownsrc def;
-        add_ownsink clos_sc.ssaid;
-        List.iter (fun arg_sc -> add_ownsink arg_sc.ssaid) args_sc
-      )
-      | CallClosure (def, clos_sc) -> (
-        add_ownsrc def;
-        add_ownsink clos_sc.ssaid
-      )
-      | CallDirect (def, _ , _) -> (
-        (*funciton args are specifically not sinks, I made this decision because
-          like this the analyis can stay entirely in one function scope ie. at this place
-          the analysis does not need to know anything about what the callee will do to memory objects
-          of course one do this but the main problem I see is recursion and how to handle it so I just
-          leave it out entirely*)
-        add_ownsrc def
-      )
-      | Copy (def, _) -> add_ownsrc def
-      | StoreGlobal (_, sc) -> add_ownsink sc.ssaid
-      | LoadGlobal (def, _) -> add_borrsrc def
-      | Tupwrp (def, elms) -> (
-        add_ownsrc def;
-        List.iter (fun elm_sc -> add_ownsink elm_sc.ssaid) elms
-      )
-      | Tupuwrp (elm_defs, tup) -> (
-        List.iter (fun elm_def ->
-          add_edge tup.ssaid elm_def
-        ) elm_defs
-      )
-      | Tupborr (elm_defs, tup) -> (
-        List.iter (fun elm_def ->
-          add_edge tup elm_def
-        ) elm_defs
-      )
-      | Veclit (def, lit_scs) -> (
-        add_ownsrc def;
-        List.iter (fun lit_sc -> add_ownsink lit_sc.ssaid) lit_scs
-      )
-      | Vecinit (def, _, _) -> add_ownsrc def
-      | Vecread (def, _, _) -> add_borrsrc def
-      | Vecwrite (def, vec, _, _ ) -> (
-        add_ownsrc def;
-        add_ownsink vec.ssaid
-      )
-      | Vecinsert (def, vec, vecins, _ ) -> (
-        add_ownsrc def;
-        add_ownsink vec.ssaid;
-        add_ownsink vecins.ssaid
-      )
-      | Vecslice (def, _, _, _) -> add_borrsrc def
-      | Vecextend (def, _, _, _) -> add_ownsrc def
-      | Drop _ | DropGlobal _
-      | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
-      | Veclen _ -> ()
-    ) bb.ops;
-
-    (*term*)
-    match bb.term with
-    | Some (Br (target_bbid, brargs)) when not @@ List.is_empty brargs -> (
-      let target_bb = find_bb_func fn target_bbid in
-      List.iter2 (fun {ssaid = brarg_ssaid; consume = _} bbarg_ssaid ->
-        add_edge brarg_ssaid bbarg_ssaid
-      ) brargs target_bb.args
-    )
-    | Some (Ret ret_ssaid) -> add_ownsink ret_ssaid
-    | Some (Br _) | Some (Cbr _) -> ()
-    | None -> failwith "compute_data found bb with no term"
-  ) fn.bbs;
-
-  (*run a fix point until for reaching_srcs on the data_graph*)
-  let flood (g : (ssaid list) array) (marked : bool array) : unit =
-    let changed = ref true in
-    while !changed do
-      changed := false;
-      Array.iteri (fun u vs ->
-        if marked.(u) then (
-          List.iter (fun v ->
-            if not @@ marked.(v) then (
-              changed := true;
-              marked.(v) <- true
-            )
-          ) vs
+    (*bbs*)
+    BBMap.iter (fun _ bb ->
+      (*ops*)
+      List.iter (fun op ->
+        match op with
+        | Func (def, _, _) -> add_ownsrc def
+        | Pack (def, clos_sc, args_sc) -> (
+          add_ownsrc def;
+          add_ownsink clos_sc.ssaid;
+          List.iter (fun arg_sc -> add_ownsink arg_sc.ssaid) args_sc
         )
-      ) g
-    done
+        | CallClosure (def, clos_sc) -> (
+          add_ownsrc def;
+          add_ownsink clos_sc.ssaid
+        )
+        | CallDirect (def, callee_funcid_ref , caller_args) -> (
+          (*funciton args are specifically not sinks, I made this decision because
+            like this the analyis can stay entirely in one function scope ie. at this place
+            the analysis does not need to know anything about what the callee will do to memory objects
+            of course one do this but the main problem I see is recursion and how to handle it so I just
+            leave it out entirely*)
+          add_ownsrc def;
+          if check_calldirect then (
+            let callee_fn = try FuncMap.find !callee_funcid_ref p.funcs with Not_found -> failwith "compute data: did not find callee in passed program" in
+            (* going one deep is fine for now, could recurse on calls in calleed .... mb in the future *)
+            let callee_data_info = compute_data_aux aly p false callee_fn in
+            List.iter2 (fun caller_arg_sc (callee_arg_ssaid, _ ) ->
+              if callee_data_info.reaching_own_sinks.(callee_arg_ssaid) then
+                add_ownsink caller_arg_sc.ssaid
+            ) caller_args callee_fn.args
+          )
+        )
+        | Copy (def, _) -> add_ownsrc def
+        | StoreGlobal (_, sc) -> add_ownsink sc.ssaid
+        | LoadGlobal (def, _) -> add_borrsrc def
+        | Tupwrp (def, elms) -> (
+          add_ownsrc def;
+          List.iter (fun elm_sc -> add_ownsink elm_sc.ssaid) elms
+        )
+        | Tupuwrp (elm_defs, tup) -> (
+          List.iter (fun elm_def ->
+            add_edge tup.ssaid elm_def
+          ) elm_defs
+        )
+        | Tupborr (elm_defs, tup) -> (
+          List.iter (fun elm_def ->
+            add_edge tup elm_def
+          ) elm_defs
+        )
+        | Veclit (def, lit_scs) -> (
+          add_ownsrc def;
+          List.iter (fun lit_sc -> add_ownsink lit_sc.ssaid) lit_scs
+        )
+        | Vecinit (def, _, _) -> add_ownsrc def
+        | Vecread (def, _, _) -> add_borrsrc def
+        | Vecwrite (def, vec, _, _ ) -> (
+          add_ownsrc def;
+          add_ownsink vec.ssaid
+        )
+        | Vecinsert (def, vec, vecins, _ ) -> (
+          add_ownsrc def;
+          add_ownsink vec.ssaid;
+          add_ownsink vecins.ssaid
+        )
+        | Vecslice (def, _, _, _) -> add_borrsrc def
+        | Vecextend (def, _, _, _) -> add_ownsrc def
+        | Drop _ | DropGlobal _
+        | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
+        | Veclen _ -> ()
+      ) bb.ops;
+
+      (*term*)
+      match bb.term with
+      | Some (Br (target_bbid, brargs)) when not @@ List.is_empty brargs -> (
+        let target_bb = find_bb_func fn target_bbid in
+        List.iter2 (fun {ssaid = brarg_ssaid; consume = _} bbarg_ssaid ->
+          add_edge brarg_ssaid bbarg_ssaid
+        ) brargs target_bb.args
+      )
+      | Some (Ret ret_ssaid) -> add_ownsink ret_ssaid
+      | Some (Br _) | Some (Cbr _) -> ()
+      | None -> failwith "compute_data found bb with no term"
+    ) fn.bbs;
+
+    (*run a fix point until for reaching_srcs on the data_graph*)
+    let flood (g : (ssaid list) array) (marked : bool array) : unit =
+      let changed = ref true in
+      while !changed do
+        changed := false;
+        Array.iteri (fun u vs ->
+          if marked.(u) then (
+            List.iter (fun v ->
+              if not @@ marked.(v) then (
+                changed := true;
+                marked.(v) <- true
+              )
+            ) vs
+          )
+        ) g
+      done
+    in
+    flood data_info.data_graph data_info.reaching_own_srcs;
+    flood data_info.data_graph data_info.reaching_borr_srcs;
+    flood data_info.data_rev_graph data_info.reaching_own_sinks;
+
+    data_info
   in
-  flood data_info.data_graph data_info.reaching_own_srcs;
-  flood data_info.data_graph data_info.reaching_borr_srcs;
-  flood data_info.data_rev_graph data_info.reaching_own_sinks;
-
-  data_info
+  compute_data_aux aly p true fn
 
 
-let get_data_info (aly : analysis_info) (func : func) : data_info =
+let get_data_info (aly : analysis_info) (p : program) (func : func) : data_info =
   dynarray_len_check aly.data_arr func.funcid;
   match Dynarray.get aly.data_arr func.funcid with
   | Some data_info -> data_info
   | None ->
-    let data_info = compute_data aly func in
+    let data_info = compute_data aly p func in
     Dynarray.set aly.data_arr func.funcid (Some data_info);
     data_info
 
-let is_on_own_path (aly : analysis_info) (fn : func) (def_ssaid : ssaid) : bool =
-  let data_info = get_data_info aly fn in
+let is_on_own_path (aly : analysis_info) (p : program) (fn : func) (def_ssaid : ssaid) : bool =
+  let data_info = get_data_info aly p fn in
   data_info.reaching_own_srcs.(def_ssaid) && data_info.reaching_own_sinks.(def_ssaid)
 
-let is_reached_by_borrsrc (aly : analysis_info) (fn : func) (def_ssaid : ssaid) : bool =
-  let data_info = get_data_info aly fn in
+let is_reached_by_borrsrc (aly : analysis_info) (p : program) (fn : func) (def_ssaid : ssaid) : bool =
+  let data_info = get_data_info aly p fn in
   data_info.reaching_borr_srcs.(def_ssaid)

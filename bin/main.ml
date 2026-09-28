@@ -13,6 +13,7 @@ let main () =
   let print_llvm = ref false in
   let outputllvm_name = ref "" in
   let address_sanitizer = ref false in
+  let verify_llvmir = ref false in
   let opt_level = ref 0 in
   let prohibit_relative_include = ref false in
   let add_analysis_printmir = ref false in
@@ -36,6 +37,7 @@ let main () =
     ("-O2", Arg.Unit (fun () -> opt_level := 2), "Moderate optimizations");
     ("-O3", Arg.Unit (fun () -> opt_level := 3), "Heavy optimizations");
     ("--asan", Arg.Set address_sanitizer, "Enable AddressSanitizer for the generated binary");
+    ("--verify-llvmir", Arg.Set verify_llvmir, "Verifies the LLVM IR (-fverify-intermediate-code)");
     ("--printast", Arg.Set print_ast, "Print AST to stdout");
     ("--printmonotast", Arg.Set print_monotast, "Print Monomorphized TAST to stdout");
     ("--printmir", Arg.Set print_mir, "Print MIR to stdout");
@@ -135,7 +137,7 @@ let main () =
     let mir_builder = Mirgen.lower_monotast monotast in
 
     (* Run the MIR optimization pipeline *)
-    Mirpipe.run_pipeline mir_builder (!opt_level > 0);
+    Mirpipe.run_pipeline mir_builder !opt_level;
     let mir = mir_builder.program in
 
     if !print_mir || !outputmir_name <> "" then begin
@@ -191,8 +193,10 @@ let main () =
       let ll_name = "temp.ll" in
       let bin_name = if !outputfile_passed then !outputfilename else "out" in
       let clang_flags = ref "" in
-      clang_flags := !clang_flags ^ "-O" ^ string_of_int !opt_level ^ " ";
-      clang_flags := !clang_flags ^ if !address_sanitizer then "-fsanitize=address" else "";
+      clang_flags := !clang_flags ^ "-O" ^ string_of_int !opt_level;
+      clang_flags := !clang_flags ^ if !address_sanitizer then " -fsanitize=address" else "";
+      clang_flags := !clang_flags ^ if !verify_llvmir then " -fverify-intermediate-code" else "";
+
 
       let llvm_ir = Llvm.string_of_llmodule llmod in
 
@@ -208,7 +212,7 @@ let main () =
       );
 
       (* Compile the LLVM IR to a binary using clang *)
-      let clang_cmd = Printf.sprintf "clang-19 %s %s -fverify-intermediate-code -o %s" ll_name !clang_flags bin_name in
+      let clang_cmd = Printf.sprintf "clang-19 %s %s -o %s" ll_name !clang_flags bin_name in
       let exit_code = Sys.command clang_cmd in
       if exit_code <> 0 then (
         prerr_endline ("Error: clang failed to compile LLVM IR to binary. Exit code: " ^ string_of_int exit_code);
