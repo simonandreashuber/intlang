@@ -1,5 +1,12 @@
 # intlang v4
 
+### v4.1 ideas
+- lift vector inner type restriction ie. allow vectors of tuples, closures, unit....
+- mir pass to optimize explicit load modify store patterns into one op to avoid copies ie. 
+  - say we vecread some tuple then access an element, increment this element and continue, this is now and can be many ops in mir and introduces copies but if merged into one (or n) vecwrite ops, copies are not needed by default. 
+  - This also means that the vecwrite op needs to become more expressive and allow its indices to access "through" tuples. One could already allow this in the AST, but I feel like the added abigiuity/complexity for the type checker is not worth it and solving it with an opimization pass hopefully also cleans up patterns where a nice vecwrite pattern is possible but not used in the intlang code :)
+
+
 A small eager functional language with 
 - Immutable N dimensional vectors accelerated by a functional but in place optimization
 - No Garbage Collector just compile time known allocation and freeing manged by the compiler
