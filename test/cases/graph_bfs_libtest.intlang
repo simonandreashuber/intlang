@@ -1,0 +1,15 @@
+include io
+include vector
+include graph
+
+let main = \() (
+    let g = graph.genGraph (io.readln_i32 ()) in
+    let g = vector.left_fold2 (graph.addEdge) g (io.readln_i32vec ()) (io.readln_i32vec ()) in
+    let g = vector.left_fold2 (graph.removeEdge) g (io.readln_i32vec ()) (io.readln_i32vec ()) in
+    let g = vector.left_fold2 (graph.addEdge) g (io.readln_i32vec ()) (io.readln_i32vec ()) in
+    let (dist, par) = graph.bfs_canonicalord g (io.readln_i32 ()) in
+    (
+        io.writeln_i32vec dist;
+        io.writeln_i32vec par
+    )
+)

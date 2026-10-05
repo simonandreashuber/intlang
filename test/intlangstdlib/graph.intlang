@@ -2,6 +2,7 @@ include math
 include vector
 include search
 include sort
+include queue
 
 --make empty assoc vector of size n
 let genGraph = \n. vecmk[-1,n,0]
@@ -90,6 +91,42 @@ let dfs_canonicalord = dfs (sort.bubblesort_i32)
 
 let dfs_defaultord = dfs (\x. x)
 
+-- bfs:
+    -- same assumptions as dfs
+    -- ord is used to define the order in which neighbors are enqueued
+    -- g is the graph
+    -- start is the starting vertex
+    -- returned the distance (number of edges from start, -1 if unreachable) and parent vectors
+let bfs = \ (ord : [i32] -> [i32]) (g : [[i32]]) (start : i32) => [i32]*[i32].
+    let n = veclen[g] in
+    let visit = \p d acc v.
+        let (q, dist, par) = acc in
+        if vecget[dist, v] >= 0 then
+            --already visited case
+            (q, dist, par)
+        else
+            -- not yet visited
+            (queue.enQueue q v, vecset[dist, d, v], vecset[par, p, v])
+        end
+    in
+    let rec bfsaux = \acc.
+        let (q, dist, par) = acc in
+        if queue.isemptyQueue q then
+            (dist, par)
+        else
+            let (v, nq) = queue.deQueue q in
+            let d = vecget[dist, v] + 1 in
+            let neigh_unord = vecget[g, v] in
+            let neigh = ord neigh_unord in
+            bfsaux (vector.left_fold (\acc vloc. if vloc >= 0 then visit v d acc vloc else acc end) (nq, dist, par) neigh)
+        end
+    in
+    bfsaux (visit (-1) 0 (queue.mkQueue (), vecmk[-1, n], vecmk[-1, n]) start)
+
+let bfs_canonicalord = bfs (sort.bubblesort_i32)
+
+let bfs_defaultord = bfs (\x. x)
+
 -- More ideas:
-    -- BFS, shortest path and bipartite check
+    -- shortest path reconstruction and bipartite check
     -- Topsort, SCC, cycle detection with DFS

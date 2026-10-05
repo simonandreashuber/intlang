@@ -790,6 +790,32 @@ let dfs_canonicalord_ocamlvers g size start =
     dfs_visit start;
     (discover_arr, finish_arr, parent_arr)
 
+(* Returns: (distance_array, parent_array) all containing int32, neighbors are visited in ascending order *)
+let bfs_canonicalord_ocamlvers g size start =
+  let dist_arr = Array.make size (-1l) in
+  let parent_arr = Array.make size (-1l) in
+  let q = Queue.create () in
+  dist_arr.(Int32.to_int start) <- 0l;
+  Queue.add start q;
+  while not (Queue.is_empty q) do
+    let u = Queue.pop q in
+    let u_idx = Int32.to_int u in
+    let succs = if G.mem_vertex g u then List.sort Int32.compare (G.succ g u) else [] in
+    List.iter (fun v ->
+      let v_idx = Int32.to_int v in
+      if dist_arr.(v_idx) = -1l then begin
+        dist_arr.(v_idx) <- Int32.add dist_arr.(u_idx) 1l;
+        parent_arr.(v_idx) <- u;
+        Queue.add v q
+      end
+    ) succs
+  done;
+  (dist_arr, parent_arr)
+
+let add_edges g edges = List.fold_left (fun acc (f, t) -> G.add_edge acc f t) g edges
+
+let remove_edges g edges = List.fold_left (fun acc (f, t) -> try G.remove_edge acc f t with Invalid_argument _ -> acc) g edges
+
 
 let graph_tests = [
   {
@@ -804,25 +830,75 @@ let graph_tests = [
       let checks0 = rand_int32tuplst_ranged seed0 2 0l nm1 200l in
       let edges_toremove = rand_int32tuplst_ranged seed0 3 0l nm1 100l in
       let checks1 = rand_int32tuplst_ranged seed0 4 0l nm1 200l in
-      let g = G.empty in
-      let g = List.fold_left (fun acc (f, t) -> G.add_edge acc f t) g edges_toadd in
+      let edges_toadd2 = rand_int32tuplst_ranged seed0 1 0l nm1 200l in
+      let checks2 = rand_int32tuplst_ranged seed0 2 0l nm1 200l in
+      let g = add_edges G.empty edges_toadd in
       let checks0_results = List.map (fun (f, t) -> if G.mem_edge g f t then 1l else 0l) checks0 in
-      let g = List.fold_left (fun acc (f, t) -> try G.remove_edge acc f t with Invalid_argument _ -> acc) g edges_toremove in
+      let g = remove_edges g edges_toremove in
       let checks1_results = List.map (fun (f, t) -> if G.mem_edge g f t then 1l else 0l) checks1 in
-      let start = rand_int32_ranged seed0 5 0l (Int32.sub n 1l) in
-      let (discover, finish, parent) = dfs_canonicalord_ocamlvers g (Int32.to_int n) start in
+      let g = add_edges g edges_toadd2 in
+      let checks2_results = List.map (fun (f, t) -> if G.mem_edge g f t then 1l else 0l) checks2 in
       let input = prln_int32 n ^
                   prln_int32tuplst edges_toadd ^
                   prln_int32tuplst checks0 ^
                   prln_int32tuplst edges_toremove ^
                   prln_int32tuplst checks1 ^
-                  prln_int32 start in
+                  prln_int32tuplst edges_toadd2 ^
+                  prln_int32tuplst checks2 in
       let expected = prln_int32lst checks0_results ^
                      prln_int32lst checks1_results ^
-                     prln_int32array discover ^
+                     prln_int32lst checks2_results in
+      (input, expected));
+  };
+  {
+    testname = "graph_dfs_libtest";
+    filename = "cases/graph_dfs_libtest.intlang";
+    iterations = 64;
+    generator = (fun i ->
+      let seed0 = rand_int32 2026070712l (i+0) in
+      let n = rand_int32_ranged seed0 0 1l 100l in
+      let nm1 = Int32.sub n 1l in
+      let edges_toadd = rand_int32tuplst_ranged seed0 1 0l nm1 500l in
+      let edges_toremove = rand_int32tuplst_ranged seed0 3 0l nm1 100l in
+      let edges_toadd2 = rand_int32tuplst_ranged seed0 1 0l nm1 200l in
+      let g = add_edges G.empty edges_toadd in
+      let g = remove_edges g edges_toremove in
+      let g = add_edges g edges_toadd2 in
+      let start = rand_int32_ranged seed0 5 0l (Int32.sub n 1l) in
+      let (discover, finish, parent) = dfs_canonicalord_ocamlvers g (Int32.to_int n) start in
+      let input = prln_int32 n ^
+                  prln_int32tuplst edges_toadd ^
+                  prln_int32tuplst edges_toremove ^
+                  prln_int32tuplst edges_toadd2 ^
+                  prln_int32 start in
+      let expected = prln_int32array discover ^
                      prln_int32array finish ^
                      prln_int32array parent in
-
+      (input, expected));
+  };
+  {
+    testname = "graph_bfs_libtest";
+    filename = "cases/graph_bfs_libtest.intlang";
+    iterations = 64;
+    generator = (fun i ->
+      let seed0 = rand_int32 2026092911l (i+0) in
+      let n = rand_int32_ranged seed0 0 1l 100l in
+      let nm1 = Int32.sub n 1l in
+      let edges_toadd = rand_int32tuplst_ranged seed0 1 0l nm1 500l in
+      let edges_toremove = rand_int32tuplst_ranged seed0 2 0l nm1 100l in
+      let edges_toadd2 = rand_int32tuplst_ranged seed0 1 0l nm1 200l in
+      let g = add_edges G.empty edges_toadd in
+      let g = remove_edges g edges_toremove in
+      let g = add_edges g edges_toadd2 in
+      let start = rand_int32_ranged seed0 3 0l nm1 in
+      let (dist, parent) = bfs_canonicalord_ocamlvers g (Int32.to_int n) start in
+      let input = prln_int32 n ^
+                  prln_int32tuplst edges_toadd ^
+                  prln_int32tuplst edges_toremove ^
+                  prln_int32tuplst edges_toadd2 ^
+                  prln_int32 start in
+      let expected = prln_int32array dist ^
+                     prln_int32array parent in
       (input, expected));
   };
 ]

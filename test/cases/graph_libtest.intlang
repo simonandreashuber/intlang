@@ -8,12 +8,11 @@ let main = \() (
     let checks0 = vector.map2 (graph.checkEdge g) (io.readln_i32vec ()) (io.readln_i32vec ()) in
     let g = vector.left_fold2 (graph.removeEdge) g (io.readln_i32vec ()) (io.readln_i32vec ()) in
     let checks1 = vector.map2 (graph.checkEdge g) (io.readln_i32vec ()) (io.readln_i32vec ()) in
-    let (disct, fint, part) = graph.dfs_canonicalord g (io.readln_i32 ()) in
+    let g = vector.left_fold2 (graph.addEdge) g (io.readln_i32vec ()) (io.readln_i32vec ()) in
+    let checks2 = vector.map2 (graph.checkEdge g) (io.readln_i32vec ()) (io.readln_i32vec ()) in
     (
         io.writeln_i32vec checks0;
         io.writeln_i32vec checks1;
-        io.writeln_i32vec disct;
-        io.writeln_i32vec fint;
-        io.writeln_i32vec part
+        io.writeln_i32vec checks2
     )
 )
