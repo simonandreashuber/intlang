@@ -112,21 +112,13 @@ let rec asttyp_to_mirtyp (typ_ast : Ast.typ) : Mir.mirtyp =
     | TFun (arg_typ_inner, ret_typ_inner) ->  (funcaux (arg_mirtyp :: argacc) arg_typ_inner ret_typ_inner)
     | _ -> TMIRClos (List.rev (arg_mirtyp :: argacc), asttyp_to_mirtyp ret_typ)
   in
-  (* find the compressed version for the restricted vectors *)
-  let rec vecaux typ_inner depth =
-    match repr typ_inner with
-    | TVec typ_inner_inner -> (vecaux typ_inner_inner (depth + 1))
-    | TI32 -> TMIRVec (depth, TMIRVECI32)
-    | TI8 -> TMIRVec (depth, TMIRVECI8)
-    | _ -> raise (Errors.LowerMonoTASTError "Vector that is not of i32 or i8, veccheck seems to fail")
-  in
   match repr typ_ast with
   | TUnit -> TMIRUnit
   | TI32 -> TMIRI32
   | TI8 -> TMIRI8
   | TFun (arg_typ, ret_typ) -> funcaux [] arg_typ ret_typ
   | TTup typ_list -> TMIRTup (List.map asttyp_to_mirtyp typ_list)
-  | TVec typ_inner -> vecaux typ_inner 1
+  | TVec typ_inner -> TMIRVec (asttyp_to_mirtyp typ_inner)
   | TVar _ -> raise (Errors.LowerMonoTASTError "Polymorphic Type in MonoTAST, Monomorphizer seems to fail")
 
 
@@ -639,7 +631,7 @@ let rec lower_body (b : builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
   )
   | VecgetT (vec, idxs, asttyp) -> (
       let ssaid_vec = lower_body b env vec in
-      let ssaid_idxs = List.map (lower_body b env) idxs in
+      let ssaid_idxs = List.map (fun idx -> Dynidx (lower_body b env idx)) idxs in
       let res_ssaid = fresh_ssaid b in
       emit_op b (Vecread (res_ssaid, ssaid_vec, ssaid_idxs));
       res_ssaid
@@ -647,14 +639,9 @@ let rec lower_body (b : builder) (env : mirval UuidMap.t) (l : tlexp) : ssaid =
   | VecsetT (vec, v, idxs, asttyp) -> (
       let ssaid_vec = lower_body b env vec in
       let ssaid_v = lower_body b env v in
-      let ssaid_idxs = List.map (lower_body b env) idxs in
+      let ssaid_idxs = List.map (fun idx -> Dynidx (lower_body b env idx)) idxs in
       let res_ssaid = fresh_ssaid b in
-      (
-      match repr (tlexp_get_type v) with
-      | TI32 | TI8 -> emit_op b (Vecwrite (res_ssaid, ssac ssaid_vec, ssaid_v, ssaid_idxs))
-      | TVec _ -> emit_op b (Vecinsert (res_ssaid, ssac ssaid_vec, ssac ssaid_v, ssaid_idxs))
-      | _ -> raise (Errors.LowerMonoTASTError "VecsetT with unexpected type, veccheck seems to fail")
-      );
+      emit_op b (Vecinsert (res_ssaid, ssac ssaid_vec, ssac ssaid_v, ssaid_idxs));
       res_ssaid
   )
   | VecsliceT (vec, start, len, asttyp) -> (

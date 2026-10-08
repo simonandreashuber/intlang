@@ -13,6 +13,15 @@ open Analysis
 (* String Helpers for Identifier and Primitive Types                         *)
 (* ========================================================================= *)
 
+let string_of_funcid (id : funcid) : string =
+  Printf.sprintf "@%d" id
+
+let string_of_globalid (id : globalid) : string =
+  Printf.sprintf "@g%d" id
+
+let string_of_bbid (id : bbid) : string =
+  Printf.sprintf "bb%d" id
+
 let string_of_ssa_def (fn : func) (id : ssaid) : string =
   match get_ownership_func fn id with
   | Owned -> Printf.sprintf "%%%do" id
@@ -21,6 +30,11 @@ let string_of_ssa_def (fn : func) (id : ssaid) : string =
 
 let string_of_ssa (id : ssaid) : string =
   Printf.sprintf "%%%d" id
+
+let string_of_idx (idx : idx) =
+  match idx with
+  | Dynidx ssaid -> string_of_ssa ssaid
+  | Constidx i -> string_of_int i
 
 let string_of_ssaconsume (c : ssaconsume) : string =
   if c.consume
@@ -35,18 +49,20 @@ let string_of_consumeorcopy (fn : func) (c : ssaconsume) : string =
   | false, false -> Printf.sprintf "%%%d" c.ssaid
   | false, true -> failwith "consumed non memory type detected during printing"
 
-let string_of_funcid (id : funcid) : string =
-  Printf.sprintf "@%d" id
+let string_of_ssa_defs (fn : func) (args : ssaid list) : string =
+  String.concat " " (List.map (string_of_ssa_def fn) args)
 
-let string_of_globalid (id : globalid) : string =
-  Printf.sprintf "@g%d" id
+let string_of_ssaids (args : ssaid list) : string =
+  String.concat " " (List.map string_of_ssa args)
 
-let string_of_bbid (id : bbid) : string =
-  Printf.sprintf "bb%d" id
+let string_of_idxs (idxs : idx list) : string =
+  String.concat " " (List.map string_of_idx idxs)
 
-let string_of_vecinnertype = function
-  | TMIRVECI32 -> "i32"
-  | TMIRVECI8  -> "i8"
+let string_of_ssaconsumes (args : ssaconsume list) : string =
+  String.concat " " (List.map string_of_ssaconsume args)
+
+let string_of_consumeorcopys (fn : func) (args : ssaconsume list) : string =
+  String.concat " " (List.map (string_of_consumeorcopy fn) args)
 
 let rec string_of_typ = function
   | TMIRUnit -> "unit"
@@ -57,24 +73,12 @@ let rec string_of_typ = function
         (String.concat ", " (List.map string_of_typ args))
         (string_of_typ ret)
   | TMIRTup typs -> String.concat "*" (List.map string_of_typ typs)
-  | TMIRVec (dim, inner) -> Printf.sprintf "vec<%d,%s>" dim (string_of_vecinnertype inner)
+  | TMIRVec inner -> Printf.sprintf "vec<%s>" (string_of_typ inner)
 
 let string_of_ownership = function
   | Borrowed -> "Borrowed"
   | Owned    -> "Owned"
   | NoMem    -> "NoMem"
-
-let string_of_ssa_defs (fn : func) (args : ssaid list) : string =
-  String.concat " " (List.map (string_of_ssa_def fn) args)
-
-let string_of_ssaids (args : ssaid list) : string =
-  String.concat " " (List.map string_of_ssa args)
-
-let string_of_ssaconsumes (args : ssaconsume list) : string =
-  String.concat " " (List.map string_of_ssaconsume args)
-
-let string_of_consumeorcopys (fn : func) (args : ssaconsume list) : string =
-  String.concat " " (List.map (string_of_consumeorcopy fn) args)
 
 (* ========================================================================= *)
 (* Operators                                                                 *)
@@ -159,11 +163,9 @@ let string_of_op (fn : func) = function
   | Veclen (dst, vec) ->
       Printf.sprintf "%s = veclen %s" (string_of_ssa_def fn dst) (string_of_ssa vec)
   | Vecread (dst, vec, idxs) ->
-      Printf.sprintf "%s = vecread %s %s" (string_of_ssa_def fn dst) (string_of_ssa vec) (string_of_ssaids idxs)
-  | Vecwrite (dst, vec, v, idxs) ->
-      Printf.sprintf "%s = vecwrite %s %s %s" (string_of_ssa_def fn dst) (string_of_consumeorcopy fn vec) (string_of_ssa v) (string_of_ssaids idxs)
+      Printf.sprintf "%s = vecread %s %s" (string_of_ssa_def fn dst) (string_of_ssa vec) (string_of_idxs idxs)
   | Vecinsert (dst, vec, vecins, idxs) ->
-      Printf.sprintf "%s = vecinsert %s %s %s" (string_of_ssa_def fn dst) (string_of_consumeorcopy fn vec) (string_of_consumeorcopy fn vecins) (string_of_ssaids idxs)
+      Printf.sprintf "%s = vecinsert %s %s %s" (string_of_ssa_def fn dst) (string_of_consumeorcopy fn vec) (string_of_consumeorcopy fn vecins) (string_of_idxs idxs)
   | Vecslice (dst, vec, start, len) ->
       Printf.sprintf "%s = vecslice %s %s %s" (string_of_ssa_def fn dst) (string_of_ssa vec) (string_of_ssa start) (string_of_ssa len)
   | Vecextend (dst, vec, lit, off) ->

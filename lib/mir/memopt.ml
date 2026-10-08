@@ -117,7 +117,7 @@ let tupuwrp opt fn =
       | Copy _ | Drop _ | StoreGlobal _ | LoadGlobal _ | DropGlobal _
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _ | Uopi8 _ | Bopi32 _ | Bopi8 _
       | Tupwrp _ | Tupuwrp _ | Veclit _ | Vecinit _ | Veclen _
-      | Vecread _ | Vecwrite _ | Vecinsert _ | Vecslice _ | Vecextend _ -> op
+      | Vecread _ | Vecinsert _ | Vecslice _ | Vecextend _ -> op
     ) bb.ops
   ) fn.bbs
 
@@ -283,6 +283,7 @@ let consume (opt : mem_optimizer) fn =
     let try_consume_lst scs = List.iter (try_consume) (List.rev scs) in
 
     let add_uses ssaids = List.iter (add_use) (List.rev ssaids) in
+    let add_idx_uses ssaids = List.iter (function | Dynidx ssaid -> add_use ssaid | Constidx _ ->()) (List.rev ssaids) in
 
     let try_consume_br brbbid brargs =
       let target_bb = match BBMap.find_opt brbbid fn.bbs with
@@ -325,9 +326,8 @@ let consume (opt : mem_optimizer) fn =
       | Veclit (_, scs) ->  try_consume_lst scs
       | Vecinit (_, defval, dims) ->  add_uses dims; add_use defval
       | Veclen (_, vec) ->  add_use vec
-      | Vecread (_, vec, idxs) -> add_uses idxs; add_use vec
-      | Vecwrite (_, sc, vec, idxs) -> add_uses idxs; add_use vec; try_consume sc;
-      | Vecinsert (_, vec_sc, vecins_sc, idxs) ->  add_uses idxs; try_consume vecins_sc; try_consume vec_sc
+      | Vecread (_, vec, idxs) -> add_idx_uses idxs; add_use vec
+      | Vecinsert (_, vec_sc, vecins_sc, idxs) ->  add_idx_uses idxs; try_consume vecins_sc; try_consume vec_sc
       | Vecslice (_, vec, start, len) ->  add_use len; add_use start; add_use vec
       | Vecextend (_, vec, lit, off) ->  add_use off; add_use lit; add_use vec
     )  bb.ops (*ops are stored in reverse so in the correct order for this use case*)
@@ -379,7 +379,7 @@ let monofunc (opt : mem_optimizer) (fn : func) =
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
       | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
       | Tupuwrp _ | Tupborr _ | Veclit _ | Vecinit _ | Vecread _
-      | Veclen _ | Vecwrite _ | Vecinsert _
+      | Veclen _ | Vecinsert _
       | Vecextend _ | Vecslice _ -> ()
     ) bb.ops
   ) fn.bbs
@@ -450,7 +450,6 @@ let collect_consumed_ssaids (ops : op list) : SsaSet.t =
     | Tupwrp (_, scl)            -> check_list acc scl
     | Tupuwrp (_, sc)            -> check acc sc
     | Veclit (_, scl)            -> check_list acc scl
-    | Vecwrite (_, sc, _, _)     -> check acc sc
     | Vecinsert (_, sc1, sc2, _) -> check (check acc sc1) sc2
     | Drop _ -> failwith "collect_consumed_ssaids: drop op should not be in the ops list"
     | Func _ | Copy _ | LoadGlobal _ | DropGlobal _

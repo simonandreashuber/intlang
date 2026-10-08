@@ -204,6 +204,13 @@ let compute_live (aly : analysis_info) (f : func) =
 
     let apply_use u = uses := SsaSet.add u !uses in
     let apply_uses us = List.iter apply_use us in
+    let apply_idx_uses idxs =
+      List.iter (fun idx ->
+        match idx with
+        | Dynidx ssaid -> apply_use ssaid
+        | Constidx i -> ()
+      ) idxs
+    in
     let apply_sc_uses scs = List.iter (fun sc -> apply_use sc.ssaid) scs in
     let apply_def d = defs := SsaSet.add d !defs in
     let apply_defs ds = List.iter apply_def ds in
@@ -240,9 +247,8 @@ let compute_live (aly : analysis_info) (f : func) =
       | Veclit (res, scs) -> apply_def res; apply_sc_uses scs
       | Vecinit (res, defval, dims) -> apply_def res; apply_use defval; apply_uses dims
       | Veclen (res, vec) -> apply_def res; apply_use vec
-      | Vecread (res, vec, idxs) -> apply_def res; apply_use vec; apply_uses idxs
-      | Vecwrite (res, val_sc, vec, idxs) -> apply_def res; apply_use vec; apply_use val_sc.ssaid; apply_uses idxs
-      | Vecinsert (res, vec_sc, vecins_sc, idxs) -> apply_def res; apply_use vec_sc.ssaid; apply_use vecins_sc.ssaid; apply_uses idxs
+      | Vecread (res, vec, idxs) -> apply_def res; apply_use vec; apply_idx_uses idxs
+      | Vecinsert (res, vec_sc, vecins_sc, idxs) -> apply_def res; apply_use vec_sc.ssaid; apply_use vecins_sc.ssaid; apply_idx_uses idxs
       | Vecslice (res, vec, start, len) -> apply_def res; apply_use vec; apply_use start; apply_use len
       | Vecextend (res, vec, lit, off) -> apply_def res; apply_use vec; apply_use lit; apply_use off
     ) bb.ops;
@@ -301,6 +307,12 @@ let compute_live (aly : analysis_info) (f : func) =
     in
     let add_defs ssaids op_index = List.iter (fun ssaid -> add_def ssaid op_index) ssaids in
     let add_uses ssaids op_index = List.iter (fun ssaid -> add_use ssaid op_index) ssaids in
+    let add_idx_uses idxs op_index =
+      List.iter (function
+        | Dynidx ssaid -> add_use ssaid op_index
+        | Constidx _ -> ()
+      ) idxs
+    in
     let add_sc_uses scs op_index = List.iter (fun sc -> add_use sc.ssaid op_index) scs in
 
     List.iteri (fun op_index op ->
@@ -327,15 +339,11 @@ let compute_live (aly : analysis_info) (f : func) =
       | Veclit (res, scs) -> add_def res op_index; add_sc_uses scs op_index
       | Vecinit (res, defval, dims) -> add_def res op_index; add_use defval op_index; add_uses dims op_index
       | Veclen (res, vec) -> add_def res op_index; add_use vec op_index
-      | Vecread (res, vec, idxs) -> add_def res op_index; add_use vec op_index; add_uses idxs op_index
-      | Vecwrite (res, val_sc, vec, idxs) -> add_def res op_index;
-                                              add_use vec op_index;
-                                              add_use val_sc.ssaid op_index;
-                                              add_uses idxs op_index
+      | Vecread (res, vec, idxs) -> add_def res op_index; add_use vec op_index; add_idx_uses idxs op_index
       | Vecinsert (res, vec_sc, vecins_sc, idxs) -> add_def res op_index;
                                                   add_use vec_sc.ssaid op_index;
                                                   add_use vecins_sc.ssaid op_index;
-                                                  add_uses idxs op_index
+                                                  add_idx_uses idxs op_index
       | Vecslice (res, vec, start, len) -> add_def res op_index; add_use vec op_index; add_use start op_index; add_use len op_index
       | Vecextend (res, vec, lit, off) -> add_def res op_index; add_use vec op_index; add_use lit op_index; add_use off op_index
     )  bb.ops
@@ -389,15 +397,10 @@ let compute_borrow (fn : func) =
       match op with
       | Tupborr (deflst, tup) -> (
         List.iter (fun def ->
-           if Mir.is_memtyp (Mir.get_mirtyp_func fn def)
-           then borrow def tup
+           if Mir.is_memtyp (Mir.get_mirtyp_func fn def) then borrow def tup
         ) deflst
       )
-      | Vecread (def, vec, idxlst) -> (
-        match Mir.get_mirtyp_func fn vec with
-        | TMIRVec (vecdim, _) when List.length idxlst < vecdim -> borrow def vec
-        | _ -> ()
-      )
+      | Vecread (def, vec, idxlst) -> if is_memtyp @@ Mir.get_mirtyp_func fn def then borrow def vec
       | Vecslice (def, vec, _, _) -> borrow def vec
       (* when at some point a mir op is added and does borrow
          I need to remember that here I check for this. With | _ -> the compiler does not tell me
@@ -407,7 +410,7 @@ let compute_borrow (fn : func) =
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
       | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _ | Tupuwrp _
       | Veclit _ | Vecinit _ | DropGlobal _
-      | Veclen _ | Vecwrite _ | Vecinsert _
+      | Veclen _ | Vecinsert _
       | Vecextend _ -> ()
     ) bb.ops;
 
@@ -675,10 +678,6 @@ let compute_data (aly : analysis_info) (p : program) (fn : func) =
         )
         | Vecinit (def, _, _) -> add_ownsrc def
         | Vecread (def, _, _) -> add_borrsrc def
-        | Vecwrite (def, vec, _, _ ) -> (
-          add_ownsrc def;
-          add_ownsink vec.ssaid
-        )
         | Vecinsert (def, vec, vecins, _ ) -> (
           add_ownsrc def;
           add_ownsink vec.ssaid;

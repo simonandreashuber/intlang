@@ -22,13 +22,15 @@ let extract_op_defs = function
   | ImmUnit res | Uopi32 (res, _, _) | Uopi8 (res, _, _)
   | Bopi32 (res, _, _, _) | Bopi8 (res, _, _, _)
   | Tupwrp (res, _) | Veclit (res, _) | Vecinit (res, _, _)
-  | Veclen (res, _) | Vecread (res, _, _) | Vecwrite (res, _, _, _)
+  | Veclen (res, _) | Vecread (res, _, _)
   | Vecinsert (res, _, _, _) | Vecslice (res, _, _, _)
   | Vecextend (res, _, _, _) | LoadGlobal (res, _) -> [res]
   | Tupuwrp (res_list, _) -> res_list
   | Tupborr (res_list, _) -> res_list
   | Copy (res, _) -> [res]
   | StoreGlobal _ | Drop _ | DropGlobal _ -> []
+
+let idxs_getdyn idxs = List.fold_right (fun idx acc -> match idx with | Dynidx ssaid -> ssaid :: acc | Constidx _ -> acc) idxs []
 
 let extract_op_uses = function
   | Pack (_, oldclos, args) -> oldclos.ssaid :: List.map (fun sc -> sc.ssaid) args
@@ -44,9 +46,8 @@ let extract_op_uses = function
   | Tupborr (_, tup) -> [tup]
   | Vecinit (_, defval, dims) -> defval :: dims
   | Veclen (_, vec) -> [vec]
-  | Vecread (_, vec, idxs) -> vec :: idxs
-  | Vecwrite (_, vec, val_, idxs) -> vec.ssaid :: val_ :: idxs
-  | Vecinsert (_, vec, vecins, idxs) -> vec.ssaid :: vecins.ssaid :: idxs
+  | Vecread (_, vec, idxs) -> vec :: (idxs_getdyn idxs)
+  | Vecinsert (_, vec, vecins, idxs) -> vec.ssaid :: vecins.ssaid :: (idxs_getdyn idxs)
   | Vecslice (_, vec, start, len) -> [vec; start; len]
   | Vecextend (_, vec, lit, off) -> [vec; lit; off]
   | Func _ | LoadGlobal _ | DropGlobal _ | Immi32 _ | Immi8 _ | ImmUnit _ -> []
@@ -59,7 +60,7 @@ let is_critical_op = function
   | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
   | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
   | Veclit _ | Vecinit _
-  | Veclen _ | Vecwrite _ | Vecinsert _
+  | Veclen _ | Vecinsert _
   | Vecextend _  -> false
 
 (* helper to filter a list using a boolean mask *)

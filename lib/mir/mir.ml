@@ -24,9 +24,8 @@ type mirtyp =
   | TMIRI8                                (* 8 bit integer type *)
   | TMIRClos of (mirtyp list) * mirtyp    (* closure type, list of argument types and return type *)
   | TMIRTup of mirtyp list                (* tuple type, list of element types *)
-  | TMIRVec of int * vecinnertype         (* vector type, dimension and inner type *)
+  | TMIRVec of mirtyp                     (* vector inner type *)
 
-and vecinnertype = | TMIRVECI32 | TMIRVECI8
 
 (*
   Borrowed: no gc obligation, no consumption allowed
@@ -68,6 +67,10 @@ type ssaconsume = {
 
 let ssac = fun ssaid -> { ssaid; consume = false }
 
+type idx =
+  | Dynidx of ssaid         (* used for vector acceses *)
+  | Constidx of int         (* used for tuple acceses *)
+
 type op =                                                           (* Textual Representation                                                                           *)
     | Func of ssaid * (funcid ref) * ((funcid option) ref)          (* %res         = func @funcid @allownedfuncid                                                      *)
     | Pack of ssaid *  ssaconsume * (ssaconsume list)               (* %res         = pack %oldclos %arg0 %arg1 ...                                                     *)
@@ -91,9 +94,8 @@ type op =                                                           (* Textual R
     | Veclit of ssaid * (ssaconsume list)                           (* %res         = veclit %elm0 %elm1 ...                                                            *)
     | Vecinit of ssaid * ssaid * (ssaid list)                       (* %res         = vecinit %defval %dim0sz1 ...                                                      *)
     | Veclen of ssaid * ssaid                                       (* %res         = veclen %vec                                                                       *)
-    | Vecread of ssaid * ssaid * (ssaid list)                       (* %res         = vecread %vec %idx0 ...                                                            *)
-    | Vecwrite of ssaid * ssaconsume  * ssaid * (ssaid list)        (* %res         = vecwrite %vec %val %idx0 ...                                                      *)
-    | Vecinsert of ssaid * ssaconsume * ssaconsume * (ssaid list)   (* %res         = vecinsert %vec %vecins %idx0 ...                                                  *)
+    | Vecread of ssaid * ssaid * (idx list)                         (* %res         = vecread %vec %idx0 ...                                                            *)
+    | Vecinsert of ssaid * ssaconsume * ssaconsume * (idx list)     (* %res         = vecinsert %vec %insval %idx0 ...                                                  *)
     | Vecslice of ssaid * ssaid * ssaid * ssaid                     (* %res         = vecslice %vec %start %len                                                         *)
     | Vecextend of ssaid * ssaid * ssaid * ssaid                    (* %res         = vecextend %vec %lit %off                                                          *)
 

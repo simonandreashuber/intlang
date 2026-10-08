@@ -52,7 +52,7 @@ let funcdce_opt (b : builder) (_ : analysis_info) : unit =
   | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
   | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
   | Veclit _ | Vecinit _ | Vecread _
-  | Veclen _ | Vecwrite _ | Vecinsert _
+  | Veclen _ | Vecinsert _
   | Vecextend _ | Vecslice _ -> ()
   in
 

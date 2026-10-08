@@ -105,6 +105,14 @@ let find_global (b : builder) (gid : globalid) : global =
 let func_get_clos_mirtyp (b : builder) (fn : func) : mirtyp =
   TMIRClos (List.map (fun (ssaid, _) -> get_mirtyp_func fn ssaid) fn.args, fn.rettyp)
 
+let idxvec (b: builder) (vec : mirtyp) (idxlst : idx list) : mirtyp =
+  List.fold_left (fun typacc idx ->
+    match typacc, idx with
+    | TMIRVec innertyp, Dynidx ssaid when get_mirtyp b ssaid = TMIRI32 -> innertyp
+    | TMIRTup elmtyps, Constidx i when i < List.length elmtyps -> List.nth elmtyps i
+    | _ -> failwith "idxvec: no valid idx mirtyp combination"
+  )  vec idxlst
+
 (*
   given some op, where all used ssaids funcids and globalids are known
   infer the type of the ssaids defined by the op, additionaly checks
@@ -242,33 +250,23 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
     | h :: tl -> (
       let inner_type = get_mirtyp b h.ssaid in
       if List.for_all (fun lit -> get_mirtyp b lit.ssaid = inner_type) tl then
-        let vec_typ = match inner_type with
-          | TMIRI32 -> TMIRVec (1, TMIRVECI32)
-          | TMIRI8 -> TMIRVec (1, TMIRVECI8)
-          | TMIRVec (dim, datatyp) -> TMIRVec (dim + 1, datatyp)
-          | _ -> raise (Errors.MirError "Veclit operation requires all literal elements to be of type vector, i32 or i8")
-        in
+        let vec_typ = TMIRVec inner_type in
         (if (Some vec_typ) = mirtyp_hint
-        then [(ssaid, vec_typ)]
-        else raise (Errors.MirError "Veclit operation mirtype hint and infered type dont match")  )
+          then [(ssaid, vec_typ)]
+          else raise (Errors.MirError "Veclit operation mirtype hint and infered type dont match")  )
       else
         raise (Errors.MirError "Veclit operation requires all literal elements to be of the same type")
     )
     | [] -> (
         match mirtyp_hint with
         | Some hint -> [(ssaid, hint)]
-        | None -> raise (Errors.MirError "Veclit operation requires at least one literal element")
+        | None -> raise (Errors.MirError "veclit[] needs a hint to infer mir type")
     )
   )
   | Vecinit (ssaid, lit, szlst) -> (
     if List.for_all (fun sz -> get_mirtyp b sz = TMIRI32) szlst then
-      let dim = List.length szlst in
-      let vec_typ = match get_mirtyp b lit with
-        | TMIRI32 -> TMIRVec (dim, TMIRVECI32)
-        | TMIRI8 -> TMIRVec (dim, TMIRVECI8)
-        | TMIRVec (diminner, datatyp) -> TMIRVec (dim + diminner, datatyp)
-        | _ -> raise (Errors.MirError "Vecinit operation requires the default value to be of type i32 or i8")
-      in
+      let littyp = get_mirtyp b lit in
+      let vec_typ = List.fold_right (fun dimsz typacc -> TMIRVec typacc) szlst littyp in
       [(ssaid, vec_typ)]
     else
       raise (Errors.MirError "Vecinit operation requires all size arguments to be of type i32")
@@ -279,74 +277,24 @@ let infer_mirtyp_from_op (b : builder) (op : op) (mirtyp_hint : mirtyp option) :
     | _ -> raise (Errors.MirError "Veclen operation requires the vector argument to be of type vector")
   )
   | Vecread (ssaid, vec, idxlst) -> (
-    if List.for_all (fun sz -> get_mirtyp b sz = TMIRI32) idxlst then
-      let idx_depth = List.length idxlst in
-      let vec_typ =
-        match get_mirtyp b vec with
-        | TMIRVec (dim, datatyp) when idx_depth = dim -> (match datatyp with | TMIRVECI32 -> TMIRI32 | TMIRVECI8 -> TMIRI8)
-        | TMIRVec (dim, datatyp) when idx_depth < dim -> (TMIRVec (dim - idx_depth, datatyp))
-        | TMIRVec _ -> raise (Errors.MirError "Vecread operation index depth exceeds vector dimension")
-        | _ -> raise (Errors.MirError "Vecread operation requires the vector argument to be of type vector")
-      in
-      [(ssaid, vec_typ)]
-    else
-      raise (Errors.MirError "Vecread operation requires all index arguments to be of type i32")
+    let vec_typ = get_mirtyp b vec in
+    [(ssaid, idxvec b vec_typ idxlst)]
   )
-  | Vecwrite (ssaid, vec, ic, idxlst) -> (
-    if List.for_all (fun sz -> get_mirtyp b sz = TMIRI32) idxlst then
-      let idx_depth = List.length idxlst in
-      let vec_typ =
-        match get_mirtyp b vec.ssaid with
-        | TMIRVec (dim, datatyp) when idx_depth = dim -> (
-          let ic_expected_typ = match datatyp with | TMIRVECI32 -> TMIRI32 | TMIRVECI8 -> TMIRI8 in
-          if get_mirtyp b ic = ic_expected_typ then
-            TMIRVec (dim, datatyp)
-          else
-            raise (Errors.MirError "Vecwrite operation value type does not match vector inner type")
-        )
-        | TMIRVec _ -> raise (Errors.MirError "Vecwrite operation index depth does not match vector dimension")
-        | _ -> raise (Errors.MirError "Vecwrite operation requires the vector argument to be of type vector")
-      in
-      [(ssaid, vec_typ)]
-    else
-      raise (Errors.MirError "Vecwrite operation requires all index arguments to be of type i32")
-  )
-  | Vecinsert (ssaid, vec, vecins, idxlst) -> (
-    if List.for_all (fun sz -> get_mirtyp b sz = TMIRI32) idxlst then
-      let idx_depth = List.length idxlst in
-      let vec_typ = (
-        match get_mirtyp b vec.ssaid, get_mirtyp b vecins.ssaid with
-        | TMIRVec (dim_vec, datatyp_vec) , TMIRVec (dim_ins, datatyp_ins)
-            when idx_depth + dim_ins = dim_vec && datatyp_vec = datatyp_ins ->
-            TMIRVec (dim_vec, datatyp_vec)
-        | TMIRVec _ , TMIRVec _ -> raise (Errors.MirError "Vecinsert operation inner values dont match or idx depth + vecins dimension does not match vector dimension")
-        | _, _ -> raise (Errors.MirError "Vecinsert operation requires vec and vecins arguments to be of type vector")
-      )
-      in
-      [(ssaid, vec_typ)]
-    else
-      raise (Errors.MirError "Vecinsert operation requires all index arguments to be of type i32")
+  | Vecinsert (ssaid, vec, insval, idxlst) -> (
+    let vec_typ = get_mirtyp b vec.ssaid in
+    let vecidx_typ = idxvec b vec_typ idxlst in
+    if vecidx_typ <> get_mirtyp b insval.ssaid then (failwith "Vecinsert: insertvalue does not match type of indexed vector");
+    [(ssaid, vec_typ)]
   )
   | Vecslice (ssaid, vec, start, len) -> (
       match get_mirtyp b vec, get_mirtyp b start, get_mirtyp b len with
-      | TMIRVec (dim, datatyp), TMIRI32, TMIRI32 -> [ (ssaid, TMIRVec (dim, datatyp)) ]
+      | TMIRVec innertyp, TMIRI32, TMIRI32 -> [ (ssaid, TMIRVec innertyp) ]
       | _, _, _ -> raise (Errors.MirError "Vecslice operation requires the vec argument to be of type vector and start and len arguments to be of type i32")
   )
   | Vecextend (ssaid, vec, lit, extsz) -> (
-      match get_mirtyp b vec, get_mirtyp b extsz with
-      | TMIRVec (dim, datatyp), TMIRI32 -> (
-        let lit_typ = get_mirtyp b lit in
-        if dim = 1 then
-          match datatyp, lit_typ with
-          | TMIRVECI32, TMIRI32
-          | TMIRVECI8, TMIRI8 -> [(ssaid, TMIRVec (dim, datatyp))]
-          | _ -> raise (Errors.MirError "Vecextend operation requires the lit argument to match the inner type of the vec argument")
-        else
-          match lit_typ with
-          | TMIRVec (dim_lit, datatyp_lit) when dim_lit + 1 = dim && datatyp_lit = datatyp -> [(ssaid, TMIRVec (dim, datatyp))]
-          | _ -> raise (Errors.MirError "Vecextend operation requires the lit argument to be a vector of the same inner type as the vec argument and of dimension one less than the vec argument")
-      )
-      | _ -> raise (Errors.MirError "Vecextend operation requires the vec argument to be of type vector and extsz arguments to be of type i32")
+    match get_mirtyp b vec, get_mirtyp b lit, get_mirtyp b extsz with
+    | TMIRVec innertyp, littyp, TMIRI32 when littyp = innertyp -> [ (ssaid, TMIRVec innertyp) ]
+    | _, _, _ -> raise (Errors.MirError "Vecextend operation requires the vec argument to be of type vector, a literal of the vectors innertype and extension size of i32 type")
   )
 
 (*
@@ -404,7 +352,6 @@ let infer_ownership_from_op (b : builder) (op : op) : (ssaid * ownership) list =
   | Vecinit (ssaid, _, _) -> [(ssaid, Owned)]
   | Veclen (ssaid, _) -> [(ssaid, NoMem)]
   | Vecread (ssaid, _, _) -> if_memtyp_then Borrowed
-  | Vecwrite (ssaid, _, _, _) -> [(ssaid, Owned)]
   | Vecinsert (ssaid, _, _, _) -> [(ssaid, Owned)]
   | Vecslice (ssaid, _, _, _) -> [(ssaid, Borrowed)]
   | Vecextend (ssaid, _, _, _) -> [(ssaid, Owned)]
@@ -533,6 +480,7 @@ let copy_ssaconsume (ssaid_off : ssaid) (sc : ssaconsume) =
 
 let rec copy_op (ssaid_off : ssaid) (o : op) : op =
   let add id = id + ssaid_off in
+  let addidx idx = match idx with | Dynidx i -> Dynidx (i + ssaid_off) | Constidx i -> Constidx i in
   let copy_sc = copy_ssaconsume ssaid_off in
   match o with
   | Func (res, funcid1, funcid2_opt) -> Func (add res, ref !funcid1, ref !funcid2_opt)
@@ -557,9 +505,8 @@ let rec copy_op (ssaid_off : ssaid) (o : op) : op =
   | Veclit (res, scs) -> Veclit (add res, List.map copy_sc scs)
   | Vecinit (res, defval, dims) -> Vecinit (add res, add defval, List.map add dims)
   | Veclen (res, vec) -> Veclen (add res, add vec)
-  | Vecread (res, vec, idxs) -> Vecread (add res, add vec, List.map add idxs)
-  | Vecwrite (res, val_sc, vec, idxs) -> Vecwrite (add res, copy_sc val_sc, add vec, List.map add idxs)
-  | Vecinsert (res, vec_sc, ins_sc, idxs) -> Vecinsert (add res, copy_sc vec_sc, copy_sc ins_sc, List.map add idxs)
+  | Vecread (res, vec, idxs) -> Vecread (add res, add vec, List.map addidx idxs)
+  | Vecinsert (res, vec_sc, ins_sc, idxs) -> Vecinsert (add res, copy_sc vec_sc, copy_sc ins_sc, List.map addidx idxs)
   | Vecslice (res, vec, start, len) -> Vecslice (add res, add vec, add start, add len)
   | Vecextend (res, vec, lit, off) -> Vecextend (add res, add vec, add lit, add off)
 
@@ -659,6 +606,8 @@ let sub_id submap id =
 
 let sub_id_list submap ids = List.map (sub_id submap) ids
 
+let sub_idx_list submap idxlst = List.map (function | Dynidx i -> Dynidx (sub_id submap i) | Constidx i -> Constidx i) idxlst
+
 let sub_sc submap sc =
   { ssaid = sub_id submap sc.ssaid; consume = sc.consume }
 
@@ -676,6 +625,7 @@ let sub_ops_uses submap ops =
   (*make helpers less redundant*)
   let sub_id = sub_id submap in
   let sub_id_list = sub_id_list submap in
+  let sub_idx_list = sub_idx_list submap in
   let sub_sc = sub_sc submap in
   let sub_sc_list = sub_sc_list submap in
 
@@ -737,13 +687,10 @@ let sub_ops_uses submap ops =
         Veclen (dst, sub_id vec)
 
     | Vecread (dst, vec, idxs) ->
-        Vecread (dst, sub_id vec, sub_id_list idxs)
-
-    | Vecwrite (dst, vec, v, idxs) ->
-        Vecwrite (dst, sub_sc vec, sub_id v, sub_id_list idxs)
+        Vecread (dst, sub_id vec, sub_idx_list idxs)
 
     | Vecinsert (dst, vec, vecins, idxs) ->
-        Vecinsert (dst, sub_sc vec, sub_sc vecins, sub_id_list idxs)
+        Vecinsert (dst, sub_sc vec, sub_sc vecins, sub_idx_list idxs)
 
     | Vecslice (dst, vec, start, len) ->
         Vecslice (dst, sub_id vec, sub_id start, sub_id len)

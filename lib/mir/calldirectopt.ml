@@ -40,7 +40,7 @@ let calldirect_opt_func (aly : analysis_info) (fn : func) : unit =
       | Immi32 _ | Immi8 _ | ImmUnit _ | Uopi32 _
       | Uopi8 _ | Bopi32 _ | Bopi8 _ | Tupwrp _
       | Tupuwrp _ | Tupborr _ | Veclit _ | Vecinit _
-      | Veclen _ | Vecread _ | Vecwrite _ | Vecinsert _
+      | Veclen _ | Vecread _ | Vecinsert _
       | Vecslice _ | Vecextend _ -> ()
     ) bb.ops
   ) fn.bbs;
