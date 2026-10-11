@@ -15,6 +15,9 @@
 open Mir
 open Printmir
 open Errors
+(*
+
+(* Currently not working since its sill on the old mir vectyp spec *)
 
 type value =
   | Vunit
@@ -262,50 +265,40 @@ let rec simmir_func (p : program) (funcid : funcid) (args : value list) : value 
         def res (Vi32 (Int32.of_int (len)))
 
     | Vecread (res, vec, idx_list) ->
-        let rec readvec (v : value) (idxs : ssaid list) : value =
+        let rec readvec (v : value) (idxs : idx list) : value =
             match idxs with
             | [] -> v
-            | idx_sc :: rest ->
-                let off, len, arr = vecval_unpack v in
-                let idx = match use idx_sc with Vi32 i -> Int32.to_int i | _ -> failwith "Vecread idx not i32" in
-                if idx < 0 || idx >= len then failwith "Vecread index out of bounds";
-                readvec arr.(off + idx) rest
+            | idx :: rest -> (
+                match idx with
+                | Dynidx idx_ssaid -> (
+                  let off, len, arr = vecval_unpack v in
+                  let idx = match use idx_ssaid with Vi32 i -> Int32.to_int i | _ -> failwith "Vecread idx not i32" in
+                  if idx < 0 || idx >= len then failwith "Vecread index out of bounds";
+                  readvec arr.(off + idx) rest
+                )
+                | Constidx i -> (
+                  let tup = match v with Vtup t -> t | _ -> failwith "Vecread on non-tuple with Constidx" in
+                  if i >= List.length tup then failwith "Vecread Constidx is to large for tuple";
+                  readvec (List.nth tup i) rest
+                )
+            )
         in
         def res (readvec (use vec) idx_list)
 
-    | Vecwrite (res, vec, val_ins, idx_list) ->
-        let new_val = use val_ins in
-        if is_memval new_val then failwith "Vecwrite: value to write must be i32 or i8";
-        let rec writevec (v : value) (idxs : ssaid list) : unit =
-            match idxs with
-            | [lastidx] -> (
-                let off, len, arr = vecval_unpack v in
-                let idx = match use lastidx with Vi32 i -> Int32.to_int i | _ -> failwith "Vecwrite idx not i32" in
-                if idx < 0 || idx >= len then failwith "Vecwrite index out of bounds";
-                Array.set arr (off + idx) new_val
-            )
-            | idx_sc :: rest -> (
-                let off, len, arr = vecval_unpack v in
-                let idx = match use idx_sc with Vi32 i -> Int32.to_int i | _ -> failwith "Vecwrite idx not i32" in
-                if idx < 0 || idx >= len then failwith "Vecwrite index out of bounds";
-                let subvec = arr.(off + idx) in
-                writevec subvec rest
-            )
-            | [] -> failwith "Vecwrite: index list cannot be empty"
-        in
-        let new_vec = consume_or_copy vec in
-        writevec new_vec idx_list;
-        def res new_vec
-
     | Vecinsert (res, vec, val_ins, idx_list) ->
         let new_val = consume_or_copy val_ins in
-        let rec writevec (v : value) (idxs : ssaid list) : unit =
+        let rec writevec (v : value) (idxs : idx list) : unit =
             match idxs with
-            | [lastidx] -> (
-                let off, len, arr = vecval_unpack v in
-                let idx = match use lastidx with Vi32 i -> Int32.to_int i | _ -> failwith "Vecwrite idx not i32" in
-                if idx < 0 || idx >= len then failwith "Vecwrite index out of bounds";
-                Array.set arr (off + idx) new_val
+            | [(Dynidx lastidx)] -> (
+              let off, len, arr = vecval_unpack v in
+              let idx = match use lastidx with Vi32 i -> Int32.to_int i | _ -> failwith "Vecwrite idx not i32" in
+              if idx < 0 || idx >= len then failwith "Vecwrite index out of bounds";
+              Array.set arr (off + idx) new_val
+            )
+            | [(Constidx i)] -> (
+              let tup = match v with Vtup t -> t | _ -> failwith "Vecinsert on non-tuple with Constidx" in
+              if i >= List.length tup then failwith "Vecinsert Constidx is to large for tuple";
+
             )
             | idx_sc :: rest -> (
                 let off, len, arr = vecval_unpack v in
@@ -399,4 +392,6 @@ let simmir_program (p : program) =
         let backtrace = Printexc.get_backtrace () in
         (*Printf.eprintf "%s\n" (Printmir.string_of_program p);*)
         Printf.eprintf "Error during MirSim: %s\nBacktrace:\n%s\n" msg backtrace;
-        raise e
+        raise e *)
+
+let simmir_program (p : program) = ()
