@@ -1,0 +1,103 @@
+-- this is the original layout from the intlangv1 compiler
+-- some notes: the named let Expressions are all recursive (I know was a great choice back then but it is what it is)
+-- type bop =
+--    | Eq | Lt | Mul | Sub | Add
+--
+-- type lexp =                     (*lambda expression*)
+--     | Var of string             (*x*)
+--     | Lam of string * lexp      (*\x.y*)
+--     | App of lexp * lexp        (*x y*)
+--     | Int of int                (*int*)
+--     | Bop of bop * lexp * lexp  (*x bop y*)
+--
+-- type stmt =
+--     | Nlexp of string * lexp (*named lambda expression*)
+--     | Lexp of lexp           (*lambda expression, that will be evaulated*)
+--
+-- type prog = stmt list
+
+-- AST Layout
+-- prog: ([(name, lexp)], lexp) (while it does not look like form the type def of stmt and prog this is the only legal structure that was allowed)
+-- lexp: (firstfree, [nodes])
+-- nodes: (id, name, lit, children)
+-- id: i32
+-- name: [i8] (name of Var and Lam node)
+-- lit: i32 (lit for Int node)
+-- children: [i32] (idxes of children)
+--
+-- Encodeing:
+-- Invalid/empty node: (0, "", nextfree, [])
+-- Var: (1, "x", 0, 0)
+-- Lam: (2, "x", y, 0)
+-- App: (3, "", x, y)
+-- Int: (4, "", i, 0)
+-- BopEq: (5, "", x, y)
+-- BopLt: (6, "", x, y)
+-- BopMul: (7, "", x, y)
+-- BopSub: (8, "", x, y)
+-- BopAdd: (9, "", x, y)
+
+let emptynode = (0, "", 0, 0)
+
+let newast = \() vecmk[emptynode, 16]
+
+let astensuresize= \(ast : i32*[i32*[i8]*i32*i32]) => i32*[i32*[i8]*i32*i32].
+                let (freenodeidx, nodevec) = ast in
+                let nodevecsize = veclen[nodevec] in
+                let nodevec = if nodevecsize <= freenodeidx then vecextend[nodevec, emptynode, nodevecsize] else nodevec end in
+                (freenodeidx, nodevec)
+
+let addvar = \(ast : i32*[i32*[i8]*i32*i32]) (name : [i8]) => (i32*[i32*[i8]*i32*i32])*i32.
+                let ast = astensuresize ast in
+                let (freenodeidx, nodevec) = ast in
+                let nodevec = vecset[nodevec, (1, name, 0, 0), freenodeidx] in
+                ((freenodeidx+1, nodevec), freenodeidx)
+
+let addlam = \(ast : i32*[i32*[i8]*i32*i32]) (name : [i8]) (body : i32) => (i32*[i32*[i8]*i32*i32])*i32.
+                let ast = astensuresize ast in
+                let (freenodeidx, nodevec) = ast in
+                let nodevec = vecset[nodevec, (2, name, body, 0), freenodeidx] in
+                ((freenodeidx+1, nodevec), freenodeidx)
+
+let addapp = \(ast : i32*[i32*[i8]*i32*i32]) (lhs : i32) (rhs : i32) => (i32*[i32*[i8]*i32*i32])*i32.
+                let ast = astensuresize ast in
+                let (freenodeidx, nodevec) = ast in
+                let nodevec = vecset[nodevec, (3, "", lhs, rhs), freenodeidx] in
+                ((freenodeidx+1, nodevec), freenodeidx)
+
+let addint = \(ast : i32*[i32*[i8]*i32*i32]) (i : i32) => (i32*[i32*[i8]*i32*i32])*i32.
+                let ast = astensuresize ast in
+                let (freenodeidx, nodevec) = ast in
+                let nodevec = vecset[nodevec, (4, "", i, 0), freenodeidx] in
+                ((freenodeidx+1, nodevec), freenodeidx)
+
+let addbopeq = \(ast : i32*[i32*[i8]*i32*i32]) (lhs : i32) (rhs : i32) => (i32*[i32*[i8]*i32*i32])*i32.
+                let ast = astensuresize ast in
+                let (freenodeidx, nodevec) = ast in
+                let nodevec = vecset[nodevec, (5, "", lhs, rhs), freenodeidx] in
+                ((freenodeidx+1, nodevec), freenodeidx)
+
+
+let addboplt = \(ast : i32*[i32*[i8]*i32*i32]) (lhs : i32) (rhs : i32) => (i32*[i32*[i8]*i32*i32])*i32.
+                let ast = astensuresize ast in
+                let (freenodeidx, nodevec) = ast in
+                let nodevec = vecset[nodevec, (6, "", lhs, rhs), freenodeidx] in
+                ((freenodeidx+1, nodevec), freenodeidx)
+
+let addbopmul = \(ast : i32*[i32*[i8]*i32*i32]) (lhs : i32) (rhs : i32) => (i32*[i32*[i8]*i32*i32])*i32.
+                let ast = astensuresize ast in
+                let (freenodeidx, nodevec) = ast in
+                let nodevec = vecset[nodevec, (7, "", lhs, rhs), freenodeidx] in
+                ((freenodeidx+1, nodevec), freenodeidx)
+
+let addbopsub = \(ast : i32*[i32*[i8]*i32*i32]) (lhs : i32) (rhs : i32) => (i32*[i32*[i8]*i32*i32])*i32.
+                let ast = astensuresize ast in
+                let (freenodeidx, nodevec) = ast in
+                let nodevec = vecset[nodevec, (8, "", lhs, rhs), freenodeidx] in
+                ((freenodeidx+1, nodevec), freenodeidx)
+
+let addbopadd = \(ast : i32*[i32*[i8]*i32*i32]) (lhs : i32) (rhs : i32) => (i32*[i32*[i8]*i32*i32])*i32.
+                let ast = astensuresize ast in
+                let (freenodeidx, nodevec) = ast in
+                let nodevec = vecset[nodevec, (9, "", lhs, rhs), freenodeidx] in
+                ((freenodeidx+1, nodevec), freenodeidx)
