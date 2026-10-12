@@ -534,14 +534,11 @@ let rec init_vec (fgen_ctx : fgen_ctx) (defval_ssaid : ssaid) (dim_sizes : ssaid
     let vec_size_llval = get_llssa fgen_ctx vec_size_ssaid in
     let vec_size_i64 = build_zext vec_size_llval ctx.i64_t "vec_size_i64" builder in
     let vec_elm_lltyp =
-      match rest_dim_sizes, defval_mirtyp with
-      | [], TMIRI32 -> ctx.i32_t
-      | [], TMIRI8 -> ctx.i8_t
-      | [], TMIRVec _ -> ctx.vec_t
-      | h :: tl, _ -> ctx.vec_t
-      | _ -> raise (LlvmgenError "init_vec: defval mirtyp not i32, i8 or vec")
+      match rest_dim_sizes with
+      | h :: tl -> ctx.vec_t
+      | [] -> mirtyp_get_lltyp ctx defval_mirtyp
     in
-    let vec_elm_size = size_of vec_elm_lltyp in
+    let vec_elm_size = const_int ctx.i64_t (lltyp_get_bytesz ctx vec_elm_lltyp) in
     let vec_bytesz = build_mul vec_size_i64 vec_elm_size "vec_bytesz" builder in
     let vec_ptr = build_malloc_safe ctx builder fgen_ctx.llfunc_info.func vec_bytesz in
 
@@ -1293,7 +1290,7 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
 
       (*put phi node and store in new vec*)
       position_at_end merge_bb builder;
-      let new_vec_elm = build_phi [(lit_copy, lit_bb); (old_vec_elm_copy, old_vec_bb)] "phi_node" builder in
+      let new_vec_elm = build_phi [(lit_copy, lit_bb_end); (old_vec_elm_copy, old_vec_bb_end)] "phi_node" builder in
       let new_vec_elm_ptr = build_gep elm_lltyp new_vec_ptr [| idx |] "new_vec_elm_ptr" builder in
       ignore (build_store new_vec_elm new_vec_elm_ptr builder)
     in

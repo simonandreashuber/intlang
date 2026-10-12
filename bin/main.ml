@@ -121,9 +121,6 @@ let main () =
     if !print_monotast then begin
       Printf.printf "%sMONOTAST:\n%s" headerline (PrintIntlang.sprint_monotast monotast); flush stdout end;
 
-    (* Vector Check Pass *)
-    Veccheck.veccheck_monotast monotast;
-
     (* Execute the Mono TAST interpreter *)
     if !interpast_flag_passed then (
       for _ = 1 to !repeat_count do
