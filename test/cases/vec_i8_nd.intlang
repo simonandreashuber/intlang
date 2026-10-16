@@ -1,0 +1,49 @@
+include io
+include math
+include vector
+include "vectestutil"
+
+-- input:
+    -- n
+    -- n lines (non empty)
+    -- the ops flattened, an op is (i, j, c) and sets the char j of line i to c
+
+let main = \() (
+    let n = io.readln_i32 () in
+    let lines0 = vectestutil.rangefold (\v i. vecset[v, io.read_ln (), i]) (vecmk["", n]) n in
+    let lines = vectestutil.foldops (\v op. vecset[v, i32_to_i8 vecget[op, 2], vecget[op, 0], vecget[op, 1]]) lines0 (io.readln_i32vec ()) 3 in
+    let ext = vecextend[vecextend[lines, "END", 2], "BEGIN", -1] in
+    (
+        -- 2D
+        vector.iter io.write_ln lines;
+        io.writeln_i32vec (vector.map (\l. veclen[l]) lines);
+        io.write_ln vecget[lines0, 0];
+        io.writeln_i32 veclen[ext];
+        io.write_ln vecget[ext, 0];
+        io.write_ln vecget[ext, 1];
+        io.write_ln vecget[ext, veclen[ext]-1];
+        vector.iter io.write_ln vecslice[lines, 1, n-1];
+        vector.iter (\l. io.write_ln vecslice[l, 0, math.min 3 veclen[l]]) lines;
+        vector.iter (\l. io.write_ln vecextend[vecextend[l, '!', 2], '<', -1]) lines;
+        vectestutil.rangefold (\_ i. writei8 vecget[lines, i, 0]) () n;
+        writei8 '\n';
+        io.writeln_i32 (vectestutil.rangefold (\acc i. vectestutil.mix acc (i8_to_i32 vecget[lines, i, veclen[vecget[lines, i]]-1])) 0 n);
+
+        -- 3D
+        let c3 = vecmk['.', 2, 3, 4] in
+        let c3 = vecset[c3, 'X', 1, 2, 3] in
+        let c3 = vecset[c3, "ab", 0, 1] in
+        let c3 = vecset[c3, vecmk['o', 2, 2], 1] in
+        let c3 = vecset[c3, 'Y', 1, 0, 1] in
+        (vector.iter (\plane. vector.iter io.write_ln plane) c3;
+        io.writeln_i32vec vec[veclen[c3], veclen[vecget[c3, 0]], veclen[vecget[c3, 0, 1]], veclen[vecget[c3, 1]], veclen[vecget[c3, 1, 1]]]);
+
+        -- literals
+        let lits = vec["ab", "cde", "", "f", "\n\t\\"] in
+        (io.writeln_i32vec (vector.map (\l. veclen[l]) lits);
+        writei8 vecget[lits, 1, 2];
+        writei8 '\n';
+        io.writeln_i32vec (vector.map i8_to_i32 vec['\x00', '\xff', '\x7f', '\x80', 'A']);
+        io.writeln_i32vec (vector.map i8_to_i32 vecget[lits, 4]))
+    )
+)

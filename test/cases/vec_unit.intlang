@@ -1,0 +1,21 @@
+include io
+include vector
+
+--let f = \()
+--    let us = vecmk[(), 3] in
+--    veclen[us]
+
+let main = \() (
+    let us = vecmk[(), 3] in
+    let us = vecextend[us, (), 2] in
+    let us = vecset[us, (), 1] in
+    let tus = vec[((), 1), ((), 2)] in
+    (
+        io.writeln_i32 veclen[us];
+        vecget[us, 4];
+        io.writeln_i32 veclen[vecslice[us, 1, 3]];
+        io.writeln_i32vec (vector.map (\t. let (_, x) = t in x) tus);
+        io.writeln_i32 veclen[vecmk[(), 2, 3]]
+    --let _ = f () in ()
+    )
+)

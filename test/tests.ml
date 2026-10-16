@@ -903,6 +903,290 @@ let graph_tests = [
   };
 ]
 
+(*
+  ==== Language Tests 2 ====
+  More Language Tests 2 written by AI
+*)
+
+(* helpers and references for the vec_* tests *)
+
+let prln_intlst xs = prln_int32lst (List.map Int32.of_int xs)
+
+let prln_intarray arr = prln_intlst (Array.to_list arr)
+
+let rand_full_int32 st = Int32.logxor (Random.State.int32 st Int32.max_int) (if Random.State.bool st then Int32.min_int else 0l)
+
+let rand_range st lo hi = lo + Random.State.int st (hi - lo + 1)
+
+(* calls f count times in order and returns the results in order *)
+let rand_seq count f = let acc = ref [] in for _ = 1 to count do acc := f () :: !acc done; List.rev !acc
+
+let mix_int32 acc x = Int32.add (Int32.mul acc 31l) x
+
+(* see cases/vec_nd_i32.intlang, the n-D vector is stored flat in row major order *)
+let vec_nd_section st n mindepth =
+  let dims = rand_seq n (fun () -> rand_range st 1 4) in
+  let init = rand_full_int32 st in
+  let suffix_size p = List.fold_left ( * ) 1 (List.filteri (fun q _ -> q >= p) dims) in
+  let v = Array.make (suffix_size 0) init in
+  let ops = rand_seq (rand_range st 1 20) (fun () ->
+    let depth = if Random.State.int st 4 = 0 then rand_range st mindepth n else n in
+    let idx = List.map (fun d -> Random.State.int st d) dims in
+    let x = rand_full_int32 st in
+    let off = List.fold_left (+) 0 (List.mapi (fun q i -> if q < depth then i * suffix_size (q+1) else 0) idx) in
+    Array.fill v off (suffix_size depth) x;
+    (Int32.of_int depth :: List.map Int32.of_int idx) @ [x]
+  ) in
+  let last = List.nth dims (n-1) in
+  let rows = List.init (Array.length v / last) (fun r -> prln_int32array (Array.sub v (r * last) last)) in
+  let input = prln_int32lst (init :: List.map Int32.of_int dims) ^ prln_int32lst (List.concat ops) in
+  let expected = prln_intlst dims ^
+                 String.concat "" rows ^
+                 prln_int32 (Array.fold_left mix_int32 0l v) ^
+                 prln_int32 (Array.fold_left mix_int32 0l (Array.make (Array.length v) init)) in
+  (input, expected)
+
+(* mindepth 0 also generates ops that use vecset with an empty index list *)
+let vec_nd_generator mindepth = (fun i ->
+  let st = Random.State.make [| 2026101301; i |] in
+  let sections = List.map (fun n -> vec_nd_section st n mindepth) [1; 2; 3; 4] in
+  (String.concat "" (List.map fst sections), String.concat "" (List.map snd sections)))
+
+let vec_i8_nd_generator = (fun i ->
+  let st = Random.State.make [| 2026101302; i |] in
+  let n = rand_range st 2 6 in
+  let lines0 = Array.init n (fun _ -> rand_printable_str 20 (Random.State.bits st)) in
+  let lines = Array.map Bytes.of_string lines0 in
+  let ops = rand_seq (rand_range st 1 10) (fun () ->
+    let li = Random.State.int st n in
+    let j = Random.State.int st (Bytes.length lines.(li)) in
+    let c = rand_range st 32 126 in
+    Bytes.set lines.(li) j (Char.chr c);
+    [li; j; c]
+  ) in
+  let lines = Array.map Bytes.to_string lines in
+  let lns ls = String.concat "" (List.map (fun l -> l ^ "\n") ls) in
+  let input = prln_int32 (Int32.of_int n) ^ lns (Array.to_list lines0) ^ prln_intlst (List.concat ops) in
+  let expected =
+    lns (Array.to_list lines) ^
+    prln_intlst (Array.to_list (Array.map String.length lines)) ^
+    lns [lines0.(0); string_of_int (n+3); "BEGIN"; lines.(0); "END"] ^
+    lns (List.tl (Array.to_list lines)) ^
+    lns (List.map (fun l -> String.sub l 0 (min 3 (String.length l))) (Array.to_list lines)) ^
+    lns (List.map (fun l -> "<" ^ l ^ "!!") (Array.to_list lines)) ^
+    String.concat "" (List.map (fun l -> String.make 1 l.[0]) (Array.to_list lines)) ^ "\n" ^
+    prln_int32 (Array.fold_left (fun acc l -> mix_int32 acc (Int32.of_int (Char.code l.[String.length l - 1]))) 0l lines) ^
+    "....\nab\n....\noY\noo\n2,3,2,2,2\n" ^
+    "2,3,0,1,3\ne\n0,255,127,128,65\n10,9,92\n" in
+  (input, expected))
+
+let vec_tuple_generator = (fun i ->
+  let st = Random.State.make [| 2026101303; i |] in
+  let n = rand_range st 1 6 in
+  let xs = Array.init n (fun _ -> rand_range st (-1000) 1000) in
+  let ys = Array.init n (fun _ -> rand_range st 0 4) in
+  let prtup (a, c, inner) = string_of_int a ^ " " ^ String.make 1 c ^ " " ^ prln_intlst inner in
+  let v = List.init n (fun i -> (xs.(i), Char.chr (65 + i mod 26), List.init ys.(i) (fun _ -> xs.(i)))) in
+  let v2 = List.mapi (fun i (a, c, inner) -> (a + 1, c, inner @ [i])) v in
+  let input = prln_intlst [n] ^ prln_intarray xs ^ prln_intarray ys in
+  let expected =
+    String.concat "" (List.map prtup v) ^
+    String.concat "" (List.map prtup v2) ^
+    prtup (0, 'a', []) ^
+    prln_intlst [n + 2] ^
+    prtup (-2, 'y', [5; 6]) ^
+    prtup (-1, 'z', []) ^
+    prtup (List.nth v2 (n-1)) ^
+    prln_intlst (List.map (fun (a, _, inner) -> a + List.length inner) v2) ^
+    "p-1\nq-1\nr" ^ prln_intlst [xs.(0) - xs.(n-1)] ^
+    String.concat "" (List.init 3 (fun i -> prln_intlst (List.init 4 (fun j -> i * j + xs.((i + j) mod n))))) ^
+    prln_intlst [6; xs.(5 mod n)] ^
+    "hi 1,2\nyo! 9\nc5\nb2\n" in
+  (input, expected))
+
+let vec_func_generator = (fun i ->
+  let st = Random.State.make [| 2026101304; i |] in
+  let n = rand_range st 1 6 in
+  let xs = List.init n (fun _ -> rand_range st (-100) 100) in
+  let k = rand_range st (-10) 10 in
+  let fs = [(fun x -> x + 1); (fun x -> x * 2); (fun x -> x - 3); (fun x -> x * x); abs; max 10] in
+  let applyall fv x = prln_intlst (List.map (fun f -> f x) fv) in
+  let chain x = List.fold_left (fun acc f -> f acc) x fs in
+  let fs2 = [(fun x -> -x)] @ fs @ [(fun _ -> 0); (fun _ -> 0)] in
+  let f x = 2 * x + 5 in
+  let input = prln_intlst xs ^ prln_intlst [k] in
+  let expected =
+    String.concat "" (List.map (applyall fs) xs) ^
+    prln_intlst (List.map chain xs) ^
+    prln_intlst (List.map chain xs) ^
+    prln_intlst (List.mapi (fun i x -> x + k * i) xs) ^
+    prln_intlst xs ^
+    prln_intlst (List.rev xs) ^
+    String.concat "" (List.init 3 (fun i -> prln_intlst (List.init 3 (fun j -> k * i + j)))) ^
+    prln_intlst [2 * k + 1] ^
+    prln_intlst [k; k] ^
+    prln_intlst [k; k + 1; k + 2] ^
+    prln_intlst [List.hd xs] ^
+    prln_intlst [n; List.hd xs; List.fold_left (+) 0 xs] ^
+    prln_intlst [9] ^
+    applyall fs2 k ^
+    applyall (List.filteri (fun i _ -> 1 <= i && i < 5) fs2) k ^
+    applyall (List.mapi (fun i g -> if i = 1 then min 0 else g) fs2) k ^
+    prln_intlst [f 1; f (f 1); f (f (f k))] ^
+    prln_intlst [11; 60; max k (-50)] ^
+    prln_intlst [1; 2; k] in
+  (input, expected))
+
+let vec_valuesem_generator = (fun i ->
+  let st = Random.State.make [| 2026101305; i |] in
+  let n = rand_range st 1 6 in
+  let v = Array.make n 0 in
+  let hist1 = ref [] in
+  let ops1 = rand_seq (rand_range st 1 10) (fun () ->
+    hist1 := prln_intarray v :: !hist1;
+    let (idx, x) = (Random.State.int st n, rand_range st (-99) 99) in
+    v.(idx) <- x;
+    [idx; x]
+  ) in
+  let hist1 = List.rev (prln_intarray v :: !hist1) in
+  let (r, c) = (rand_range st 1 3, rand_range st 1 3) in
+  let m = Array.make_matrix r c 0 in
+  let prm m = String.concat "" (Array.to_list (Array.map prln_intarray m)) ^ "#\n" in
+  let hist2 = ref [] in
+  let ops2 = rand_seq (rand_range st 1 8) (fun () ->
+    hist2 := prm m :: !hist2;
+    let (mi, mj, x) = (Random.State.int st r, Random.State.int st c, rand_range st (-99) 99) in
+    m.(mi).(mj) <- x;
+    [mi; mj; x]
+  ) in
+  let hist2 = List.rev (prm m :: !hist2) in
+  let input = prln_intlst [n] ^ prln_intlst (List.concat ops1) ^ prln_intlst [r; c] ^ prln_intlst (List.concat ops2) in
+  let expected =
+    String.concat "" hist1 ^
+    String.concat "" hist2 ^
+    "1,2,3\n1,2,3\n1,2,3\n1,2,3\n1,9,3\n1,2,3\n1,2,3\n" ^
+    "1,2\n1,8\n1,2\n3,4\n7,2\n3,4\n" ^
+    "1,2,3,4,5\n2,3,4\n1,2,0,4,5\n0,3,4\n1,2,3,4,5,6\n1,2,3,4,5,0\n0,0,1,2,3,4,5\n0,0,9,2,3,4,5\n1,2,3,4,5\n" ^
+    "10,100,10\n-1,20,30\n10,20,30\n-1,20,30\n100,20,30\n" ^
+    "1,2\n1,50\n1,2\n1\n" ^
+    "5,5\n5,5\n6,5\n5,5\n6,5\n6,7\n5,5\n" in
+  (input, expected))
+
+(* see cases/vec_slice_extend.intlang, generates only ops that are valid on the current vector *)
+let vec_slice_extend_generator = (fun i ->
+  let st = Random.State.make [| 2026101306; i |] in
+  let extend v lit off = if off >= 0 then v @ List.init off (fun _ -> lit) else List.init (-off) (fun _ -> lit) @ v in
+  let slice v s l = List.filteri (fun i _ -> s <= i && i < s + l) v in
+  let out = Buffer.create 1024 in
+  let v = ref (rand_seq (rand_range st 1 8) (fun () -> rand_range st (-99) 99)) in
+  let v0 = !v in
+  let ops1 = rand_seq (rand_range st 1 15) (fun () ->
+    let len = List.length !v in
+    let op =
+      if Random.State.bool st then
+        let s = Random.State.int st len in
+        let l = rand_range st 1 (len - s) in
+        v := slice !v s l; [0; s; l]
+      else
+        let (lit, off) = (rand_range st (-99) 99, rand_range st (-3) 3) in
+        v := extend !v lit off; [1; lit; off]
+    in
+    Buffer.add_string out (prln_intlst !v); op
+  ) in
+  let (r, c) = (rand_range st 1 3, rand_range st 0 3) in
+  let m = ref (List.init r (fun _ -> List.init c (fun _ -> 0))) in
+  let ops2 = rand_seq (rand_range st 1 12) (fun () ->
+    let rows = List.length !m in
+    let nonempty = List.filter (fun i -> List.nth !m i <> []) (List.init rows Fun.id) in
+    let kind = Random.State.int st 5 in
+    let kind = if kind >= 2 && kind <> 3 && nonempty = [] then 1 else kind in
+    let rowi = if kind = 3 then Random.State.int st rows else if kind >= 2 then List.nth nonempty (Random.State.int st (List.length nonempty)) else 0 in
+    let row = List.nth !m rowi in
+    let setrow nr = m := List.mapi (fun i r -> if i = rowi then nr else r) !m in
+    let op = match kind with
+      | 0 -> let s = Random.State.int st rows in let l = rand_range st 1 (rows - s) in m := slice !m s l; [0; 0; s; l]
+      | 1 -> let (x, l, off) = (rand_range st (-9) 9, rand_range st 0 3, rand_range st (-2) 2) in
+             m := extend !m (List.init l (fun _ -> x)) off; [1; x; l; off]
+      | 2 -> let len = List.length row in let s = Random.State.int st len in let l = rand_range st 0 (len - s) in
+             setrow (slice row s l); [2; rowi; s; l]
+      | 3 -> let (lit, off) = (rand_range st (-99) 99, rand_range st (-2) 2) in setrow (extend row lit off); [3; rowi; lit; off]
+      | _ -> let (x, j) = (rand_range st (-99) 99, Random.State.int st (List.length row)) in
+             setrow (List.mapi (fun i y -> if i = j then x else y) row); [4; rowi; x; j]
+    in
+    List.iter (fun r -> Buffer.add_string out (prln_intlst r)) !m;
+    Buffer.add_string out "#\n"; op
+  ) in
+  let input = prln_intlst v0 ^ prln_intlst (List.concat ops1) ^ prln_intlst [r; c] ^ prln_intlst (List.concat ops2) in
+  (input, Buffer.contents out ^ prln_intlst [List.length !v] ^ prln_intlst [List.length !m]))
+
+let lang2_tests = [
+  {
+    testname = "vec_nd_i32";
+    filename = "cases/vec_nd_i32.intlang";
+    iterations = 64;
+    generator = vec_nd_generator 1;
+  };
+  {
+    testname = "vec_nd_i32_depth0";
+    filename = "cases/vec_nd_i32.intlang";
+    iterations = 16;
+    generator = vec_nd_generator 0;
+  };
+  {
+    testname = "vec_i8_nd";
+    filename = "cases/vec_i8_nd.intlang";
+    iterations = 32;
+    generator = vec_i8_nd_generator;
+  };
+  {
+    testname = "vec_tuple";
+    filename = "cases/vec_tuple.intlang";
+    iterations = 32;
+    generator = vec_tuple_generator;
+  };
+  {
+    testname = "vec_func";
+    filename = "cases/vec_func.intlang";
+    iterations = 32;
+    generator = vec_func_generator;
+  };
+  {
+    testname = "vec_valuesem";
+    filename = "cases/vec_valuesem.intlang";
+    iterations = 32;
+    generator = vec_valuesem_generator;
+  };
+  {
+    testname = "vec_slice_extend";
+    filename = "cases/vec_slice_extend.intlang";
+    iterations = 64;
+    generator = vec_slice_extend_generator;
+  };
+  {
+    testname = "vec_edge";
+    filename = "cases/vec_edge.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("",
+      "0,0,3,0,0\n\n5,5,5\n5,5\n4,4\n2,0\n\n4\n\n" ^
+      "0\n0\n1,2,3\n1,2,3\n" ^
+      "1,2,3\n1,2,7\n4\n" ^
+      "8,1\n" ^
+      "3,2,1,1,0,0,3\n" ^
+      "2,2,2,98\n"));
+  };
+  {
+    testname = "vec_emptyslice";
+    filename = "cases/vec_emptyslice.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "0,0,0\n"));
+  };
+  {
+    testname = "vec_unit";
+    filename = "cases/vec_unit.intlang";
+    iterations = 1;
+    generator = (fun _ -> ("", "5\n3\n1,2\n2\n"));
+  };
+]
 
 
 let tests = [
@@ -914,5 +1198,6 @@ let tests = [
   ("Legacy", legacy_tests);
   ("Lib", lib_tests);
   ("Mat", mat_tests);
-  ("Graph", graph_tests)
+  ("Graph", graph_tests);
+  ("Lang2", lang2_tests)
 ]

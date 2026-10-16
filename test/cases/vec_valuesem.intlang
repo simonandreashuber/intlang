@@ -1,0 +1,78 @@
+include io
+include vector
+include "vectestutil"
+
+-- every vector op creates a new vector (in value), old versions must stay unchanged even if they are used later
+-- input:
+    -- n
+    -- the 1D ops flattened, an op is (i, val)
+    -- r,c
+    -- the 2D ops flattened, an op is (i, j, val)
+
+-- the history of v under the ops, entry s is the vector before op s, the last entry is the result
+let history = \v0 apply ops stride.
+    let nops = veclen[ops] / stride in
+    let (v, hist) = vectestutil.foldops (\acc op.
+        let (v, hist) = acc in
+        (apply v op, vecextend[hist, v, 1])
+    ) (v0, vecslice[vec[v0], 0, 0]) ops stride in
+    vecextend[hist, v, 1]
+
+let printrows = \m. vector.iter io.writeln_i32vec m
+
+let main = \() (
+    let n = io.readln_i32 () in
+    let hist1 = history (vecmk[0, n]) (\v op. vecset[v, vecget[op, 1], vecget[op, 0]]) (io.readln_i32vec ()) 2 in
+    let rc = io.readln_i32vec () in
+    let hist2 = history (vecmk[0, vecget[rc, 0], vecget[rc, 1]]) (\m op. vecset[m, vecget[op, 2], vecget[op, 0], vecget[op, 1]]) (io.readln_i32vec ()) 3 in
+    (
+        printrows hist1;
+        vector.iter (\m. (printrows m; io.write_ln "#")) hist2;
+
+        -- vecmk of a vector
+        let r = vec[1, 2, 3] in
+        let m = vecmk[r, 3] in
+        let m2 = vecset[m, 9, 1, 1] in
+        (printrows m; printrows m2; io.writeln_i32vec r);
+
+        -- vecget of a row then modify the outer and the row
+        let m = vec[vec[1, 2], vec[3, 4]] in
+        let row = vecget[m, 0] in
+        let m2 = vecset[m, 7, 0, 0] in
+        let row2 = vecset[row, 8, 1] in
+        (io.writeln_i32vec row; io.writeln_i32vec row2; printrows m; printrows m2);
+
+        -- slices and extends
+        let v = vec[1, 2, 3, 4, 5] in
+        let s = vecslice[v, 1, 3] in
+        let v2 = vecset[v, 0, 2] in
+        let s2 = vecset[s, 0, 0] in
+        let e = vecextend[v, 6, 1] in
+        let e2 = vecset[e, 0, 5] in
+        let p = vecextend[v, 0, -2] in
+        let p2 = vecset[p, 9, 2] in
+        (io.writeln_i32vec v; io.writeln_i32vec s; io.writeln_i32vec v2; io.writeln_i32vec s2;
+        io.writeln_i32vec e; io.writeln_i32vec e2; io.writeln_i32vec p; io.writeln_i32vec p2; io.writeln_i32vec v);
+
+        -- closures and functions
+        let v = vec[10, 20, 30] in
+        let f = \i. vecget[v, i] in
+        let v3 = vecset[v, 100, 0] in
+        let g = \w. vecset[w, -1, 0] in
+        (io.writeln_i32vec vec[f 0, vecget[v3, 0], f 0]; io.writeln_i32vec (g v); io.writeln_i32vec v; io.writeln_i32vec (g v3); io.writeln_i32vec v3);
+
+        -- tuples containing vectors
+        let t = (vec[1, 2], 1) in
+        let (tv, _) = t in
+        let tv2 = vecset[tv, 50, 1] in
+        let (tv3, x) = t in
+        (io.writeln_i32vec tv; io.writeln_i32vec tv2; io.writeln_i32vec tv3; io.writeln_i32 x);
+
+        -- the same row twice in a literal
+        let r = vec[5, 5] in
+        let d = vec[r, r] in
+        let d2 = vecset[d, 6, 0, 0] in
+        let d3 = vecset[d2, vecset[vecget[d2, 0], 7, 1], 1] in
+        (printrows d; printrows d2; printrows d3; io.writeln_i32vec r)
+    )
+)

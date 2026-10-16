@@ -1,0 +1,94 @@
+include io
+include vector
+include "vectestutil"
+
+-- for every dimensionality n (1 to 4) the input is:
+    -- init,d_0,...,d_(n-1)
+    -- the ops flattened, an op is (depth, idx_0, ..., idx_(n-1), val)
+        -- depth == n: sets the element at idx_0..idx_(n-1) to val
+        -- depth < n: sets the subvector at idx_0..idx_(depth-1) to vecmk[val, d_depth, ..., d_(n-1)]
+
+let apply1 = \d v op.
+    let x = vecget[op, 2] in
+    if vecget[op, 0] == 0 then
+        vecset[v, vecmk[x, vecget[d, 0]]]
+    else
+        vecset[v, x, vecget[op, 1]]
+    end
+
+let apply2 = \d v op.
+    let depth = vecget[op, 0] in
+    let (i, j, x) = (vecget[op, 1], vecget[op, 2], vecget[op, 3]) in
+    if depth == 0 then
+        vecset[v, vecmk[x, vecget[d, 0], vecget[d, 1]]]
+    else if depth == 1 then
+        vecset[v, vecmk[x, vecget[d, 1]], i]
+    else
+        vecset[v, x, i, j]
+    end end
+
+let apply3 = \d v op.
+    let depth = vecget[op, 0] in
+    let (i, j, k, x) = (vecget[op, 1], vecget[op, 2], vecget[op, 3], vecget[op, 4]) in
+    if depth == 0 then
+        vecset[v, vecmk[x, vecget[d, 0], vecget[d, 1], vecget[d, 2]]]
+    else if depth == 1 then
+        vecset[v, vecmk[x, vecget[d, 1], vecget[d, 2]], i]
+    else if depth == 2 then
+        vecset[v, vecmk[x, vecget[d, 2]], i, j]
+    else
+        vecset[v, x, i, j, k]
+    end end end
+
+let apply4 = \d v op.
+    let depth = vecget[op, 0] in
+    let (i, j, k, l, x) = (vecget[op, 1], vecget[op, 2], vecget[op, 3], vecget[op, 4], vecget[op, 5]) in
+    if depth == 0 then
+        vecset[v, vecmk[x, vecget[d, 0], vecget[d, 1], vecget[d, 2], vecget[d, 3]]]
+    else if depth == 1 then
+        vecset[v, vecmk[x, vecget[d, 1], vecget[d, 2], vecget[d, 3]], i]
+    else if depth == 2 then
+        vecset[v, vecmk[x, vecget[d, 2], vecget[d, 3]], i, j]
+    else if depth == 3 then
+        vecset[v, vecmk[x, vecget[d, 3]], i, j, k]
+    else
+        vecset[v, x, i, j, k, l]
+    end end end end
+
+-- checksums use full index vecgets, the prints partial index vecgets (via vector.iter)
+let checksum1 = \v. vectestutil.rangefold (\acc i. vectestutil.mix acc vecget[v, i]) 0 veclen[v]
+let checksum2 = \v. vectestutil.rangefold (\acc i. vectestutil.rangefold (\acc j. vectestutil.mix acc vecget[v, i, j]) acc veclen[vecget[v, i]]) 0 veclen[v]
+let checksum3 = \v. vectestutil.rangefold (\acc i. vectestutil.rangefold (\acc j. vectestutil.rangefold (\acc k.
+                        vectestutil.mix acc vecget[v, i, j, k]
+                    ) acc veclen[vecget[v, i, j]]) acc veclen[vecget[v, i]]) 0 veclen[v]
+let checksum4 = \v. vectestutil.rangefold (\acc i. vectestutil.rangefold (\acc j. vectestutil.rangefold (\acc k. vectestutil.rangefold (\acc l.
+                        vectestutil.mix acc vecget[v, i, j, k, l]
+                    ) acc veclen[vecget[v, i, j, k]]) acc veclen[vecget[v, i, j]]) acc veclen[vecget[v, i]]) 0 veclen[v]
+
+let print1 = \v. io.writeln_i32vec v
+let print2 = \v. vector.iter print1 v
+let print3 = \v. vector.iter print2 v
+let print4 = \v. vector.iter print3 v
+
+let lens1 = \v. vec[veclen[v]]
+let lens2 = \v. vec[veclen[v], veclen[vecget[v, 0]]]
+let lens3 = \v. vec[veclen[v], veclen[vecget[v, 0]], veclen[vecget[v, 0, 0]]]
+let lens4 = \v. vec[veclen[v], veclen[vecget[v, 0]], veclen[vecget[v, 0, 0]], veclen[vecget[v, 0, 0, 0]]]
+
+-- v0 is used again after the ops to check that it was not modified
+let runtest = \mk apply lens print checksum n.
+    let hdr = io.readln_i32vec () in
+    let d = vecslice[hdr, 1, n] in
+    let v0 = mk vecget[hdr, 0] d in
+    let v = vectestutil.foldops (apply d) v0 (io.readln_i32vec ()) (n+2) in
+    (io.writeln_i32vec (lens v);
+    print v;
+    io.writeln_i32 (checksum v);
+    io.writeln_i32 (checksum v0))
+
+let main = \() (
+    runtest (\x d. vecmk[x, vecget[d, 0]]) apply1 lens1 print1 checksum1 1;
+    runtest (\x d. vecmk[x, vecget[d, 0], vecget[d, 1]]) apply2 lens2 print2 checksum2 2;
+    runtest (\x d. vecmk[x, vecget[d, 0], vecget[d, 1], vecget[d, 2]]) apply3 lens3 print3 checksum3 3;
+    runtest (\x d. vecmk[x, vecget[d, 0], vecget[d, 1], vecget[d, 2], vecget[d, 3]]) apply4 lens4 print4 checksum4 4
+)

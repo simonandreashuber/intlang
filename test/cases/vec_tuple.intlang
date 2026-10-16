@@ -1,0 +1,72 @@
+include io
+include vector
+include "vectestutil"
+
+-- input:
+    -- n
+    -- xs (n i32s)
+    -- ys (n i32s in [0, 4])
+
+-- prints an (i32, i8, [i32]) tuple as "a c inner"
+let printtup = \t.
+    let (a, c, inner) = t in
+    (io.write_i32 a;
+    writei8 ' ';
+    writei8 c;
+    writei8 ' ';
+    io.writeln_i32vec inner)
+
+let main = \() (
+    let n = io.readln_i32 () in
+    let xs = io.readln_i32vec () in
+    let ys = io.readln_i32vec () in
+
+    -- 1D of tuples containing vectors
+    let v0 = vecmk[(0, 'a', vecmk[0, 0]), n] in
+    let v = vectestutil.rangefold (\v i.
+        let x = vecget[xs, i] in
+        vecset[v, (x, i32_to_i8 (65 + i % 26), vecmk[x, vecget[ys, i]]), i]
+    ) v0 n in
+    let v2 = vectestutil.rangefold (\v i.
+        let (a, c, inner) = vecget[v, i] in
+        vecset[v, (a + 1, c, vecextend[inner, i, 1]), i]
+    ) v n in
+    let e = vecextend[vecextend[v, (-1, 'z', vec[]), 1], (-2, 'y', vec[5, 6]), -1] in
+    (
+        vector.iter printtup v;
+        vector.iter printtup v2;
+        printtup vecget[v0, n-1];
+        io.writeln_i32 veclen[e];
+        printtup vecget[e, 0];
+        printtup vecget[e, veclen[e]-1];
+        vector.iter printtup vecslice[v2, n-1, 1];
+        io.writeln_i32vec (vector.map (\t. let (a, _, inner) = t in a + veclen[inner]) v2);
+
+        -- nested tuples and non literal elements
+        let pts = vec[((1, 2), 'p'), ((3, 4), 'q'), ((vecget[xs, 0], vecget[xs, n-1]), 'r')] in
+        (vector.iter (\pt.
+            let (p, c) = pt in
+            let (a, b) = p in
+            (writei8 c;
+            io.writeln_i32 (a - b))
+        ) pts);
+
+        -- 2D of tuples
+        let m = vecmk[(0, 0), 3, 4] in
+        let m = vectestutil.rangefold (\m i. vectestutil.rangefold (\m j. vecset[m, (i * j, vecget[xs, (i + j) % n]), i, j]) m 4) m 3 in
+        (vector.iter (\row. io.writeln_i32vec (vector.map (\t. let (a, b) = t in a + b) row)) m;
+        let (a, b) = vecget[m, 2, 3] in
+        io.writeln_i32vec vec[a, b]);
+
+        -- tuples of vectors in vectors
+        let tv = vecmk[(vec[1, 2], "hi"), 2] in
+        let tv = vecset[tv, (vec[9], "yo!"), 1] in
+        (vector.iter (\t. let (nums, str) = t in (io.write_str str; writei8 ' '; io.writeln_i32vec nums)) tv);
+
+        -- tuple containing a vector of tuples
+        let tvt = (vec[(1, 'a'), (2, 'b')], 5) in
+        let (inner, k) = tvt in
+        let inner = vecset[inner, (k, 'c'), 0] in
+        (vector.iter (\t. let (a, c) = t in (writei8 c; io.writeln_i32 a)) inner)
+    )
+)

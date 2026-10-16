@@ -1,0 +1,50 @@
+include io
+include vector
+include "vectestutil"
+
+-- input:
+    -- v (1D start vector)
+    -- the 1D ops flattened, an op is (kind, a, b)
+        -- kind 0: vecslice[v, a, b]
+        -- kind 1: vecextend[v, a, b]
+    -- r,c (dims of the 2D start vector with all elements 0)
+    -- the 2D ops flattened, an op is (kind, i, a, b)
+        -- kind 0: vecslice[m, a, b]
+        -- kind 1: vecextend[m, vecmk[i, a], b]
+        -- kind 2: vecslice on row i
+        -- kind 3: vecextend on row i
+        -- kind 4: vecset[m, a, i, b]
+-- after every op the vector is printed (for 2D followed by #)
+
+let apply1 = \v op.
+    let (a, b) = (vecget[op, 1], vecget[op, 2]) in
+    let v = if vecget[op, 0] == 0 then vecslice[v, a, b] else vecextend[v, a, b] end in
+    (io.writeln_i32vec v; v)
+
+let apply2 = \m op.
+    let kind = vecget[op, 0] in
+    let (i, a, b) = (vecget[op, 1], vecget[op, 2], vecget[op, 3]) in
+    let m =
+        if kind == 0 then
+            vecslice[m, a, b]
+        else if kind == 1 then
+            vecextend[m, vecmk[i, a], b]
+        else if kind == 2 then
+            vecset[m, vecslice[vecget[m, i], a, b], i]
+        else if kind == 3 then
+            vecset[m, vecextend[vecget[m, i], a, b], i]
+        else
+            vecset[m, a, i, b]
+        end end end end
+    in
+    (vector.iter io.writeln_i32vec m;
+    io.write_ln "#";
+    m)
+
+let main = \() (
+    let v = vectestutil.foldops apply1 (io.readln_i32vec ()) (io.readln_i32vec ()) 3 in
+    let rc = io.readln_i32vec () in
+    let m = vectestutil.foldops apply2 (vecmk[0, vecget[rc, 0], vecget[rc, 1]]) (io.readln_i32vec ()) 4 in
+    (io.writeln_i32 veclen[v];
+    io.writeln_i32 veclen[m])
+)

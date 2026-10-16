@@ -1,0 +1,21 @@
+-- helpers for the vec_* tests
+
+-- folds f over the indices 0 to n-1
+let rangefold = \f acc n.
+    let rec rangefoldaux = \acc i.
+        if i < n then
+            rangefoldaux (f acc i) (i+1)
+        else
+            acc
+        end
+    in
+    rangefoldaux acc 0
+
+-- the vector vec[0, 1, ..., n-1]
+let range = \n. rangefold (\v i. vecset[v, i, i]) (vecmk[0, n]) n
+
+-- folds f over the ops, an op is a slice of stride elements of ops
+let foldops = \f acc ops stride. rangefold (\acc o. f acc vecslice[ops, o*stride, stride]) acc (veclen[ops] / stride)
+
+-- order dependent hash step
+let mix = \acc x. acc * 31 + x

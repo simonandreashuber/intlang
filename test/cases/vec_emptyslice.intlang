@@ -1,0 +1,7 @@
+include io
+
+-- zero length slices starting at the end of a vector (also of empty vectors)
+let main = \() (
+    let v = vec[1, 2, 3] in
+    io.writeln_i32vec vec[veclen[vecslice[v, 3, 0]], veclen[vecslice[vecmk[1, 0], 0, 0]], veclen[vecslice[vecslice[v, 1, 2], 2, 0]]]
+)

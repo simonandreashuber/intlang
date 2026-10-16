@@ -1,0 +1,68 @@
+include io
+include math
+include vector
+include "vectestutil"
+
+-- input:
+    -- xs (i32s in [-100, 100])
+    -- k (i32 in [-10, 10])
+
+let fs = vec[\x. x + 1, \x. x * 2, (\x. x - 3), \x. x * x, math.abs, math.max 10]
+
+let applyall = \fv x. vector.map (\f. f x) fv
+
+let compose = \fv. vector.left_fold (\acc f. \x. f (acc x)) (\x. x) fv
+
+let main = \() (
+    let xs = io.readln_i32vec () in
+    let k = io.readln_i32 () in
+    let n = veclen[xs] in
+    (
+        -- global vector of functions
+        vector.iter (\x. io.writeln_i32vec (applyall fs x)) xs;
+        io.writeln_i32vec (vector.map (\x. vector.left_fold (\acc f. f acc) x fs) xs);
+        io.writeln_i32vec (vector.map (compose fs) xs);
+
+        -- closures capturing loop variables
+        let gs = vectestutil.rangefold (\g i. vecset[g, \y. y + k * i, i]) (vecmk[\y. y, n]) n in
+        (io.writeln_i32vec (vector.map2 (\g x. g x) gs xs));
+
+        -- closures capturing vectors
+        let hs = vec[\i. vecget[xs, i], \i. vecget[xs, veclen[xs] - 1 - i]] in
+        (vector.iter (\h. io.writeln_i32vec (vector.map h (vectestutil.range n))) hs);
+
+        -- 2D vector of functions
+        let m = vecmk[\a. a, 3, 3] in
+        let m = vectestutil.rangefold (\m i. vectestutil.rangefold (\m j. vecset[m, \a. a * i + j, i, j]) m 3) m 3 in
+        (vector.iter (\row. io.writeln_i32vec (applyall row k)) m;
+        io.writeln_i32 (vecget[m, 2, 1] k));
+
+        -- functions returning vectors
+        let mk = vec[\c. vecmk[c, 2], \c. vec[c, c + 1, c + 2], \c. vecslice[xs, 0, 1]] in
+        (vector.iter (\f. io.writeln_i32vec (f k)) mk);
+
+        -- functions taking vectors
+        let vfs = vec[\v. veclen[v], \v. vecget[v, 0], \v. vector.left_fold (\a b. a + b) 0 v] in
+        (io.writeln_i32vec (applyall vfs xs));
+
+        -- vecextend, vecslice and vecset on vectors of functions
+        let fs2 = vecextend[vecextend[fs, \x. 0, 2], \x. -x, -1] in
+        let fs3 = vecset[fs2, math.min 0, 1] in
+        (io.writeln_i32 veclen[fs2];
+        io.writeln_i32vec (applyall fs2 k);
+        io.writeln_i32vec (applyall vecslice[fs2, 1, 4] k);
+        io.writeln_i32vec (applyall fs3 k));
+
+        -- higher order functions as elements
+        let hof = vec[\f. f 1, \f. f (f 1), \f. f (f (f k))] in
+        (io.writeln_i32vec (applyall hof (\x. x * 2 + 5)));
+
+        -- tuples containing functions
+        let tf = vec[(\x. x + 1, 10), (\x. x * 3, 20), (math.max k, -50)] in
+        (io.writeln_i32vec (vector.map (\t. let (f, c) = t in f c) tf));
+
+        -- unit lambdas
+        let us = vecextend[vec[\() 1, \() 2], \() k, 1] in
+        (io.writeln_i32vec (vector.map (\u. u ()) us))
+    )
+)
