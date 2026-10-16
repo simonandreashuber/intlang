@@ -117,11 +117,14 @@ let run_interp_separate interpflag compiler_binary case =
   in
   loop 0
 
-let run_bin compiler_binary case =
+let run_bin opt_lvls compiler_binary case =
+  List.fold_left (fun resacc opt_lvl ->
+  if Option.is_some resacc then resacc else (
   let testbin_name = "testbin" in
-  let compile_cmd = Printf.sprintf "%s --stdlibpath %s -O2 --asan --verify-llvmir -o %s %s"
+  let compile_cmd = Printf.sprintf "%s --stdlibpath %s %s --asan --verify-llvmir -o %s %s"
       (Filename.quote compiler_binary)
       (Filename.quote (Sys.getcwd () ^ "/intlangstdlib/"))
+      (opt_lvl)
       (Filename.quote testbin_name)
       (Filename.quote case.filename) in
 
@@ -146,6 +149,7 @@ let run_bin compiler_binary case =
     Sys.remove testbin_name;
     res
   )
+  )) None opt_lvls
 
 let () =
   (* CLI Parsing *)
@@ -153,11 +157,13 @@ let () =
   let test_interpast = ref false in
   let test_intermir = ref false in
   let compiler_binary = ref "" in
+  let compiler_all_opt_lvls = ref false in
 
   let speclist = [
     ("--separate", Arg.Set separate_mode, "Run each test iteration in a separate process");
     ("--interpast", Arg.Set test_interpast, "Run tests for the AST interpreter");
     ("--interpmir", Arg.Set test_intermir, "Run tests for the MIR simulator");
+    ("--alloptlvls", Arg.Set compiler_all_opt_lvls, "Run tests for the MIR simulator");
   ] in
   let usage_msg = "Usage: test_runner [--separate] <compiler_binary>" in
 
@@ -169,10 +175,11 @@ let () =
   end;
 
   let run_test =
-    match (!separate_mode, !test_interpast, !test_intermir) with
-    | (true, true, false) -> run_interp_separate "--interpast"
-    | (true, false, true) -> run_interp_separate "--interpmir"
-    | (false, false, false) -> run_bin
+    match (!separate_mode, !test_interpast, !test_intermir, !compiler_all_opt_lvls) with
+    | (true, true, false, false) -> run_interp_separate "--interpast"
+    | (true, false, true, false) -> run_interp_separate "--interpmir"
+    | (false, false, false, false) -> run_bin ["-O2"]
+    | (false, false, false, true) -> run_bin ["-O0"; "-O1"; "-O2"; "-O3"]
     | _ -> failwith "Invalid combination of flags."
   in
 

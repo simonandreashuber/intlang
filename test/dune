@@ -18,3 +18,8 @@
  (alias test-mir)
  (deps (glob_files cases/*.intlang) (glob_files cases/inclfoldr/*.intlang) (glob_files intlangstdlib/*.intlang) ../bin/main.exe)
  (action (run %{exe:test_runner.exe} --separate --interpmir %{exe:../bin/main.exe})))
+
+(rule
+ (alias test-alloptlvls)
+ (deps (glob_files cases/*.intlang) (glob_files cases/inclfoldr/*.intlang) (glob_files intlangstdlib/*.intlang) ../bin/main.exe)
+ (action (run %{exe:test_runner.exe} --alloptlvls %{exe:../bin/main.exe})))
