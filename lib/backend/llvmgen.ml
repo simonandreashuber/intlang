@@ -374,11 +374,6 @@ let rec copy_tup (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (m
 
 and copy_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirtyp : mirtyp) ( origvec : llvalue) : llvalue =
 
-  let vec_bytesz (ctx : proggen_ctx) (b : llbuilder) (inner : mirtyp) (len_i64 : llvalue) : llvalue =
-    let inner_bytesz = const_int ctx.i64_t (mirtyp_get_bytesz ctx inner) in
-    build_mul len_i64 inner_bytesz "vec_bytesz" b
-  in
-
   match mirtyp with
   | TMIRUnit | TMIRI32 | TMIRI8 | TMIRClos _ | TMIRTup _ -> raise (LlvmgenError "copy_vec non vec mirtyp passed")
   | TMIRVec(TMIRUnit) -> origvec (* in this case no copy is needed since the vecdata ptr is null anyways *)
@@ -386,14 +381,17 @@ and copy_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirty
     let origvec_ptr = Llvm.build_extractvalue origvec 0 "vecptr" builder in
     let origvec_len = Llvm.build_extractvalue origvec 1 "veclen" builder in
     let len_i64 = Llvm.build_zext origvec_len ctx.i64_t "len_i64" builder in
-    let vec_bytesz = vec_bytesz ctx builder inner_mirtyp len_i64 in
+    let elm_bytesz_int = mirtyp_get_bytesz ctx inner_mirtyp in
+    let vec_bytesz = build_mul len_i64  (const_int ctx.i64_t elm_bytesz_int) "vec_bytesz" builder in
 
     (*malloc new vec memory*)
     let copyvec_ptr = build_malloc_safe ctx builder llfunc vec_bytesz in
 
     (*do memcpy*)
-    let is_volatile = Llvm.const_int ctx.i1_t 0 in
-    ignore (build_call ctx.memcpy_t ctx.memcpy_func [| copyvec_ptr; origvec_ptr; vec_bytesz; is_volatile |] "" builder);
+    if elm_bytesz_int <> 0 then (
+      let is_volatile = Llvm.const_int ctx.i1_t 0 in
+      ignore (build_call ctx.memcpy_t ctx.memcpy_func [| copyvec_ptr; origvec_ptr; vec_bytesz; is_volatile |] "" builder)
+    );
 
     (*build new vec struct*)
     build_vec_struct ctx builder copyvec_ptr origvec_len
@@ -403,7 +401,8 @@ and copy_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirty
     let origvec_len = Llvm.build_extractvalue origvec 1 "veclen" builder in
     let len_i64 = Llvm.build_zext origvec_len ctx.i64_t "len_i64" builder in
     let inner_lltyp = mirtyp_get_lltyp ctx inner_mirtyp in
-    let vec_bytesz = vec_bytesz ctx builder inner_mirtyp len_i64 in
+    let elm_bytesz_int = mirtyp_get_bytesz ctx inner_mirtyp in
+    let vec_bytesz = build_mul len_i64  (const_int ctx.i64_t elm_bytesz_int) "vec_bytesz" builder in
 
     (*malloc new vec memory*)
     let copyvec_ptr = build_malloc_safe ctx builder llfunc vec_bytesz in
@@ -421,7 +420,9 @@ and copy_vec (ctx : proggen_ctx) (builder : llbuilder) (llfunc : llvalue) (mirty
       let copyvec_elm_ptr = build_in_bounds_gep inner_lltyp copyvec_ptr [| idx |] "copyvec_elm_ptr" builder in
       ignore (build_store copy_elm copyvec_elm_ptr builder);
     in
-    gen_loop ctx builder llfunc copy_elm len_i64;
+    if elm_bytesz_int <> 0 then (
+    gen_loop ctx builder llfunc copy_elm len_i64
+    );
 
     build_vec_struct ctx builder copyvec_ptr origvec_len
   )
@@ -538,8 +539,8 @@ let rec init_vec (fgen_ctx : fgen_ctx) (defval_ssaid : ssaid) (dim_sizes : ssaid
       | h :: tl -> ctx.vec_t
       | [] -> mirtyp_get_lltyp ctx defval_mirtyp
     in
-    let vec_elm_size = const_int ctx.i64_t (lltyp_get_bytesz ctx vec_elm_lltyp) in
-    let vec_bytesz = build_mul vec_size_i64 vec_elm_size "vec_bytesz" builder in
+    let vec_elm_size_int = lltyp_get_bytesz ctx vec_elm_lltyp in
+    let vec_bytesz = build_mul vec_size_i64 (const_int ctx.i64_t vec_elm_size_int) "vec_bytesz" builder in
     let vec_ptr = build_malloc_safe ctx builder fgen_ctx.llfunc_info.func vec_bytesz in
 
     (*init each element of the vec*)
@@ -548,7 +549,9 @@ let rec init_vec (fgen_ctx : fgen_ctx) (defval_ssaid : ssaid) (dim_sizes : ssaid
       let elm_ptr = build_gep vec_elm_lltyp vec_ptr [| idx |] "vec_elm_ptr" builder in
       ignore (build_store elm elm_ptr builder)
     in
-    gen_loop ctx builder fgen_ctx.llfunc_info.func init_elm vec_size_i64;
+    if vec_elm_size_int <> 0 then ( (*with zero size elements the loop will trigger stores with nullptr which are illegal and do actually break with -O1 and above*)
+      gen_loop ctx builder fgen_ctx.llfunc_info.func init_elm vec_size_i64
+    );
 
     (*build new vec struct*)
     build_vec_struct ctx builder vec_ptr vec_size_llval
@@ -810,11 +813,14 @@ let fault_on_cond_false (fgen_ctx : fgen_ctx) (cond : llvalue) : unit =
 
 let vec_checked_access (fgen_ctx : fgen_ctx) (vec : llvalue) (vec_inner_lltype : lltype) (idx : llvalue) : llvalue =
   let builder = fgen_ctx.builder in
+  let ctx = fgen_ctx.proggen_ctx in
 
   let vec_ptr = build_extractvalue vec 0 "vecptr" builder in
   let vec_len = build_extractvalue vec 1 "veclen" builder in
 
-  let cond = build_icmp Icmp.Slt idx vec_len "vec_access_cond" builder in
+  let cond_upper = build_icmp Icmp.Slt idx vec_len "vec_access_upper_cond" builder in
+  let cond_lower = build_icmp Icmp.Sle (const_int ctx.i32_t 0) idx "vec_access_lower_cond" builder in
+  let cond = build_and cond_lower cond_upper "vec_access_cond" builder in
   fault_on_cond_false fgen_ctx cond;
 
   build_gep vec_inner_lltype vec_ptr [| idx |] "vec_elm_ptr" builder
@@ -831,6 +837,8 @@ let vec_checked_access (fgen_ctx : fgen_ctx) (vec : llvalue) (vec_inner_lltype :
     idxs: mir index list (must be non empty)
   Ret:
     ptr to and llvm type of: the element that is accessed
+
+  If elmement accessed has 0 bytes width the returned ptr is null
 *)
 
 let vec_access  (fgen_ctx : fgen_ctx) (vec_llval : llvalue) (mirtyp : mirtyp) (idxs : idx list) : llvalue * mirtyp =
@@ -859,16 +867,28 @@ let vec_access  (fgen_ctx : fgen_ctx) (vec_llval : llvalue) (mirtyp : mirtyp) (i
       match idx, elm_mirtyp with
       | Dynidx idx_ssaid, TMIRVec (inner_mirtyp) -> (
         let elm_lltyp = mirtyp_get_lltyp ctx elm_mirtyp in
-        let elm_llval = build_load elm_lltyp ptr_to_elm "vec_elm" builder in
-        let idx_llval = get_llssa fgen_ctx idx_ssaid in
-        let inner_lltyp = mirtyp_get_lltyp ctx inner_mirtyp in
-        let ptr_to_next_elm = vec_checked_access fgen_ctx elm_llval inner_lltyp idx_llval in
+        let ptr_to_next_elm =
+          if (lltyp_get_bytesz ctx elm_lltyp) <> 0 then (
+            let elm_llval = build_load elm_lltyp ptr_to_elm "vec_elm" builder in
+            let idx_llval = get_llssa fgen_ctx idx_ssaid in
+            let inner_lltyp = mirtyp_get_lltyp ctx inner_mirtyp in
+            vec_checked_access fgen_ctx elm_llval inner_lltyp idx_llval
+          ) else (
+            const_null ctx.ptr_t
+          )
+        in
         (ptr_to_next_elm, inner_mirtyp)
       )
       | Constidx i, TMIRTup elms -> (
-        let tup_lltyp = mirtyp_get_lltyp ctx elm_mirtyp in
-        let ptr_to_next_elm = build_gep tup_lltyp ptr_to_elm [| const_int ctx.i32_t 0; const_int ctx.i32_t i |] "tup_elm_ptr" builder in
+        let elm_lltyp = mirtyp_get_lltyp ctx elm_mirtyp in
         let elm_mirtyp = List.nth elms i in
+        let ptr_to_next_elm =
+          if (lltyp_get_bytesz ctx elm_lltyp) <> 0 then (
+            build_gep elm_lltyp ptr_to_elm [| const_int ctx.i32_t 0; const_int ctx.i32_t i |] "tup_elm_ptr" builder
+          ) else (
+            const_null ctx.ptr_t
+          )
+        in
         (ptr_to_next_elm, elm_mirtyp)
       )
       | _, _-> failwith "internal vecread llvmgen"
@@ -1160,12 +1180,22 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     assert(elm_mirtyp = get_mirtyp_func fgen_ctx.mirfunc ssa_def);
 
     let elm_lltype = mirtyp_get_lltyp ctx elm_mirtyp in
-    let elm_llval = build_load elm_lltype ptr_to_elm "vec_elm" builder in
+    let elm_llval =
+      if (lltyp_get_bytesz ctx elm_lltype) <> 0
+      then build_load elm_lltype ptr_to_elm "vec_elm" builder
+      else gen_default_llvalue ctx elm_mirtyp
+    in
     set_llssa fgen_ctx ssa_def elm_llval
   )
   | Vecinsert (ssa_def, vec_sc, val_sc, idxs) -> (
     if List.length idxs = 0 then (
       (* vecinsert %vec %val special case *)
+      (*there is no need of the consumed original vector so, what is left is to just drop on consumption*)
+      if vec_sc.consume then (
+        let vec_mirtyp = get_mirtyp_func fgen_ctx.mirfunc vec_sc.ssaid in
+        let vec_llval = get_llssa fgen_ctx vec_sc.ssaid in
+        drop ctx builder fgen_ctx.llfunc_info.func vec_mirtyp vec_llval
+      );
       let val_llval = consume_or_copy fgen_ctx val_sc in
       set_llssa fgen_ctx ssa_def val_llval
     ) else (
@@ -1178,13 +1208,15 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
       (*sanity check, can be removed later*)
       assert(elm_mirtyp = get_mirtyp_func fgen_ctx.mirfunc val_sc.ssaid);
 
-      (*drop old element*)
-      let elm_lltyp = mirtyp_get_lltyp ctx elm_mirtyp in
-      let old_elm_llval = build_load elm_lltyp ptr_to_elm "vec_elm" builder in
-      drop ctx builder fgen_ctx.llfunc_info.func elm_mirtyp old_elm_llval;
+      if (mirtyp_get_bytesz ctx elm_mirtyp) <> 0 then (
+        (*drop old element*)
+        let elm_lltyp = mirtyp_get_lltyp ctx elm_mirtyp in
+        let old_elm_llval = build_load elm_lltyp ptr_to_elm "vec_elm" builder in
+        drop ctx builder fgen_ctx.llfunc_info.func elm_mirtyp old_elm_llval;
 
-      (*store new element*)
-      ignore (build_store val_llval ptr_to_elm builder);
+        (*store new element*)
+        ignore (build_store val_llval ptr_to_elm builder);
+      );
       set_llssa fgen_ctx ssa_def vec_llval
     )
       (*
@@ -1215,7 +1247,7 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
     let vec_ptr = build_extractvalue vec_llval 0 "vecptr" builder in
     let vec_len = build_extractvalue vec_llval 1 "veclen" builder in
 
-    let cond1 = build_icmp Icmp.Slt start_llval vec_len "vecslice_cond1" builder in
+    let cond1 = build_icmp Icmp.Sle start_llval vec_len "vecslice_cond1" builder in
     fault_on_cond_false fgen_ctx cond1;
 
     let end_idx = build_add start_llval len_llval "vecslice_endidx" builder in
@@ -1248,8 +1280,8 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
 
     let elm_lltyp = match get_mirtyp_func fgen_ctx.mirfunc old_vec_ssaid with
         | TMIRVec innertyp -> mirtyp_get_lltyp ctx innertyp | _ -> failwith "called vecslice on non vector type" in
-    let vec_elm_size = const_int ctx.i64_t (Int64.to_int @@ DataLayout.abi_size elm_lltyp ctx.lldata_layout) in
-    let new_vec_size = build_mul new_len_i64 vec_elm_size "new_vec_size" builder in
+    let elm_bytesz = lltyp_get_bytesz ctx elm_lltyp in
+    let new_vec_size = build_mul new_len_i64 (const_int ctx.i64_t elm_bytesz) "new_vec_size" builder in
     let new_vec_ptr = build_malloc_safe ctx builder fgen_ctx.llfunc_info.func new_vec_size in
 
     let extend_elm (idx : llvalue) : unit =
@@ -1294,7 +1326,9 @@ let lower_op (fgen_ctx : fgen_ctx) (mirop : Mir.op) : unit =
       let new_vec_elm_ptr = build_gep elm_lltyp new_vec_ptr [| idx |] "new_vec_elm_ptr" builder in
       ignore (build_store new_vec_elm new_vec_elm_ptr builder)
     in
-    gen_loop ctx builder fgen_ctx.llfunc_info.func extend_elm new_len_i64;
+    if elm_bytesz <> 0 then (
+      gen_loop ctx builder fgen_ctx.llfunc_info.func extend_elm new_len_i64
+    );
 
     let new_vec_llval = build_vec_struct ctx builder new_vec_ptr new_len in
     set_llssa fgen_ctx ssa_def new_vec_llval
